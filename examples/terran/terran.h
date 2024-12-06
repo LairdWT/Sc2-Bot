@@ -33,6 +33,7 @@ public:
 
     virtual void OnStep() final {
         m_Observation = Observation();
+
         OnStepUnitUpdate();
         OnStepBuildUpdate();
 
@@ -74,6 +75,9 @@ public:
             }
 
             case sc2::UNIT_TYPEID::TERRAN_BARRACKS: {
+                if (m_Observation->GetMinerals() < 101) {
+                    break;
+                }
                 Actions()->UnitCommand(unit, sc2::ABILITY_ID::TRAIN_MARINE);
                 break;
             }
@@ -120,8 +124,8 @@ public:
 
         float rx = sc2::GetRandomScalar();
         float ry = sc2::GetRandomScalar();
-        sc2::Point2D AttackLocation = sc2::Point2D(m_Observation->GetStartLocation().x + rx * 5.0f,
-                                                   m_Observation->GetStartLocation().y + ry * 5.0f);
+        sc2::Point2D AttackLocation =
+            sc2::Point2D(rx * 5.0f, ry * 5.0f) + m_Observation->GetGameInfo().enemy_start_locations.front();
 
         for (const sc2::Unit* Marine : Marines) {
             Actions()->UnitCommand(Marine, sc2::ABILITY_ID::ATTACK_ATTACK, AttackLocation);
@@ -131,7 +135,6 @@ public:
     }
 
     // Build Structure Actions
-
     inline void OnStepBuildUpdate() {
         TryBuildSupplyDepot();
         TryBuildBarracks();
@@ -192,39 +195,81 @@ inline bool TryBuildStructure(sc2::ABILITY_ID StructureAbilityId, sc2::UNIT_TYPE
         return true;
     }
 
-    inline bool TryBuildSupplyDepot() {
-        if (m_Observation->GetFoodUsed() <= m_Observation->GetFoodCap() - 4) {
+inline bool TryBuildSupplyDepot() {
+        // Check if we are close to the supply cap
+        if (m_Observation->GetFoodUsed() <= (m_Observation->GetFoodCap() - (m_Observation->GetFoodCap() / 6))) {
             return false;
         }
 
+        // If no barracks exist yet, don't build more supply depots than needed
         if (CountUnitType(sc2::UNIT_TYPEID::TERRAN_BARRACKS) < 1 &&
             CountUnitType(sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOT) > 0) {
+            return false;
+        }
+
+        // check how many supply depots are currently being built
+        int supply_depots_in_progress = 0;
+        for (const sc2::Unit* unit : ControlledUnits) {
+            for (const sc2::UnitOrder& order : unit->orders) {
+                if (order.ability_id == sc2::ABILITY_ID::BUILD_SUPPLYDEPOT) {
+                    supply_depots_in_progress++;
+                }
+            }
+        }
+
+        // Limit the number of supply depots being built concurrently to avoid over-issuing commands
+        const int max_supply_depots_in_progress = 2;
+        if (supply_depots_in_progress >= max_supply_depots_in_progress) {
             return false;
         }
 
         return TryBuildStructure(sc2::ABILITY_ID::BUILD_SUPPLYDEPOT, sc2::UNIT_TYPEID::TERRAN_SCV);
     }
 
-    bool TryBuildBarracks() {
+inline bool TryBuildBarracks() {
+        // Ensure there are enough supply depots, command centers, and workers before building a barracks
         if (CountUnitType(sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOT) < 1 ||
             CountUnitType(sc2::UNIT_TYPEID::TERRAN_COMMANDCENTER) < 1 ||
             CountUnitType(sc2::UNIT_TYPEID::TERRAN_SCV) < 8) {
             return false;
         }
 
+        // Ensure there are enough supply depots if building multiple barracks
         if (CountUnitType(sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOT) < 2 &&
-            CountUnitType(sc2::UNIT_TYPEID::TERRAN_BARRACKS) > 0)
-        {
+            CountUnitType(sc2::UNIT_TYPEID::TERRAN_BARRACKS) > 0) {
             return false;
         }
 
-        if (CountUnitType(sc2::UNIT_TYPEID::TERRAN_BARRACKS) > 2 &&
-            m_Observation->GetMinerals() < 400) {
+        // Avoid building too many barracks if mineral count is low
+        if (CountUnitType(sc2::UNIT_TYPEID::TERRAN_BARRACKS) > 2 && m_Observation->GetMinerals() < 500) {
+            return false;
+        }
+
+        // Prevent nearly getting supply blocked before building a barracks
+        if (m_Observation->GetFoodCap() - m_Observation->GetFoodUsed() < 2) {
+            return false;
+        }
+
+        // Count the number of barracks currently being built
+        int barracks_in_progress = 0;
+
+        for (const sc2::Unit* unit : ControlledUnits) {
+            for (const sc2::UnitOrder& order : unit->orders) {
+                if (order.ability_id == sc2::ABILITY_ID::BUILD_BARRACKS) {
+                    barracks_in_progress++;
+                }
+            }
+        }
+
+        // Limit the number of barracks being built concurrently
+        const int max_barracks_in_progress = 2;
+        if (barracks_in_progress >= max_barracks_in_progress) {
             return false;
         }
 
         return TryBuildStructure(sc2::ABILITY_ID::BUILD_BARRACKS, sc2::UNIT_TYPEID::TERRAN_SCV);
     }
+
 
     // Environment Query
     inline const sc2::Unit* FindNearestMineralPatch(const sc2::Point2D& Origin) {
