@@ -85,9 +85,7 @@ endif ()
 include(civetweb)
 include(protobuf)
 include(sc2protocol)
-if (BUILD_SC2_RENDERER)
-    include(SDL)
-endif ()
+include(SDL)
 
 # cpp-sc2 libraries
 add_subdirectory(src)

@@ -1,0 +1,13 @@
+
+// make sure the patch is applied
+cmake -E touch L:/Sc2_Bot/out/build/x64-Debug/_deps/civetweb-subbuild/civetweb-populate-prefix/src/civetweb-populate-stamp/civetweb-populate-patch
+
+rm -r L:/Sc2_Bot/out/build/x64-Debug-rendered
+
+cmake -S L:/Sc2_Bot -B L:/Sc2_Bot/out/build/x64-Debug-rendered -DCMAKE_BUILD_TYPE=Debug
+
+cmake --build L:/Sc2_Bot/out/build/x64-Debug-rendered --config Debug --verbose
+
+
+
+cmake --build L:/Sc2_Bot/out/build/x64-Debug-rendered --config Debug --target tutorial --verbose
