@@ -4,12 +4,13 @@
 #include "sc2utils/sc2_manage_process.h"
 
 #include "terran/terran.h"
+#include "terran/terran.cc"
 
 #include "common/render_settings.h"
 
 int main(int argc, char* argv[])
 {
-    TerranAgent Agent;
+    sc2::TerranAgent Agent;
 
     sc2::Coordinator Coordinator;
     if (!Coordinator.LoadSettings(argc, argv))
@@ -19,7 +20,7 @@ int main(int argc, char* argv[])
 
     static const sc2::FeatureLayerSettings Settings(CAMERA_WIDTH, FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE);
     Coordinator.SetFeatureLayers(Settings);
-    Coordinator.SetParticipants({CreateParticipant(sc2::Race::Terran, &Agent), CreateComputer(sc2::Race::Zerg, sc2::Difficulty::Medium)});
+    Coordinator.SetParticipants({CreateParticipant(sc2::Race::Terran, &Agent), CreateComputer(sc2::Race::Random, sc2::Difficulty::Medium)});
     Coordinator.LaunchStarcraft();
     Coordinator.StartGame(sc2::kMapBelShirVestigeLE);
     while (Coordinator.Update())
