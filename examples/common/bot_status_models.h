@@ -4,6 +4,8 @@
 #include <string>
 #include <iostream>
 
+#include "common/economic_models.h"
+
 namespace sc2 {
 
 /* Represent the current game progression state
@@ -223,42 +225,67 @@ struct FAgentEconomyResources {
 
 struct FAgentMilitaryResources {
     uint32_t ArmyCount;
-
-    uint32_t ArmyValue;
+    uint32_t ArmyValueMinerals;
+    uint32_t ArmyValueVespene;
     uint32_t ArmySupply;
 
     uint8_t Barracks;
     uint8_t Factories;
     uint8_t Starports;
 
-    uint32_t Marines;
-    uint32_t Marauders;
-    uint32_t Medivacs;
+    std::array<uint16_t, NUM_TERRAN_UNITS> UnitCounts;
 
+    // Default constructor
     FAgentMilitaryResources()
         : ArmyCount(0),
-          ArmyValue(0),
+          ArmyValueMinerals(0),
+          ArmyValueVespene(0),
           ArmySupply(0),
           Barracks(0),
           Factories(0),
           Starports(0),
-          Marines(0),
-          Marauders(0),
-          Medivacs(0) {
+          UnitCounts{} {
     }
 
-    FAgentMilitaryResources(const uint32_t InArmyCount, const uint32_t InArmyValue, const uint32_t InArmySupply,
-                            const uint8_t InBarracks, const uint8_t InFactories, const uint8_t InStarports,
-                            const uint32_t InMarines, const uint32_t InMarauders, const uint32_t InMedivacs)
+    // Parameterized constructor
+    FAgentMilitaryResources(uint32_t InArmyCount, uint32_t InArmyValueMinerals, uint32_t InArmyValueVespene,
+                            uint32_t InArmySupply, uint8_t InBarracks, uint8_t InFactories, uint8_t InStarports,
+                            const std::array<uint16_t, NUM_TERRAN_UNITS>& InUnitCounts)
         : ArmyCount(InArmyCount),
-          ArmyValue(InArmyValue),
+          ArmyValueMinerals(InArmyValueMinerals),
+          ArmyValueVespene(InArmyValueVespene),
           ArmySupply(InArmySupply),
           Barracks(InBarracks),
           Factories(InFactories),
           Starports(InStarports),
-          Marines(InMarines),
-          Marauders(InMarauders),
-          Medivacs(InMedivacs) {
+          UnitCounts(InUnitCounts) {
+    }
+
+    uint16_t GetUnitCount(const sc2::UNIT_TYPEID UnitType) const {
+        return UnitCounts[GetTerranUnitTypeIndex(UnitType)];
+    }
+
+    void UpdateArmyCount() {
+        ArmyCount = 0;
+        for (uint16_t Count : UnitCounts) {
+            ArmyCount += Count;
+        }
+    }
+
+    uint16_t GetArmyCount() const {
+        return ArmyCount;
+    }
+
+    void SetUnitCount(const sc2::UNIT_TYPEID UnitType, const uint16_t Count) {
+        UnitCounts[GetTerranUnitTypeIndex(UnitType)] = Count;
+    }
+
+    void IncrementUnitCount(const sc2::UNIT_TYPEID UnitType) {
+        UnitCounts[GetTerranUnitTypeIndex(UnitType)]++;
+    }
+
+    void DecrementUnitCount(const sc2::UNIT_TYPEID UnitType) {
+        UnitCounts[GetTerranUnitTypeIndex(UnitType)]--;
     }
 };
 
@@ -409,10 +436,13 @@ struct FAgentState {
 
         // Military Resources
         std::cout << "Military Resources: \n";
-        std::cout << "Army Count: " << MilitaryResources.ArmyCount << " | Army Value: " << MilitaryResources.ArmyValue
+        std::cout << "Army Count: " << MilitaryResources.ArmyCount
+                  << " | Army Value Minerals: " << MilitaryResources.ArmyValueMinerals
+                  << " | Army Value Vespene: " << MilitaryResources.ArmyValueVespene
                   << " | Army Supply: " << MilitaryResources.ArmySupply << "\n";
-        std::cout << "Marines: " << MilitaryResources.Marines << " | Marauders: " << MilitaryResources.Marauders
-                  << " | Medivacs: " << MilitaryResources.Medivacs << "\n";
+        std::cout << "Marines: " << static_cast<int>(MilitaryResources.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE))
+                  << " | Marauders: " << static_cast<int>(MilitaryResources.GetUnitCount(UNIT_TYPEID::TERRAN_MARAUDER))
+                  << " | Medivacs: " << static_cast<int>(MilitaryResources.GetUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC)) << "\n";
         std::cout << "Barracks: " << static_cast<int>(MilitaryResources.Barracks)
                   << " | Factories: " << static_cast<int>(MilitaryResources.Factories)
                   << " | Starports: " << static_cast<int>(MilitaryResources.Starports) << "\n";

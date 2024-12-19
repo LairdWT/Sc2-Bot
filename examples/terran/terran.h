@@ -7,6 +7,7 @@
 #include "common/logging.h"
 #include "common/render_settings.h"
 #include "common/bot_status_models.h"
+#include "common/economic_models.h"
 
 #include "sc2api/sc2_api.h"             // For Agent, ObservationInterface, ABILITY_ID, UNIT_TYPEID, etc.
 #include "sc2api/sc2_client.h"          // For Client and Agent
@@ -85,6 +86,8 @@ private:
     const SC2APIProtocol::Observation* m_RawObservation{nullptr};
     const SC2APIProtocol::FeatureLayers* m_Render{nullptr};
     const SC2APIProtocol::FeatureLayersMinimap* m_MinimapRender{nullptr};
+
+    FTerranEconomicDataSoA m_EconomicData{FTerranEconomicDataSoA()};
 
     uint64_t m_CurrentStep{0};
 };

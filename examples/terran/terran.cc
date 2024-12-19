@@ -37,7 +37,9 @@ void TerranAgent::OnStep() {
     // DrawFeatureLayer1BPP(m_MinimapRender->camera(), DRAW_SIZE, DRAW_SIZE);
 
     // sc2::renderer::Render();
-    PrintAgentState();
+    if (m_CurrentStep % 120 == 0) {
+        PrintAgentState();
+    }
 }
 
 void TerranAgent::OnGameEnd() {
@@ -99,21 +101,19 @@ void TerranAgent::UpdateAgentState() {
         AgentState.EconomyResources.SupplyCap - AgentState.EconomyResources.Supply;
 
     // Military Resources
-    AgentState.MilitaryResources.Marines = CountUnitType(sc2::UNIT_TYPEID::TERRAN_MARINE);
-    AgentState.MilitaryResources.Marauders = CountUnitType(sc2::UNIT_TYPEID::TERRAN_MARAUDER);
-    AgentState.MilitaryResources.Medivacs = CountUnitType(sc2::UNIT_TYPEID::TERRAN_MEDIVAC);
+    for (const sc2::UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
+        AgentState.MilitaryResources.SetUnitCount(UnitType, CountUnitType(UnitType));
+    }
+    AgentState.MilitaryResources.UpdateArmyCount();
 
-    AgentState.MilitaryResources.ArmyCount = AgentState.MilitaryResources.Marines +
-                                             AgentState.MilitaryResources.Marauders +
-                                             AgentState.MilitaryResources.Medivacs;
-
-    AgentState.MilitaryResources.ArmyValue = (AgentState.MilitaryResources.Marines * 50) +
-                                             (AgentState.MilitaryResources.Marauders * 125) +
-                                             (AgentState.MilitaryResources.Medivacs * 200);
-
-    AgentState.MilitaryResources.ArmySupply = AgentState.MilitaryResources.Marines +
-                                             (AgentState.MilitaryResources.Marauders * 2.0f) +
-                                             (AgentState.MilitaryResources.Medivacs * 2.0f);
+    for (const sc2::UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
+        AgentState.MilitaryResources.ArmyValueMinerals += AgentState.MilitaryResources.GetUnitCount(UnitType) *
+                                                          m_EconomicData.GetUnitCostData(UnitType).CostData.Minerals;
+        AgentState.MilitaryResources.ArmyValueVespene += AgentState.MilitaryResources.GetUnitCount(UnitType) *
+                                                         m_EconomicData.GetUnitCostData(UnitType).CostData.Vespine;
+        AgentState.MilitaryResources.ArmySupply += AgentState.MilitaryResources.GetUnitCount(UnitType) *
+                                                   m_EconomicData.GetUnitCostData(UnitType).CostData.Supply;
+    }
 
     AgentState.MilitaryResources.Barracks = CountUnitType(sc2::UNIT_TYPEID::TERRAN_BARRACKS);
     AgentState.MilitaryResources.Factories = CountUnitType(sc2::UNIT_TYPEID::TERRAN_FACTORY);
@@ -133,7 +133,7 @@ void TerranAgent::OnStepUnitUpdate() {
     ControlledUnits = m_Observation->GetUnits(sc2::Unit::Alliance::Self);
     NeutralUnits = m_Observation->GetUnits(sc2::Unit::Alliance::Neutral);
 
-    if (AgentState.MilitaryResources.Marines >= 24) {
+    if (AgentState.MilitaryResources.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE) >= 24) {
         AllMarinesAttack();
     }
 }
