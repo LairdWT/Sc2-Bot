@@ -6,7 +6,7 @@ static constexpr size_t NUM_TERRAN_UNITS = 25;
 static constexpr size_t NUM_TERRAN_BUILDINGS = 30;
 static constexpr size_t NUM_TERRAN_UPGRADES = 27;
 
-static constexpr sc2::UNIT_TYPEID TERRAN_UNIT_TYPES[NUM_TERRAN_UNITS] = {
+static constexpr UNIT_TYPEID TERRAN_UNIT_TYPES[NUM_TERRAN_UNITS] = {
     UNIT_TYPEID::TERRAN_MARINE,
     UNIT_TYPEID::TERRAN_MARAUDER,
     UNIT_TYPEID::TERRAN_MEDIVAC,
@@ -34,7 +34,7 @@ static constexpr sc2::UNIT_TYPEID TERRAN_UNIT_TYPES[NUM_TERRAN_UNITS] = {
     UNIT_TYPEID::TERRAN_VIKINGFIGHTER
 };
 
-uint8_t GetTerranUnitTypeIndex(const sc2::UNIT_TYPEID UnitType) {
+uint8_t GetTerranUnitTypeIndex(const UNIT_TYPEID UnitType) {
     switch (UnitType) {
         case UNIT_TYPEID::TERRAN_MARINE:
             return 0;
@@ -90,7 +90,7 @@ uint8_t GetTerranUnitTypeIndex(const sc2::UNIT_TYPEID UnitType) {
     }
 }
 
-static constexpr sc2::UNIT_TYPEID TERRAN_BUILDING_TYPES[NUM_TERRAN_BUILDINGS] = {
+static constexpr UNIT_TYPEID TERRAN_BUILDING_TYPES[NUM_TERRAN_BUILDINGS] = {
     UNIT_TYPEID::TERRAN_ARMORY,
     UNIT_TYPEID::TERRAN_BARRACKS,
     UNIT_TYPEID::TERRAN_BARRACKSFLYING,
@@ -123,7 +123,7 @@ static constexpr sc2::UNIT_TYPEID TERRAN_BUILDING_TYPES[NUM_TERRAN_BUILDINGS] = 
     UNIT_TYPEID::TERRAN_TECHLAB
 };
 
-uint8_t GetTerranBuildingTypeIndex(const sc2::UNIT_TYPEID BuildingType) {
+uint8_t GetTerranBuildingTypeIndex(const UNIT_TYPEID BuildingType) {
     switch (BuildingType) {
         case UNIT_TYPEID::TERRAN_ARMORY:
             return 0;
@@ -189,7 +189,7 @@ uint8_t GetTerranBuildingTypeIndex(const sc2::UNIT_TYPEID BuildingType) {
     }
 }
 
-static constexpr sc2::ABILITY_ID TERRAN_RESEARCH_UPGRADE_TYPES[NUM_TERRAN_UPGRADES] = {
+static constexpr ABILITY_ID TERRAN_RESEARCH_UPGRADE_TYPES[NUM_TERRAN_UPGRADES] = {
     ABILITY_ID::RESEARCH_STIMPACK,
     ABILITY_ID::RESEARCH_COMBATSHIELD,
     ABILITY_ID::RESEARCH_CONCUSSIVESHELLS,
@@ -219,7 +219,7 @@ static constexpr sc2::ABILITY_ID TERRAN_RESEARCH_UPGRADE_TYPES[NUM_TERRAN_UPGRAD
     ABILITY_ID::RESEARCH_BATTLECRUISERWEAPONREFIT
 };
 
-uint8_t GetTerranUpgradeTypeIndex(const sc2::ABILITY_ID UpgradeType) {
+uint8_t GetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType) {
     switch (UpgradeType) {
         case ABILITY_ID::RESEARCH_STIMPACK: return 0;
         case ABILITY_ID::RESEARCH_COMBATSHIELD: return 1;

@@ -5,6 +5,8 @@
 #include <iostream>
 
 #include "common/economic_models.h"
+#include "common/terran_models.h"
+#include "common/terran_unit_container.h"
 
 namespace sc2 {
 
@@ -294,14 +296,6 @@ struct FAgentUnits {
 
     void SetUnitCount(const sc2::UNIT_TYPEID UnitType, const uint16_t Count) {
         UnitCounts[GetTerranUnitTypeIndex(UnitType)] = Count;
-    }
-
-    void IncrementUnitCount(const sc2::UNIT_TYPEID UnitType) {
-        UnitCounts[GetTerranUnitTypeIndex(UnitType)]++;
-    }
-
-    void DecrementUnitCount(const sc2::UNIT_TYPEID UnitType) {
-        UnitCounts[GetTerranUnitTypeIndex(UnitType)]--;
     }
 
     uint16_t GetWorkerCount() const {

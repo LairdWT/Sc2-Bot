@@ -91,12 +91,12 @@ void TerranAgent::OnUnitIdle(const sc2::Unit* unit) {
 void TerranAgent::UpdateAgentState() {
 
     // Update Unit Counts
-    for (const sc2::UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
+    for (const UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
         AgentState.Units.SetUnitCount(UnitType, CountUnitType(UnitType));
     }
     AgentState.Units.Update();
 
-    for (const sc2::UNIT_TYPEID UnitType : TERRAN_BUILDING_TYPES) {
+    for (const UNIT_TYPEID UnitType : TERRAN_BUILDING_TYPES) {
         AgentState.Buildings.SetBuildingCount(UnitType, CountUnitType(UnitType));
     }
 
@@ -119,8 +119,8 @@ void TerranAgent::OnStepUnitUpdate() {
         return;
     }
 
-    ControlledUnits = m_Observation->GetUnits(sc2::Unit::Alliance::Self);
-    NeutralUnits = m_Observation->GetUnits(sc2::Unit::Alliance::Neutral);
+    ControlledUnits = m_Observation->GetUnits(Unit::Alliance::Self);
+    NeutralUnits = m_Observation->GetUnits(Unit::Alliance::Neutral);
 
     if (AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE) >= 24) {
         AllMarinesAttack();
@@ -227,18 +227,19 @@ bool TerranAgent::TryBuildSupplyDepot() {
     }
 
     // check how many supply depots are currently being built
-    int supply_depots_in_progress = 0;
+    AgentState.Buildings.SetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 0);
     for (const sc2::Unit* unit : ControlledUnits) {
         for (const sc2::UnitOrder& order : unit->orders) {
             if (order.ability_id == sc2::ABILITY_ID::BUILD_SUPPLYDEPOT) {
-                supply_depots_in_progress++;
+                AgentState.Buildings.IncrementCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT);
             }
         }
     }
 
     // Limit the number of supply depots being built concurrently to avoid over-issuing commands
     const int max_supply_depots_in_progress = 2;
-    if (supply_depots_in_progress >= max_supply_depots_in_progress) {
+    if (AgentState.Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT) >=
+        max_supply_depots_in_progress) {
         return false;
     }
 
