@@ -188,34 +188,24 @@ struct FAgentAssessments {
 
 //~ Agent Resources ~//
 
-struct FAgentEconomyResources {
-    uint8_t Workers;
-    uint8_t SupplyDepots;
-    uint8_t CommandCenters;
+struct FAgentEconomy {
     uint32_t Minerals;
     uint32_t Vespene;
     uint8_t Supply;
     uint8_t SupplyCap;
     uint8_t SupplyAvailable;
 
-    FAgentEconomyResources()
-        : Workers(0),
-          SupplyDepots(0),
-          CommandCenters(0),
-          Minerals(0),
+    FAgentEconomy()
+        : Minerals(0),
           Vespene(0),
           Supply(0),
           SupplyCap(0),
           SupplyAvailable(0) {
     }
 
-    FAgentEconomyResources(const uint8_t InWorkers, const uint8_t InSupplyDepots, const uint8_t InCommandCenters,
-                           const uint32_t InMinerals, const uint32_t InVespene, const uint8_t InSupply,
+    FAgentEconomy(const uint32_t InMinerals, const uint32_t InVespene, const uint8_t InSupply,
                            const uint8_t InSupplyCap, const uint8_t InSupplyAvailable)
-        : Workers(InWorkers),
-          SupplyDepots(InSupplyDepots),
-          CommandCenters(InCommandCenters),
-          Minerals(InMinerals),
+        : Minerals(InMinerals),
           Vespene(InVespene),
           Supply(InSupply),
           SupplyCap(InSupplyCap),
@@ -223,41 +213,30 @@ struct FAgentEconomyResources {
     }
 };
 
-struct FAgentMilitaryResources {
+struct FAgentUnits {
     uint32_t ArmyCount;
     uint32_t ArmyValueMinerals;
     uint32_t ArmyValueVespene;
     uint32_t ArmySupply;
 
-    uint8_t Barracks;
-    uint8_t Factories;
-    uint8_t Starports;
-
     std::array<uint16_t, NUM_TERRAN_UNITS> UnitCounts;
 
     // Default constructor
-    FAgentMilitaryResources()
+    FAgentUnits()
         : ArmyCount(0),
           ArmyValueMinerals(0),
           ArmyValueVespene(0),
           ArmySupply(0),
-          Barracks(0),
-          Factories(0),
-          Starports(0),
           UnitCounts{} {
     }
 
     // Parameterized constructor
-    FAgentMilitaryResources(uint32_t InArmyCount, uint32_t InArmyValueMinerals, uint32_t InArmyValueVespene,
-                            uint32_t InArmySupply, uint8_t InBarracks, uint8_t InFactories, uint8_t InStarports,
-                            const std::array<uint16_t, NUM_TERRAN_UNITS>& InUnitCounts)
+    FAgentUnits(uint32_t InArmyCount, uint32_t InArmyValueMinerals, uint32_t InArmyValueVespene,
+                            uint32_t InArmySupply, const std::array<uint16_t, NUM_TERRAN_UNITS>& InUnitCounts)
         : ArmyCount(InArmyCount),
           ArmyValueMinerals(InArmyValueMinerals),
           ArmyValueVespene(InArmyValueVespene),
           ArmySupply(InArmySupply),
-          Barracks(InBarracks),
-          Factories(InFactories),
-          Starports(InStarports),
           UnitCounts(InUnitCounts) {
     }
 
@@ -265,10 +244,47 @@ struct FAgentMilitaryResources {
         return UnitCounts[GetTerranUnitTypeIndex(UnitType)];
     }
 
-    void UpdateArmyCount() {
+    void Update() {
+        UpdateArmyUnitCounts();
+        UpdateArmyUnitValues();
+    }
+
+    void UpdateArmyUnitCounts() {
         ArmyCount = 0;
-        for (uint16_t Count : UnitCounts) {
-            ArmyCount += Count;
+        for (const sc2::UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
+            switch (UnitType) {
+                // Ignore SCVs and MULEs for army calculation
+                case sc2::UNIT_TYPEID::TERRAN_SCV:
+                    continue;
+                case sc2::UNIT_TYPEID::TERRAN_MULE:
+                    continue;
+                default:
+                    ArmyCount += GetUnitCount(UnitType);
+                    break;
+            }
+        }
+    }
+
+    void UpdateArmyUnitValues() {
+        ArmyValueMinerals = 0;
+        ArmyValueVespene = 0;
+        ArmySupply = 0;
+        for (const sc2::UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
+            switch (UnitType) {
+                // Ignore SCVs and MULEs for army value calculation
+                case sc2::UNIT_TYPEID::TERRAN_SCV:
+                    continue;
+                case sc2::UNIT_TYPEID::TERRAN_MULE:
+                    continue;
+                default:
+                    ArmyValueMinerals +=
+                        GetUnitCount(UnitType) * TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitType).CostData.Minerals;
+                    ArmyValueVespene +=
+                        GetUnitCount(UnitType) * TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitType).CostData.Vespine;
+                    ArmySupply +=
+                        GetUnitCount(UnitType) * TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitType).CostData.Supply;
+                    break;
+            }
         }
     }
 
@@ -287,8 +303,91 @@ struct FAgentMilitaryResources {
     void DecrementUnitCount(const sc2::UNIT_TYPEID UnitType) {
         UnitCounts[GetTerranUnitTypeIndex(UnitType)]--;
     }
+
+    uint16_t GetWorkerCount() const {
+        return GetUnitCount(sc2::UNIT_TYPEID::TERRAN_SCV);
+    }
 };
 
+struct FAgentBuildings {
+
+    std::array<uint16_t, NUM_TERRAN_BUILDINGS> BuildingCounts;
+
+    std::array<uint16_t, NUM_TERRAN_BUILDINGS> CurrentlyInConstruction;
+
+    FAgentBuildings() : BuildingCounts{}, CurrentlyInConstruction{} {
+    }
+
+    uint16_t GetBuildingCount(const sc2::UNIT_TYPEID BuildingType) const {
+        return BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)];
+    }
+
+    void SetBuildingCount(const sc2::UNIT_TYPEID BuildingType, const uint16_t Count) {
+        BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)] = Count;
+    }
+
+    void IncrementBuildingCount(const sc2::UNIT_TYPEID BuildingType) {
+        BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)]++;
+    }
+
+    void DecrementBuildingCount(const sc2::UNIT_TYPEID BuildingType) {
+        BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)]--;
+    }
+
+    uint16_t GetCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType) const {
+        return CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)];
+    }
+
+    void SetCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType, const uint16_t Count) {
+        CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)] = Count;
+    }
+
+    void IncrementCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType) {
+        CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)]++;
+    }
+
+    void DecrementCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType) {
+        CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)]--;
+    }
+
+    bool IsBuildingInConstruction(const sc2::UNIT_TYPEID BuildingType) const {
+        return CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)] > 0;
+    }
+
+    uint16_t GetTownHallCount() const {
+        return BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_COMMANDCENTER)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_COMMANDCENTERFLYING)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_ORBITALCOMMAND)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_ORBITALCOMMANDFLYING)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_PLANETARYFORTRESS)];
+    }
+
+    uint16_t GetSupplyDepotCount() const {
+        return BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED)];
+    }
+
+    uint16_t GetBarracksCount() const {
+        return BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_BARRACKS)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_BARRACKSFLYING)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_BARRACKSREACTOR)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_BARRACKSTECHLAB)];
+    }
+
+    uint16_t GetFactoryCount() const {
+        return BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_FACTORY)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_FACTORYFLYING)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_FACTORYREACTOR)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_FACTORYTECHLAB)];
+    }
+
+    uint16_t GetStarportCount() const {
+        return BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_STARPORT)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_STARPORTFLYING)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_STARPORTREACTOR)] +
+               BuildingCounts[GetTerranBuildingTypeIndex(sc2::UNIT_TYPEID::TERRAN_STARPORTTECHLAB)];
+    }
+};
 
 //~ Agent Strategy ~//
 
@@ -383,15 +482,17 @@ struct FAgentState {
     FAgentAssessments Assessments;
     FAgentStrategy Strategy;
 
-    FAgentEconomyResources EconomyResources;
-    FAgentMilitaryResources MilitaryResources;
+    FAgentEconomy Economy;
+    FAgentUnits Units;
+    FAgentBuildings Buildings;
 
     FAgentState()
         : GameStateProgression(EGameStateProgression::Opening),
           Assessments(FAgentAssessments()),
           Strategy(FAgentStrategy()),
-          EconomyResources(FAgentEconomyResources()),
-          MilitaryResources(FAgentMilitaryResources()) {
+          Economy(FAgentEconomy()),
+          Units(FAgentUnits()),
+          Buildings(FAgentBuildings()) {
     }
 
     FAgentState(const EGameStateProgression InGameStateProgression, const FAgentAssessments InAssessments,
@@ -399,8 +500,9 @@ struct FAgentState {
         : GameStateProgression(InGameStateProgression),
           Assessments(InAssessments),
           Strategy(InStrategy),
-          EconomyResources(FAgentEconomyResources()),
-          MilitaryResources(FAgentMilitaryResources()) {
+          Economy(FAgentEconomy()),
+          Units(FAgentUnits()),
+          Buildings(FAgentBuildings()) {
     }
 
     // Utility functions to print the formatted agent state data in-place.
@@ -427,25 +529,25 @@ struct FAgentState {
 
         // Economy Resources
         std::cout << "Economy Resources: \n";
-        std::cout << "Workers: " << static_cast<int>(EconomyResources.Workers)
-                  << " | Minerals: " << EconomyResources.Minerals << " | Vespene: " << EconomyResources.Vespene
-                  << " | Supply: " << static_cast<int>(EconomyResources.Supply) << "/"
-                  << static_cast<int>(EconomyResources.SupplyCap)
-                  << " | Available: " << static_cast<int>(EconomyResources.SupplyAvailable) << "\n";
+        std::cout << "Workers: " << static_cast<int>(Units.GetUnitCount(UNIT_TYPEID::TERRAN_SCV))
+                  << " | Minerals: " << Economy.Minerals << " | Vespene: " << Economy.Vespene
+                  << " | Supply: " << static_cast<int>(Economy.Supply) << "/"
+                  << static_cast<int>(Economy.SupplyCap)
+                  << " | Available: " << static_cast<int>(Economy.SupplyAvailable) << "\n";
         std::cout << std::endl;
 
         // Military Resources
         std::cout << "Military Resources: \n";
-        std::cout << "Army Count: " << MilitaryResources.ArmyCount
-                  << " | Army Value Minerals: " << MilitaryResources.ArmyValueMinerals
-                  << " | Army Value Vespene: " << MilitaryResources.ArmyValueVespene
-                  << " | Army Supply: " << MilitaryResources.ArmySupply << "\n";
-        std::cout << "Marines: " << static_cast<int>(MilitaryResources.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE))
-                  << " | Marauders: " << static_cast<int>(MilitaryResources.GetUnitCount(UNIT_TYPEID::TERRAN_MARAUDER))
-                  << " | Medivacs: " << static_cast<int>(MilitaryResources.GetUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC)) << "\n";
-        std::cout << "Barracks: " << static_cast<int>(MilitaryResources.Barracks)
-                  << " | Factories: " << static_cast<int>(MilitaryResources.Factories)
-                  << " | Starports: " << static_cast<int>(MilitaryResources.Starports) << "\n";
+        std::cout << "Army Count: " << Units.ArmyCount
+                  << " | Army Value Minerals: " << Units.ArmyValueMinerals
+                  << " | Army Value Vespene: " << Units.ArmyValueVespene
+                  << " | Army Supply: " << Units.ArmySupply << "\n";
+        std::cout << "Marines: " << static_cast<int>(Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE))
+                  << " | Marauders: " << static_cast<int>(Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARAUDER))
+                  << " | Medivacs: " << static_cast<int>(Units.GetUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC)) << "\n";
+        std::cout << "Barracks: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS))
+                  << " | Factories: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_FACTORY))
+                  << " | Starports: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_STARPORT)) << "\n";
         std::cout << std::endl;
 
         // Opponent Assessment

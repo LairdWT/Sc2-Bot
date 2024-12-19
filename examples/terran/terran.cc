@@ -66,7 +66,7 @@ void TerranAgent::OnUnitIdle(const sc2::Unit* unit) {
         }
 
         case sc2::UNIT_TYPEID::TERRAN_BARRACKS: {
-            if (AgentState.EconomyResources.Minerals < 51) {
+            if (AgentState.Economy.Minerals < 51) {
                 break;
             }
             Actions()->UnitCommand(unit, sc2::ABILITY_ID::TRAIN_MARINE);
@@ -89,35 +89,24 @@ void TerranAgent::OnUnitIdle(const sc2::Unit* unit) {
 }
 
 void TerranAgent::UpdateAgentState() {
+
+    // Update Unit Counts
+    for (const sc2::UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
+        AgentState.Units.SetUnitCount(UnitType, CountUnitType(UnitType));
+    }
+    AgentState.Units.Update();
+
+    for (const sc2::UNIT_TYPEID UnitType : TERRAN_BUILDING_TYPES) {
+        AgentState.Buildings.SetBuildingCount(UnitType, CountUnitType(UnitType));
+    }
+
     // Economy Resources
-    AgentState.EconomyResources.Workers = CountUnitType(sc2::UNIT_TYPEID::TERRAN_SCV);
-    AgentState.EconomyResources.SupplyDepots = CountUnitType(sc2::UNIT_TYPEID::TERRAN_SUPPLYDEPOT);
-    AgentState.EconomyResources.CommandCenters = CountUnitType(sc2::UNIT_TYPEID::TERRAN_COMMANDCENTER);
-    AgentState.EconomyResources.Minerals = m_Observation->GetMinerals();
-    AgentState.EconomyResources.Vespene = m_Observation->GetVespene();
-    AgentState.EconomyResources.Supply = m_Observation->GetFoodUsed();
-    AgentState.EconomyResources.SupplyCap = m_Observation->GetFoodCap();
-    AgentState.EconomyResources.SupplyAvailable =
-        AgentState.EconomyResources.SupplyCap - AgentState.EconomyResources.Supply;
-
-    // Military Resources
-    for (const sc2::UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
-        AgentState.MilitaryResources.SetUnitCount(UnitType, CountUnitType(UnitType));
-    }
-    AgentState.MilitaryResources.UpdateArmyCount();
-
-    for (const sc2::UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
-        AgentState.MilitaryResources.ArmyValueMinerals += AgentState.MilitaryResources.GetUnitCount(UnitType) *
-                                                          m_EconomicData.GetUnitCostData(UnitType).CostData.Minerals;
-        AgentState.MilitaryResources.ArmyValueVespene += AgentState.MilitaryResources.GetUnitCount(UnitType) *
-                                                         m_EconomicData.GetUnitCostData(UnitType).CostData.Vespine;
-        AgentState.MilitaryResources.ArmySupply += AgentState.MilitaryResources.GetUnitCount(UnitType) *
-                                                   m_EconomicData.GetUnitCostData(UnitType).CostData.Supply;
-    }
-
-    AgentState.MilitaryResources.Barracks = CountUnitType(sc2::UNIT_TYPEID::TERRAN_BARRACKS);
-    AgentState.MilitaryResources.Factories = CountUnitType(sc2::UNIT_TYPEID::TERRAN_FACTORY);
-    AgentState.MilitaryResources.Starports = CountUnitType(sc2::UNIT_TYPEID::TERRAN_STARPORT);
+    AgentState.Economy.Minerals = m_Observation->GetMinerals();
+    AgentState.Economy.Vespene = m_Observation->GetVespene();
+    AgentState.Economy.Supply = m_Observation->GetFoodUsed();
+    AgentState.Economy.SupplyCap = m_Observation->GetFoodCap();
+    AgentState.Economy.SupplyAvailable =
+        AgentState.Economy.SupplyCap - AgentState.Economy.Supply;
 }
 
 void TerranAgent::PrintAgentState() {
@@ -133,7 +122,7 @@ void TerranAgent::OnStepUnitUpdate() {
     ControlledUnits = m_Observation->GetUnits(sc2::Unit::Alliance::Self);
     NeutralUnits = m_Observation->GetUnits(sc2::Unit::Alliance::Neutral);
 
-    if (AgentState.MilitaryResources.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE) >= 24) {
+    if (AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE) >= 24) {
         AllMarinesAttack();
     }
 }
@@ -232,8 +221,8 @@ bool TerranAgent::TryBuildSupplyDepot() {
     }
 
     // If no barracks exist yet, don't build more supply depots than needed
-    if (AgentState.MilitaryResources.Barracks < 1 &&
-        AgentState.EconomyResources.SupplyDepots > 0) {
+    if (AgentState.Buildings.GetBarracksCount() < 1 &&
+        AgentState.Buildings.GetSupplyDepotCount() > 0) {
         return false;
     }
 
@@ -258,20 +247,20 @@ bool TerranAgent::TryBuildSupplyDepot() {
 
 bool TerranAgent::TryBuildBarracks() {
     // Ensure there are enough supply depots, command centers, and workers before building a barracks
-    if (AgentState.EconomyResources.SupplyDepots < 1 ||
-        AgentState.EconomyResources.CommandCenters < 1 ||
-        AgentState.EconomyResources.Workers < 8) {
+    if (AgentState.Buildings.GetSupplyDepotCount() < 1 ||
+        AgentState.Buildings.GetTownHallCount() < 1 ||
+        AgentState.Units.GetWorkerCount() < 8) {
         return false;
     }
 
     // Ensure there are enough supply depots if building multiple barracks
-    if (AgentState.EconomyResources.SupplyDepots < 2 &&
-        AgentState.MilitaryResources.Barracks > 0) {
+    if (AgentState.Buildings.GetSupplyDepotCount() < 2 &&
+        AgentState.Buildings.GetBarracksCount() > 0) {
         return false;
     }
 
     // Avoid building too many barracks if mineral count is low
-    if (AgentState.MilitaryResources.Barracks > 4 && AgentState.EconomyResources.Minerals < 600) {
+    if (AgentState.Buildings.GetBarracksCount() > 4 && AgentState.Economy.Minerals < 600) {
         return false;
     }
 

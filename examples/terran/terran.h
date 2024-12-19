@@ -87,8 +87,6 @@ private:
     const SC2APIProtocol::FeatureLayers* m_Render{nullptr};
     const SC2APIProtocol::FeatureLayersMinimap* m_MinimapRender{nullptr};
 
-    FTerranEconomicDataSoA m_EconomicData{FTerranEconomicDataSoA()};
-
     uint64_t m_CurrentStep{0};
 };
 

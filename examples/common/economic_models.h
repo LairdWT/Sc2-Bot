@@ -270,4 +270,6 @@ struct FTerranEconomicDataSoA {
 
 };
 
+static FTerranEconomicDataSoA TERRAN_ECONOMIC_DATA = FTerranEconomicDataSoA();
+
 }  // namespace sc2
