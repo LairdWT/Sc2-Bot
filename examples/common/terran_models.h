@@ -90,6 +90,102 @@ uint8_t GetTerranUnitTypeIndex(const UNIT_TYPEID UnitType) {
     }
 }
 
+bool IsTerranUnit(const UNIT_TYPEID UnitType) {
+    switch (UnitType) {
+        case UNIT_TYPEID::TERRAN_MARINE:
+        case UNIT_TYPEID::TERRAN_MARAUDER:
+        case UNIT_TYPEID::TERRAN_MEDIVAC:
+        case UNIT_TYPEID::TERRAN_WIDOWMINE:
+        case UNIT_TYPEID::TERRAN_WIDOWMINEBURROWED:
+        case UNIT_TYPEID::TERRAN_AUTOTURRET:
+        case UNIT_TYPEID::TERRAN_BANSHEE:
+        case UNIT_TYPEID::TERRAN_BATTLECRUISER:
+        case UNIT_TYPEID::TERRAN_CYCLONE:
+        case UNIT_TYPEID::TERRAN_GHOST:
+        case UNIT_TYPEID::TERRAN_HELLION:
+        case UNIT_TYPEID::TERRAN_HELLIONTANK:
+        case UNIT_TYPEID::TERRAN_LIBERATOR:
+        case UNIT_TYPEID::TERRAN_LIBERATORAG:
+        case UNIT_TYPEID::TERRAN_MULE:
+        case UNIT_TYPEID::TERRAN_NUKE:
+        case UNIT_TYPEID::TERRAN_RAVEN:
+        case UNIT_TYPEID::TERRAN_REAPER:
+        case UNIT_TYPEID::TERRAN_SCV:
+        case UNIT_TYPEID::TERRAN_SIEGETANK:
+        case UNIT_TYPEID::TERRAN_SIEGETANKSIEGED:
+        case UNIT_TYPEID::TERRAN_THOR:
+        case UNIT_TYPEID::TERRAN_THORAP:
+        case UNIT_TYPEID::TERRAN_VIKINGASSAULT:
+        case UNIT_TYPEID::TERRAN_VIKINGFIGHTER:
+            return true;
+        default:
+            return false;  // Invalid type
+    }
+}
+
+bool IsTrainTerranUnit(const ABILITY_ID Order) {
+    switch (Order) {
+        case ABILITY_ID::TRAIN_MARINE:
+        case ABILITY_ID::TRAIN_MARAUDER:
+        case ABILITY_ID::TRAIN_MEDIVAC:
+        case ABILITY_ID::TRAIN_WIDOWMINE:
+        case ABILITY_ID::TRAIN_BANSHEE:
+        case ABILITY_ID::TRAIN_BATTLECRUISER:
+        case ABILITY_ID::TRAIN_CYCLONE:
+        case ABILITY_ID::TRAIN_GHOST:
+        case ABILITY_ID::TRAIN_HELLION:
+        case ABILITY_ID::TRAIN_LIBERATOR:
+        case ABILITY_ID::TRAIN_RAVEN:
+        case ABILITY_ID::TRAIN_REAPER:
+        case ABILITY_ID::TRAIN_SCV:
+        case ABILITY_ID::TRAIN_SIEGETANK:
+        case ABILITY_ID::TRAIN_THOR:
+        case ABILITY_ID::TRAIN_VIKINGFIGHTER:
+            return true;
+        default:
+            return false;
+    }
+}
+
+UNIT_TYPEID TerranUnitTrainToUnitType(const ABILITY_ID Order) {
+    switch (Order) {
+        case ABILITY_ID::TRAIN_MARINE:
+            return UNIT_TYPEID::TERRAN_MARINE;
+        case ABILITY_ID::TRAIN_MARAUDER:
+            return UNIT_TYPEID::TERRAN_MARAUDER;
+        case ABILITY_ID::TRAIN_MEDIVAC:
+            return UNIT_TYPEID::TERRAN_MEDIVAC;
+        case ABILITY_ID::TRAIN_WIDOWMINE:
+            return UNIT_TYPEID::TERRAN_WIDOWMINE;
+        case ABILITY_ID::TRAIN_BANSHEE:
+            return UNIT_TYPEID::TERRAN_BANSHEE;
+        case ABILITY_ID::TRAIN_BATTLECRUISER:
+            return UNIT_TYPEID::TERRAN_BATTLECRUISER;
+        case ABILITY_ID::TRAIN_CYCLONE:
+            return UNIT_TYPEID::TERRAN_CYCLONE;
+        case ABILITY_ID::TRAIN_GHOST:
+            return UNIT_TYPEID::TERRAN_GHOST;
+        case ABILITY_ID::TRAIN_HELLION:
+            return UNIT_TYPEID::TERRAN_HELLION;
+        case ABILITY_ID::TRAIN_LIBERATOR:
+            return UNIT_TYPEID::TERRAN_LIBERATOR;
+        case ABILITY_ID::TRAIN_RAVEN:
+            return UNIT_TYPEID::TERRAN_RAVEN;
+        case ABILITY_ID::TRAIN_REAPER:
+            return UNIT_TYPEID::TERRAN_REAPER;
+        case ABILITY_ID::TRAIN_SCV:
+            return UNIT_TYPEID::TERRAN_SCV;
+        case ABILITY_ID::TRAIN_SIEGETANK:
+            return UNIT_TYPEID::TERRAN_SIEGETANK;
+        case ABILITY_ID::TRAIN_THOR:
+            return UNIT_TYPEID::TERRAN_THOR;
+        case ABILITY_ID::TRAIN_VIKINGFIGHTER:
+            return UNIT_TYPEID::TERRAN_VIKINGFIGHTER;
+        default:
+            return UNIT_TYPEID::INVALID;
+    }
+}
+
 static constexpr UNIT_TYPEID TERRAN_BUILDING_TYPES[NUM_TERRAN_BUILDINGS] = {
     UNIT_TYPEID::TERRAN_ARMORY,
     UNIT_TYPEID::TERRAN_BARRACKS,
@@ -186,6 +282,44 @@ uint8_t GetTerranBuildingTypeIndex(const UNIT_TYPEID BuildingType) {
         case UNIT_TYPEID::TERRAN_TECHLAB:
             return 29;
         default: return 255;
+    }
+}
+
+bool IsTerranBuilding(const UNIT_TYPEID BuildingType) {
+    switch (BuildingType) {
+        case UNIT_TYPEID::TERRAN_ARMORY:
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+        case UNIT_TYPEID::TERRAN_BARRACKSFLYING:
+        case UNIT_TYPEID::TERRAN_BARRACKSREACTOR:
+        case UNIT_TYPEID::TERRAN_BARRACKSTECHLAB:
+        case UNIT_TYPEID::TERRAN_BUNKER:
+        case UNIT_TYPEID::TERRAN_COMMANDCENTER:
+        case UNIT_TYPEID::TERRAN_COMMANDCENTERFLYING:
+        case UNIT_TYPEID::TERRAN_ORBITALCOMMAND:
+        case UNIT_TYPEID::TERRAN_ORBITALCOMMANDFLYING:
+        case UNIT_TYPEID::TERRAN_PLANETARYFORTRESS:
+        case UNIT_TYPEID::TERRAN_ENGINEERINGBAY:
+        case UNIT_TYPEID::TERRAN_FACTORY:
+        case UNIT_TYPEID::TERRAN_FACTORYFLYING:
+        case UNIT_TYPEID::TERRAN_FACTORYREACTOR:
+        case UNIT_TYPEID::TERRAN_FACTORYTECHLAB:
+        case UNIT_TYPEID::TERRAN_FUSIONCORE:
+        case UNIT_TYPEID::TERRAN_GHOSTACADEMY:
+        case UNIT_TYPEID::TERRAN_MISSILETURRET:
+        case UNIT_TYPEID::TERRAN_REACTOR:
+        case UNIT_TYPEID::TERRAN_REFINERY:
+        case UNIT_TYPEID::TERRAN_REFINERYRICH:
+        case UNIT_TYPEID::TERRAN_SENSORTOWER:
+        case UNIT_TYPEID::TERRAN_STARPORT:
+        case UNIT_TYPEID::TERRAN_STARPORTFLYING:
+        case UNIT_TYPEID::TERRAN_STARPORTREACTOR:
+        case UNIT_TYPEID::TERRAN_STARPORTTECHLAB:
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOT:
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED:
+        case UNIT_TYPEID::TERRAN_TECHLAB:
+            return true;
+        default:
+            return false;
     }
 }
 

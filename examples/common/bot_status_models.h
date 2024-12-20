@@ -4,6 +4,8 @@
 #include <string>
 #include <iostream>
 
+#include "sc2api/sc2_api.h"
+
 #include "common/economic_models.h"
 #include "common/terran_models.h"
 #include "common/terran_unit_container.h"
@@ -222,28 +224,10 @@ struct FAgentUnits {
     uint32_t ArmySupply;
 
     std::array<uint16_t, NUM_TERRAN_UNITS> UnitCounts;
+    std::array<uint16_t, NUM_TERRAN_UNITS> UnitsInConstruction;
 
-    // Default constructor
     FAgentUnits()
-        : ArmyCount(0),
-          ArmyValueMinerals(0),
-          ArmyValueVespene(0),
-          ArmySupply(0),
-          UnitCounts{} {
-    }
-
-    // Parameterized constructor
-    FAgentUnits(uint32_t InArmyCount, uint32_t InArmyValueMinerals, uint32_t InArmyValueVespene,
-                            uint32_t InArmySupply, const std::array<uint16_t, NUM_TERRAN_UNITS>& InUnitCounts)
-        : ArmyCount(InArmyCount),
-          ArmyValueMinerals(InArmyValueMinerals),
-          ArmyValueVespene(InArmyValueVespene),
-          ArmySupply(InArmySupply),
-          UnitCounts(InUnitCounts) {
-    }
-
-    uint16_t GetUnitCount(const sc2::UNIT_TYPEID UnitType) const {
-        return UnitCounts[GetTerranUnitTypeIndex(UnitType)];
+        : ArmyCount(0), ArmyValueMinerals(0), ArmyValueVespene(0), ArmySupply(0), UnitCounts{}, UnitsInConstruction{} {
     }
 
     void Update() {
@@ -294,8 +278,37 @@ struct FAgentUnits {
         return ArmyCount;
     }
 
+    uint16_t GetUnitCount(const sc2::UNIT_TYPEID UnitType) const {
+        return UnitCounts[GetTerranUnitTypeIndex(UnitType)];
+    }
+
     void SetUnitCount(const sc2::UNIT_TYPEID UnitType, const uint16_t Count) {
         UnitCounts[GetTerranUnitTypeIndex(UnitType)] = Count;
+    }
+
+    void IncrementUnitCount(const sc2::UNIT_TYPEID UnitType) {
+        UnitCounts[GetTerranUnitTypeIndex(UnitType)]++;
+    }
+
+    void DecrementUnitCount(const sc2::UNIT_TYPEID UnitType) {
+        const size_t Index = GetTerranUnitTypeIndex(UnitType);
+        if (UnitCounts[Index] > 1) {
+            UnitCounts[Index]--;
+            return;
+        }
+        UnitCounts[Index] = 0;
+    }
+
+    void SetUnitsInConstruction(const sc2::UNIT_TYPEID UnitType, const uint16_t Count) {
+        UnitsInConstruction[GetTerranUnitTypeIndex(UnitType)] = Count;
+    }
+
+    void IncrementUnitsInConstruction(const sc2::UNIT_TYPEID UnitType) {
+        UnitsInConstruction[GetTerranUnitTypeIndex(UnitType)]++;
+    }
+
+    uint16_t GetUnitsInConstruction(const sc2::UNIT_TYPEID UnitType) const {
+        return UnitsInConstruction[GetTerranUnitTypeIndex(UnitType)];
     }
 
     uint16_t GetWorkerCount() const {
@@ -310,11 +323,12 @@ struct FAgentBuildings {
     std::array<uint16_t, NUM_TERRAN_BUILDINGS> CurrentlyInConstruction;
 
     FAgentBuildings() : BuildingCounts{}, CurrentlyInConstruction{} {
+        for (uint16_t& Count : BuildingCounts) {
+            Count = 0;
+        }
 
-        // Initialize the building counts and construction counts to 0
-        for (uint8_t i = 0; i < NUM_TERRAN_BUILDINGS; i++) {
-            BuildingCounts[i] = 0;
-            CurrentlyInConstruction[i] = 0;
+        for (uint16_t& Count : CurrentlyInConstruction) {
+            Count = 0;
         }
     }
 
@@ -331,11 +345,12 @@ struct FAgentBuildings {
     }
 
     void DecrementBuildingCount(const sc2::UNIT_TYPEID BuildingType) {
-        if (BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)] > 1) {
-            BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)]--;
+        const size_t Index = GetTerranBuildingTypeIndex(BuildingType);
+        if (BuildingCounts[Index] < 1) {
+            BuildingCounts[Index] = 0;
             return;
         }
-        BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)] = 0;
+        BuildingCounts[Index]--;
     }
 
     uint16_t GetCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType) const {
@@ -348,18 +363,6 @@ struct FAgentBuildings {
 
     void IncrementCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType) {
         CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)]++;
-    }
-
-    void DecrementCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType) {
-        if (CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)] > 1) {
-            CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)]--;
-            return;
-        }
-        CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)] = 0;
-    }
-
-    bool IsBuildingInConstruction(const sc2::UNIT_TYPEID BuildingType) const {
-        return CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)] > 0;
     }
 
     uint16_t GetTownHallCount() const {
@@ -490,6 +493,8 @@ struct FAgentState {
     FAgentAssessments Assessments;
     FAgentStrategy Strategy;
 
+    FTerranUnitContainer UnitContainer;
+
     FAgentEconomy Economy;
     FAgentUnits Units;
     FAgentBuildings Buildings;
@@ -519,6 +524,7 @@ struct FAgentState {
         std::cout << "\033[2J\033[H";
 
         // Self Assessment
+        /*
         std::cout << "Self Assessment: \n";
         std::cout << "Threat Level: " << Assessments.Self.GetThreatLevelAsString() << "\n";
         std::cout << "Economic Strength: " << Assessments.Self.GetEconomicStrengthAsString() << "\n";
@@ -534,6 +540,7 @@ struct FAgentState {
         std::cout << "Production Strategy: " << Strategy.GetProductionStrategyAsString() << "\n";
         std::cout << "Military Strategy: " << Strategy.GetMilitaryStrategyAsString() << "\n";
         std::cout << std::endl;
+        */
 
         // Economy Resources
         std::cout << "Economy Resources: \n";
@@ -541,7 +548,7 @@ struct FAgentState {
                   << " | Minerals: " << Economy.Minerals << " | Vespene: " << Economy.Vespene
                   << " | Supply: " << static_cast<int>(Economy.Supply) << "/"
                   << static_cast<int>(Economy.SupplyCap)
-                  << " | Available: " << static_cast<int>(Economy.SupplyAvailable) << "\n";
+                  << " | Supply Available: " << static_cast<int>(Economy.SupplyAvailable) << "\n";
         std::cout << std::endl;
 
         // Military Resources
@@ -552,14 +559,33 @@ struct FAgentState {
                   << " | Army Supply: " << Units.ArmySupply << "\n";
         std::cout << "Marines: " << static_cast<int>(Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE))
                   << " | Marauders: " << static_cast<int>(Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARAUDER))
-                  << " | Medivacs: " << static_cast<int>(Units.GetUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC)) << "\n";
-        std::cout << "Barracks: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS))
-                  << " | Factories: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_FACTORY))
-                  << " | Starports: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_STARPORT)) << "\n";
+                  << " | Medivacs: " << static_cast<int>(Units.GetUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC))
+                  << "\n";
         std::cout << std::endl;
 
-        // Building Counts and in construction
-        std::cout << "Currently Constructing: \n";
+        // Building Counts
+        std::cout << "Building Counts: \n";
+        std::cout << "Command Centers: "
+                  << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER))
+                  << " | Supply Depots: "
+                  << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT))
+                  << " | Barracks: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS))
+                  << " | Factories: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_FACTORY))
+                  << " | Starports: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_STARPORT))
+                  << "\n";
+        std::cout << std::endl;
+
+        // Unit in construction
+        std::cout << "Currently Constructing Units: \n";
+        std::cout << "Workers: " << static_cast<int>(Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_SCV))
+                  << " | Marines: " << static_cast<int>(Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_MARINE))
+                  << " | Marauders: " << static_cast<int>(Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_MARAUDER))
+                  << " | Medivacs: " << static_cast<int>(Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_MEDIVAC))
+                  << "\n";
+        std::cout << std::endl;
+
+        // Building in construction
+        std::cout << "Currently Constructing Buildings: \n";
         std::cout << "Command Centers: "
                   << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_COMMANDCENTER))
                   << " | Supply Depots: "
@@ -569,7 +595,96 @@ struct FAgentState {
                   << " | Factories: "
                   << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_FACTORY))
                   << " | Starports: "
-                  << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_STARPORT)) << "\n";
+                  << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_STARPORT))
+                  << "\n";
+        std::cout << std::endl;
+    }
+
+    void Update(const ObservationInterface* Observation) {
+        if (!Observation) { return; }
+        UnitContainer.SetUnits(Observation->GetUnits(Unit::Alliance::Self));
+
+        Economy.Minerals = Observation->GetMinerals();
+        Economy.Vespene = Observation->GetVespene();
+        Economy.Supply = Observation->GetFoodUsed();
+        Economy.SupplyCap = Observation->GetFoodCap();
+        Economy.SupplyAvailable = Economy.SupplyCap - Economy.Supply;
+
+        UpdateCounts();
+    }
+
+    void SetUnits(const std::vector<const Unit*>& NewUnits) {
+        UnitContainer.SetUnits(NewUnits);
+    }
+
+    void UpdateCounts() {
+        UpdateUnitCounts();
+        UpdateUnitsInConstructionCounts();
+        UpdateBuildingCounts();
+        UpdateBuildingsInConstructionCounts();
+        Units.Update();
+    }
+
+    void UpdateUnitCounts() {
+        for (const UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
+            Units.SetUnitCount(UnitType, 0);
+        }
+
+        const std::vector<const sc2::Unit*>& SelectedUnits = UnitContainer.GetUnits();
+        if (SelectedUnits.empty()) { return; }
+
+        for (const Unit* CurrentUnit : SelectedUnits) {
+            const UNIT_TYPEID UnitType = CurrentUnit->unit_type.ToType();
+            if (IsTerranUnit(UnitType)) {
+                Units.IncrementUnitCount(UnitType);
+            }
+        }
+    }
+
+    void UpdateUnitsInConstructionCounts() {
+        for (const UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
+            Units.SetUnitsInConstruction(UnitType, 0);
+        }
+
+        const std::vector<const sc2::Unit*>& SelectedBuildings = UnitContainer.GetBuildings();
+        for (const sc2::Unit* SelectedBuilding : SelectedBuildings) {
+            if (!SelectedBuilding->orders.empty()) {
+                const UnitOrder& SelectedOrder = SelectedBuilding->orders[0];
+                if (IsTrainTerranUnit(SelectedOrder.ability_id)) {
+                    Units.IncrementUnitsInConstruction(TerranUnitTrainToUnitType(SelectedOrder.ability_id));
+                    continue;
+                }
+                continue;
+            }
+        }
+    }
+
+    void UpdateBuildingCounts() {
+        for (const UNIT_TYPEID UnitType : TERRAN_BUILDING_TYPES) {
+            Buildings.SetBuildingCount(UnitType, 0);
+        }
+
+        const std::vector<const sc2::Unit*>& FinishedBuildings = UnitContainer.GetBuildings();
+        for (const sc2::Unit* const Unit : FinishedBuildings) {
+            const UNIT_TYPEID UnitType = Unit->unit_type.ToType();
+            if (IsTerranBuilding(UnitType)) {
+                Buildings.IncrementBuildingCount(UnitType);
+            }
+        }
+    }
+
+    void UpdateBuildingsInConstructionCounts() {
+        for (const UNIT_TYPEID UnitType : TERRAN_BUILDING_TYPES) {
+            Buildings.SetCurrentlyInConstruction(UnitType, 0);
+        }
+
+        const std::vector<const sc2::Unit*>& UnfinishedBuildings = UnitContainer.GetBuildingsInConstruction();
+        for (const sc2::Unit* const Unit : UnfinishedBuildings) {
+            const UNIT_TYPEID UnitType = Unit->unit_type.ToType();
+            if (IsTerranBuilding(UnitType)) {
+                Buildings.IncrementCurrentlyInConstruction(UnitType);
+            }
+        }
     }
 };
 

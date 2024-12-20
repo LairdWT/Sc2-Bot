@@ -56,11 +56,15 @@ public:
 
     bool TryBuildBarracks();
 
+    //~ Build Unit Actions
+    bool ShouldBuildMarine();
+
+    bool TryBuildMarine();
+
 
     //~ Environment Query
     const sc2::Unit* FindNearestMineralPatch(const sc2::Point2D& Origin);
 
-    Units ControlledUnits;
     Units NeutralUnits;
     Point2D BarracksRally;
 

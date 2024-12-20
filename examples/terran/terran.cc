@@ -21,7 +21,7 @@ void TerranAgent::OnGameStart() {
 }
 
 void TerranAgent::OnStep() {
-    m_Observation = Observation();
+    m_CurrentStep++;
 
     UpdateAgentState();
     OnStepUnitUpdate();
@@ -66,11 +66,7 @@ void TerranAgent::OnUnitIdle(const sc2::Unit* unit) {
         }
 
         case sc2::UNIT_TYPEID::TERRAN_BARRACKS: {
-            if (AgentState.Economy.Minerals < 51) {
-                break;
-            }
-            Actions()->UnitCommand(unit, sc2::ABILITY_ID::TRAIN_MARINE);
-            break;
+            TryBuildMarine();
         }
 
         case sc2::UNIT_TYPEID::TERRAN_MARINE: {
@@ -93,24 +89,13 @@ void TerranAgent::OnUnitCreated(const sc2::Unit* unit) {
 }
 
 void TerranAgent::UpdateAgentState() {
-
-    // Update Unit Counts
-    for (const UNIT_TYPEID UnitType : TERRAN_UNIT_TYPES) {
-        AgentState.Units.SetUnitCount(UnitType, CountUnitType(UnitType));
+    if (!m_Observation) {
+        SCLOG(LoggingVerbosity::error, "ERROR in TerranAgent::OnStepUnitUpdate() - m_Observation is null");
+        return;
     }
-    AgentState.Units.Update();
+    NeutralUnits = m_Observation->GetUnits(Unit::Alliance::Neutral);
 
-    for (const UNIT_TYPEID UnitType : TERRAN_BUILDING_TYPES) {
-        AgentState.Buildings.SetBuildingCount(UnitType, CountUnitType(UnitType));
-    }
-
-    // Economy Resources
-    AgentState.Economy.Minerals = m_Observation->GetMinerals();
-    AgentState.Economy.Vespene = m_Observation->GetVespene();
-    AgentState.Economy.Supply = m_Observation->GetFoodUsed();
-    AgentState.Economy.SupplyCap = m_Observation->GetFoodCap();
-    AgentState.Economy.SupplyAvailable =
-        AgentState.Economy.SupplyCap - AgentState.Economy.Supply;
+    AgentState.Update(m_Observation);
 }
 
 void TerranAgent::PrintAgentState() {
@@ -118,14 +103,6 @@ void TerranAgent::PrintAgentState() {
 }
 
 void TerranAgent::OnStepUnitUpdate() {
-    if (!m_Observation) {
-        SCLOG(LoggingVerbosity::error, "ERROR in TerranAgent::OnStepUnitUpdate() - m_Observation is null");
-        return;
-    }
-
-    ControlledUnits = m_Observation->GetUnits(Unit::Alliance::Self);
-    NeutralUnits = m_Observation->GetUnits(Unit::Alliance::Neutral);
-
     if (AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE) >= 24) {
         AllMarinesAttack();
     }
@@ -134,8 +111,6 @@ void TerranAgent::OnStepUnitUpdate() {
 void TerranAgent::AllMarinesAttack() {
     sc2::Units Marines = m_Observation->GetUnits(sc2::Unit::Alliance::Self,
                                                     sc2::IsUnit(sc2::UNIT_TYPEID::TERRAN_MARINE));
-
-    m_CurrentStep++;
     for (const sc2::Unit* Marine : Marines) {
         
         // if current step is divisible by 5, move to a random location
@@ -159,18 +134,8 @@ void TerranAgent::AllMarinesAttack() {
 }
 
 void TerranAgent::OnStepBuildUpdate() {
-
-    for (const UNIT_TYPEID UnitType : TERRAN_BUILDING_TYPES) {
-        AgentState.Buildings.SetCurrentlyInConstruction(UnitType, 0);
-    }
-
-    for (const sc2::Unit* unit : ControlledUnits) {
-        if (unit->is_building && !unit->IsBuildFinished()) {
-            AgentState.Buildings.IncrementCurrentlyInConstruction(unit->unit_type.ToType());
-        }
-    }
-
     TryBuildSupplyDepot();
+    TryBuildMarine();
     TryBuildBarracks();
 }
 
@@ -179,7 +144,17 @@ bool TerranAgent::TryBuildStructure(sc2::ABILITY_ID StructureAbilityId, sc2::UNI
     float ShortestDistance = std::numeric_limits<float>::max();
     sc2::Point2D BuildPosition = sc2::Point2D(50.0f, 50.0f);
 
-    for (const sc2::Unit* ControlledUnit : ControlledUnits) {
+    UnitToBuild = AgentState.UnitContainer.GetIdleWorker();
+    if (UnitToBuild) {
+        float rx = sc2::GetRandomScalar();
+        float ry = sc2::GetRandomScalar();
+        Actions()->UnitCommand(UnitToBuild, StructureAbilityId,
+                               sc2::Point2D(UnitToBuild->pos.x + rx * 15.0f, UnitToBuild->pos.y + ry * 15.0f));
+        return true;
+    }
+
+    std::vector<const sc2::Unit*>& Workers = AgentState.UnitContainer.GetWorkers();
+    for (const sc2::Unit* ControlledUnit : Workers) {
         if (ControlledUnit->unit_type == UnitTypeId && ControlledUnit->orders.empty()) {
             float distance = sc2::DistanceSquared2D(ControlledUnit->pos, BuildPosition);
             if (distance < ShortestDistance) {
@@ -190,7 +165,7 @@ bool TerranAgent::TryBuildStructure(sc2::ABILITY_ID StructureAbilityId, sc2::UNI
     }
 
     if (!UnitToBuild) {
-        for (const sc2::Unit* ControlledUnit : ControlledUnits) {
+        for (const sc2::Unit* ControlledUnit : Workers) {
             if (ControlledUnit->unit_type == UnitTypeId) {
                 if (!ControlledUnit->orders.empty() &&
                     ControlledUnit->orders[0].ability_id == sc2::ABILITY_ID::HARVEST_GATHER) {
@@ -205,7 +180,7 @@ bool TerranAgent::TryBuildStructure(sc2::ABILITY_ID StructureAbilityId, sc2::UNI
     }
 
     if (!UnitToBuild) {
-        for (const sc2::Unit* ControlledUnit : ControlledUnits) {
+        for (const sc2::Unit* ControlledUnit : Workers) {
             if (ControlledUnit->unit_type == UnitTypeId) {
                 float distance = sc2::DistanceSquared2D(ControlledUnit->pos, BuildPosition);
                 if (distance < ShortestDistance) {
@@ -222,15 +197,17 @@ bool TerranAgent::TryBuildStructure(sc2::ABILITY_ID StructureAbilityId, sc2::UNI
 
     float rx = sc2::GetRandomScalar();
     float ry = sc2::GetRandomScalar();
-
     Actions()->UnitCommand(UnitToBuild, StructureAbilityId,
                             sc2::Point2D(UnitToBuild->pos.x + rx * 15.0f, UnitToBuild->pos.y + ry * 15.0f));
-
     return true;
 }
 
 bool TerranAgent::TryBuildSupplyDepot() {
     // Check if we are close to the supply cap
+    if (AgentState.Economy.SupplyCap >= 200) {
+        return false;
+    }
+
     if (AgentState.Economy.Supply <= (AgentState.Economy.SupplyCap - (AgentState.Economy.SupplyCap / 6))) {
         return false;
     }
@@ -287,6 +264,36 @@ bool TerranAgent::TryBuildBarracks() {
     }
 
     return false;
+}
+
+bool TerranAgent::ShouldBuildMarine() {
+    if (AgentState.Economy.Minerals < 51) {
+        return false;
+    }
+
+    if (AgentState.Economy.SupplyAvailable < 1) {
+        return false;
+    }
+
+    if (AgentState.Buildings.GetBarracksCount() < 1) {
+        return false;
+    }
+
+    return true;
+}
+
+bool TerranAgent::TryBuildMarine() {
+    if (!ShouldBuildMarine()) {
+        return false;
+    }
+
+    const sc2::Unit* Barracks = AgentState.UnitContainer.GetFirstIdleBarracks();
+    if (!Barracks) {
+        return false;
+    }
+
+    Actions()->UnitCommand(Barracks, sc2::ABILITY_ID::TRAIN_MARINE);
+    return true;
 }
 
 const sc2::Unit* TerranAgent::FindNearestMineralPatch(const sc2::Point2D& Origin) {

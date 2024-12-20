@@ -127,7 +127,14 @@ struct FTerranUnitContainer {
 
     // Add a single unit to the container
     void AddUnit(const Unit* NewUnit) {
+        if (!NewUnit) {
+            return;  // Ensure the input is valid
+        }
+
+        // Add the new unit to the controlled units container
         ControlledUnits.push_back(NewUnit);
+
+        // Synchronize all related containers
         Alliances.push_back(NewUnit->alliance);
         Tags.push_back(NewUnit->tag);
         UnitTypes.push_back(NewUnit->unit_type);
@@ -142,26 +149,6 @@ struct FTerranUnitContainer {
         ShieldMax.push_back(NewUnit->shield_max);
         Energy.push_back(NewUnit->energy);
         EnergyMax.push_back(NewUnit->energy_max);
-
-        // Check the state of the unit and set the appropriate flags
-        StateFlags.StateFlags.push_back(0);
-        if (NewUnit->is_alive)
-            StateFlags.SetFlag(ControlledUnits.size() - 1, IsAlive);
-        if (NewUnit->is_building)
-            StateFlags.SetFlag(ControlledUnits.size() - 1, IsABuilding);
-        if (NewUnit->is_flying)
-            StateFlags.SetFlag(ControlledUnits.size() - 1, IsFlying);
-        if (NewUnit->is_burrowed)
-            StateFlags.SetFlag(ControlledUnits.size() - 1, IsBurrowed);
-        if (NewUnit->is_hallucination)
-            StateFlags.SetFlag(ControlledUnits.size() - 1, IsHallucination);
-        if (NewUnit->is_selected)
-            StateFlags.SetFlag(ControlledUnits.size() - 1, IsSelected);
-        if (NewUnit->is_on_screen)
-            StateFlags.SetFlag(ControlledUnits.size() - 1, IsOnScreen);
-        if (NewUnit->is_blip)
-            StateFlags.SetFlag(ControlledUnits.size() - 1, IsASensorTowerBlip);
-
         WeaponCooldownRemaining.push_back(NewUnit->weapon_cooldown);
         Orders.push_back(NewUnit->orders);
         EngagedTargetTag.push_back(NewUnit->engaged_target_tag);
@@ -171,6 +158,40 @@ struct FTerranUnitContainer {
         AddonTag.push_back(NewUnit->add_on_tag);
         AssignedHarvisters.push_back(NewUnit->assigned_harvesters);
         IdealHarvesters.push_back(NewUnit->ideal_harvesters);
+        UnitBuffs.push_back(NewUnit->buffs);
+
+        // Add a default state flag for the new unit
+        StateFlags.StateFlags.push_back(0);
+
+        // Set initial state flags based on the unit's attributes
+        size_t Index = ControlledUnits.size() - 1;  // Index of the new unit
+        if (NewUnit->is_alive) {
+            StateFlags.SetFlag(Index, IsAlive);
+        }
+        if (NewUnit->is_building) {
+            StateFlags.SetFlag(Index, IsABuilding);
+        }
+        if (NewUnit->is_flying) {
+            StateFlags.SetFlag(Index, IsFlying);
+        }
+        if (NewUnit->is_burrowed) {
+            StateFlags.SetFlag(Index, IsBurrowed);
+        }
+        if (NewUnit->is_hallucination) {
+            StateFlags.SetFlag(Index, IsHallucination);
+        }
+        if (NewUnit->is_selected) {
+            StateFlags.SetFlag(Index, IsSelected);
+        }
+        if (NewUnit->is_on_screen) {
+            StateFlags.SetFlag(Index, IsOnScreen);
+        }
+        if (NewUnit->is_blip) {
+            StateFlags.SetFlag(Index, IsASensorTowerBlip);
+        }
+
+        // Ensure all containers stay synchronized in size
+        FilteredUnits.resize(ControlledUnits.size(), false);
     }
 
     // Add multiple units to the container
@@ -180,306 +201,396 @@ struct FTerranUnitContainer {
         }
     }
 
-    void ResetFilteredUnits() {
+    void ResetAll() {
+        ControlledUnits.clear();
         FilteredUnits.clear();
-        FilteredUnits.resize(ControlledUnits.size(), false);
+        SelectedUnits.clear();
+        Alliances.clear();
+        Tags.clear();
+        UnitTypes.clear();
+        Positions.clear();
+        FacingRadians.clear();
+        UnitRadius.clear();
+        BuildProgress.clear();
+        CloakStates.clear();
+        Health.clear();
+        HealthMax.clear();
+        Shield.clear();
+        ShieldMax.clear();
+        Energy.clear();
+        EnergyMax.clear();
+        StateFlags.StateFlags.clear();
+        WeaponCooldownRemaining.clear();
+        Orders.clear();
+        EngagedTargetTag.clear();
+        Passengers.clear();
+        CargoSpaceOccupied.clear();
+        CargoSpaceMax.clear();
+        AddonTag.clear();
+        AssignedHarvisters.clear();
+        IdealHarvesters.clear();
+    }
+
+    void SetUnits(const std::vector<const Unit*>& NewUnits) {
+        ResetAll();
+        ControlledUnits.reserve(NewUnits.size());
+        FilteredUnits.reserve(NewUnits.size());
+        SelectedUnits.reserve(NewUnits.size());
+        AddUnits(NewUnits);
+    }
+
+    void ResetFilteredUnits() {
+        for (size_t Index = 0; Index < FilteredUnits.size(); ++Index) {
+            FilteredUnits[Index] = true;
+        }
     }
 
     void ResetSelectedUnits() {
         SelectedUnits.clear();
+        SelectedUnits.reserve(ControlledUnits.size());
     }
 
-    void FilterByType(const UnitTypeID UnitType) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (UnitTypes[i] == UnitType) {
-                FilteredUnits[i] = true;
+void FilterByType(const UnitTypeID UnitType) {
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && UnitTypes[Index] != UnitType) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByAlliance(const sc2::Unit::Alliance UnitAlliance) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (Alliances[i] == UnitAlliance) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && Alliances[Index] != UnitAlliance) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsAlive() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (StateFlags.IsFlagSet(i, IsAlive)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !StateFlags.IsFlagSet(Index, IsAlive)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsUnit() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (!StateFlags.IsFlagSet(i, IsABuilding)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !IsTerranUnit(ControlledUnits[Index]->unit_type.ToType())) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsBuilding() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (StateFlags.IsFlagSet(i, IsABuilding)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !IsTerranBuilding(ControlledUnits[Index]->unit_type.ToType())) {
+                FilteredUnits[Index] = false;
+            }
+        }
+    }
+
+    void FilterByIsWorker() {
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            const UNIT_TYPEID UnitType = ControlledUnits[Index]->unit_type.ToType();
+            if (FilteredUnits[Index] && UnitType != UNIT_TYPEID::TERRAN_SCV) {
+                FilteredUnits[Index] = false;
+            }
+        }
+    }
+
+    void FilterByConstructionIsFinished() {
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && BuildProgress[Index] < 1.0f) {
+                FilteredUnits[Index] = false;
+            }
+        }
+    }
+
+    void FilterByIsConstructionNotFinished() {
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && BuildProgress[Index] >= 1.0f) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsGroundUnit() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (!StateFlags.IsFlagSet(i, IsFlying)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && StateFlags.IsFlagSet(Index, IsFlying)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsFlyingUnit() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (StateFlags.IsFlagSet(i, IsFlying)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !StateFlags.IsFlagSet(Index, IsFlying)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsNotBurrowed() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (!StateFlags.IsFlagSet(i, IsBurrowed)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && StateFlags.IsFlagSet(Index, IsBurrowed)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsBurrowed() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (StateFlags.IsFlagSet(i, IsBurrowed)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !StateFlags.IsFlagSet(Index, IsBurrowed)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsNotHallucination() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (!StateFlags.IsFlagSet(i, IsHallucination)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && StateFlags.IsFlagSet(Index, IsHallucination)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsHallucination() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (StateFlags.IsFlagSet(i, IsHallucination)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !StateFlags.IsFlagSet(Index, IsHallucination)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsSelected() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (StateFlags.IsFlagSet(i, IsSelected)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !StateFlags.IsFlagSet(Index, IsSelected)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsNotSelected() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (!StateFlags.IsFlagSet(i, IsSelected)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && StateFlags.IsFlagSet(Index, IsSelected)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsOnScreen() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (StateFlags.IsFlagSet(i, IsOnScreen)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !StateFlags.IsFlagSet(Index, IsOnScreen)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsNotOnScreen() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (!StateFlags.IsFlagSet(i, IsOnScreen)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && StateFlags.IsFlagSet(Index, IsOnScreen)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsASensorTowerBlip() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (StateFlags.IsFlagSet(i, IsASensorTowerBlip)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && !StateFlags.IsFlagSet(Index, IsASensorTowerBlip)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsNotASensorTowerBlip() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (!StateFlags.IsFlagSet(i, IsASensorTowerBlip)) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && StateFlags.IsFlagSet(Index, IsASensorTowerBlip)) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsCloaked() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (CloakStates[i] == sc2::Unit::CloakState::Cloaked) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && CloakStates[Index] != sc2::Unit::CloakState::Cloaked) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsNotCloaked() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (CloakStates[i] != sc2::Unit::CloakState::Cloaked) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && CloakStates[Index] == sc2::Unit::CloakState::Cloaked) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsCloakedDetected() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (CloakStates[i] == sc2::Unit::CloakState::CloakedDetected) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && CloakStates[Index] != sc2::Unit::CloakState::CloakedDetected) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsNotCloakedDetected() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (CloakStates[i] != sc2::Unit::CloakState::CloakedDetected) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && CloakStates[Index] == sc2::Unit::CloakState::CloakedDetected) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsNotCloakedUnknown() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (CloakStates[i] != sc2::Unit::CloakState::CloakedUnknown) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && CloakStates[Index] == sc2::Unit::CloakState::CloakedUnknown) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIsWeaponOnCooldown() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (WeaponCooldownRemaining[i] > 0.0f) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && WeaponCooldownRemaining[Index] <= 0.0f) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByWeaponAvailable() {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (WeaponCooldownRemaining[i] <= 0.0f) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && WeaponCooldownRemaining[Index] > 0.0f) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByUnitBuffActive(const BuffID Buff) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (std::find(UnitBuffs[i].begin(), UnitBuffs[i].end(), Buff) != UnitBuffs[i].end()) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] &&
+                std::find(UnitBuffs[Index].begin(), UnitBuffs[Index].end(), Buff) == UnitBuffs[Index].end()) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByUnitOrderTargetTag(const Tag TargetTag) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            for (const auto& Order : Orders[i]) {
-                if (Order.target_unit_tag == TargetTag) {
-                    FilteredUnits[i] = true;
-                    break;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            bool MatchFound = false;
+            if (FilteredUnits[Index]) {
+                for (const auto& Order : Orders[Index]) {
+                    if (Order.target_unit_tag == TargetTag) {
+                        MatchFound = true;
+                        break;
+                    }
+                }
+                if (!MatchFound) {
+                    FilteredUnits[Index] = false;
                 }
             }
         }
     }
 
     void FilterByUnitOrderTargetPosition(const Point2D TargetPos) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            for (const auto& Order : Orders[i]) {
-                if (Order.target_pos == TargetPos) {
-                    FilteredUnits[i] = true;
-                    break;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            bool MatchFound = false;
+            if (FilteredUnits[Index]) {
+                for (const auto& Order : Orders[Index]) {
+                    if (Order.target_pos == TargetPos) {
+                        MatchFound = true;
+                        break;
+                    }
+                }
+                if (!MatchFound) {
+                    FilteredUnits[Index] = false;
                 }
             }
         }
     }
 
     void FilterByEngagedTargetTag(const Tag TargetTag) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (EngagedTargetTag[i] == TargetTag) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && EngagedTargetTag[Index] != TargetTag) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByCargoSpaceOccupied(const int OccupiedSpace) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (CargoSpaceOccupied[i] == OccupiedSpace) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && CargoSpaceOccupied[Index] != OccupiedSpace) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByCargoSpaceMax(const int MaxSpace) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (CargoSpaceMax[i] == MaxSpace) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && CargoSpaceMax[Index] != MaxSpace) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByCargoSpaceAvailable(const int AvailableSpace) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (CargoSpaceMax[i] - CargoSpaceOccupied[i] >= AvailableSpace) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && (CargoSpaceMax[Index] - CargoSpaceOccupied[Index]) < AvailableSpace) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByPassengerCount(const int PassengerCount) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (Passengers[i].size() == PassengerCount) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && Passengers[Index].size() != PassengerCount) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByAddonTag(const Tag Addon) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (AddonTag[i] == Addon) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && AddonTag[Index] != Addon) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByAssignedHarvisters(const int Harvisters) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (AssignedHarvisters[i] == Harvisters) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && AssignedHarvisters[Index] != Harvisters) {
+                FilteredUnits[Index] = false;
             }
         }
     }
 
     void FilterByIdealHarvesters(const int Harvisters) {
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (IdealHarvesters[i] == Harvisters) {
-                FilteredUnits[i] = true;
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index] && IdealHarvesters[Index] != Harvisters) {
+                FilteredUnits[Index] = false;
+            }
+        }
+    }
+
+    void FilterByIsTrainingUnit() {
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index]) {
+                for (const auto& Order : Orders[Index]) {
+                    if (IsTrainTerranUnit(Order.ability_id)) {
+                        FilteredUnits[Index] = false;
+                    }
+                }
             }
         }
     }
 
     void SelectFilteredUnits() {
         ResetSelectedUnits();
-        for (size_t i = 0; i < ControlledUnits.size(); ++i) {
-            if (FilteredUnits[i]) {
-                SelectedUnits.push_back(ControlledUnits[i]);
+        for (size_t Index = 0; Index < ControlledUnits.size(); ++Index) {
+            if (FilteredUnits[Index]) {
+                SelectedUnits.push_back(ControlledUnits[Index]);
             }
         }
     }
@@ -487,6 +598,77 @@ struct FTerranUnitContainer {
     std::vector<const Unit*>& GetSelectedUnits() {
         SelectFilteredUnits();
         return SelectedUnits;
+    }
+
+    std::vector<const Unit*>& GetUnits() {
+        ResetFilteredUnits();
+        FilterByIsUnit();
+        FilterByConstructionIsFinished();
+        return GetSelectedUnits();
+    }
+
+    std::vector<const Unit*>& GetBuildings() {
+        ResetFilteredUnits();
+        FilterByIsBuilding();
+        FilterByConstructionIsFinished();
+        return GetSelectedUnits();
+    }
+
+    std::vector<const Unit*>& GetBuildingsInConstruction() {
+        ResetFilteredUnits();
+        FilterByIsBuilding();
+        FilterByIsConstructionNotFinished();
+        return GetSelectedUnits();
+    }
+
+    std::vector<const Unit*>& GetWorkers() {
+        ResetFilteredUnits();
+        FilterByIsWorker();
+        return GetSelectedUnits();
+    }
+
+    const Unit* GetUnitByTag(const Tag UnitTag) {
+        for (const auto& Unit : ControlledUnits) {
+            if (Unit->tag == UnitTag) {
+                return Unit;
+            }
+        }
+        return nullptr;
+    }
+
+    const Unit* GetBuildingByTag(const Tag BuildingTag) {
+        for (const auto& Unit : ControlledUnits) {
+            if (Unit->tag == BuildingTag && IsTerranBuilding(Unit->unit_type.ToType())) {
+                return Unit;
+            }
+        }
+        return nullptr;
+    }
+
+    const Unit* GetIdleWorker() {
+        for (uint16_t Index = 0; Index < UnitTypes.size(); ++Index) {
+            switch (UnitTypes[Index].ToType())
+            case UNIT_TYPEID::TERRAN_SCV:
+                if (ControlledUnits[Index]->orders.empty()) {
+                    return ControlledUnits[Index];
+                }
+                break;
+            continue;
+        }
+        return nullptr;
+    }
+
+    const Unit* GetFirstIdleBarracks() {
+        ResetFilteredUnits();
+        FilterByType(UNIT_TYPEID::TERRAN_BARRACKS);
+        FilterByConstructionIsFinished();
+        std::vector<const Unit*>& Barracks = GetSelectedUnits();
+        for (const Unit* Barrack : Barracks) {
+            if (Barrack->orders.empty()) {
+                return Barrack;
+            }
+        }
+        return nullptr;
     }
 };
 
