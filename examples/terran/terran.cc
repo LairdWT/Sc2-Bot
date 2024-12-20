@@ -88,6 +88,10 @@ void TerranAgent::OnUnitIdle(const sc2::Unit* unit) {
     }
 }
 
+void TerranAgent::OnUnitCreated(const sc2::Unit* unit) {
+    return;
+}
+
 void TerranAgent::UpdateAgentState() {
 
     // Update Unit Counts
@@ -155,6 +159,17 @@ void TerranAgent::AllMarinesAttack() {
 }
 
 void TerranAgent::OnStepBuildUpdate() {
+
+    for (const UNIT_TYPEID UnitType : TERRAN_BUILDING_TYPES) {
+        AgentState.Buildings.SetCurrentlyInConstruction(UnitType, 0);
+    }
+
+    for (const sc2::Unit* unit : ControlledUnits) {
+        if (unit->is_building && !unit->IsBuildFinished()) {
+            AgentState.Buildings.IncrementCurrentlyInConstruction(unit->unit_type.ToType());
+        }
+    }
+
     TryBuildSupplyDepot();
     TryBuildBarracks();
 }
@@ -216,24 +231,13 @@ bool TerranAgent::TryBuildStructure(sc2::ABILITY_ID StructureAbilityId, sc2::UNI
 
 bool TerranAgent::TryBuildSupplyDepot() {
     // Check if we are close to the supply cap
-    if (m_Observation->GetFoodUsed() <= (m_Observation->GetFoodCap() - (m_Observation->GetFoodCap() / 6))) {
+    if (AgentState.Economy.Supply <= (AgentState.Economy.SupplyCap - (AgentState.Economy.SupplyCap / 6))) {
         return false;
     }
 
     // If no barracks exist yet, don't build more supply depots than needed
-    if (AgentState.Buildings.GetBarracksCount() < 1 &&
-        AgentState.Buildings.GetSupplyDepotCount() > 0) {
+    if (AgentState.Buildings.GetBarracksCount() < 1 && AgentState.Buildings.GetSupplyDepotCount() > 0) {
         return false;
-    }
-
-    // check how many supply depots are currently being built
-    AgentState.Buildings.SetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 0);
-    for (const sc2::Unit* unit : ControlledUnits) {
-        for (const sc2::UnitOrder& order : unit->orders) {
-            if (order.ability_id == sc2::ABILITY_ID::BUILD_SUPPLYDEPOT) {
-                AgentState.Buildings.IncrementCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT);
-            }
-        }
     }
 
     // Limit the number of supply depots being built concurrently to avoid over-issuing commands
@@ -243,20 +247,22 @@ bool TerranAgent::TryBuildSupplyDepot() {
         return false;
     }
 
-    return TryBuildStructure(sc2::ABILITY_ID::BUILD_SUPPLYDEPOT, sc2::UNIT_TYPEID::TERRAN_SCV);
+    if (TryBuildStructure(sc2::ABILITY_ID::BUILD_SUPPLYDEPOT, sc2::UNIT_TYPEID::TERRAN_SCV)) {
+        return true;
+    }
+
+    return false;
 }
 
 bool TerranAgent::TryBuildBarracks() {
     // Ensure there are enough supply depots, command centers, and workers before building a barracks
-    if (AgentState.Buildings.GetSupplyDepotCount() < 1 ||
-        AgentState.Buildings.GetTownHallCount() < 1 ||
+    if (AgentState.Buildings.GetSupplyDepotCount() < 1 || AgentState.Buildings.GetTownHallCount() < 1 ||
         AgentState.Units.GetWorkerCount() < 8) {
         return false;
     }
 
     // Ensure there are enough supply depots if building multiple barracks
-    if (AgentState.Buildings.GetSupplyDepotCount() < 2 &&
-        AgentState.Buildings.GetBarracksCount() > 0) {
+    if (AgentState.Buildings.GetSupplyDepotCount() < 2 && AgentState.Buildings.GetBarracksCount() > 0) {
         return false;
     }
 
@@ -270,24 +276,17 @@ bool TerranAgent::TryBuildBarracks() {
         return false;
     }
 
-    // Count the number of barracks currently being built
-    int barracks_in_progress = 0;
-
-    for (const sc2::Unit* unit : ControlledUnits) {
-        for (const sc2::UnitOrder& order : unit->orders) {
-            if (order.ability_id == sc2::ABILITY_ID::BUILD_BARRACKS) {
-                barracks_in_progress++;
-            }
-        }
-    }
-
     // Limit the number of barracks being built concurrently
     const int max_barracks_in_progress = 2;
-    if (barracks_in_progress >= max_barracks_in_progress) {
+    if (AgentState.Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_BARRACKS) >= max_barracks_in_progress) {
         return false;
     }
 
-    return TryBuildStructure(sc2::ABILITY_ID::BUILD_BARRACKS, sc2::UNIT_TYPEID::TERRAN_SCV);
+    if (TryBuildStructure(sc2::ABILITY_ID::BUILD_BARRACKS, sc2::UNIT_TYPEID::TERRAN_SCV)) {
+        return true;
+    }
+
+    return false;
 }
 
 const sc2::Unit* TerranAgent::FindNearestMineralPatch(const sc2::Point2D& Origin) {

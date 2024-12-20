@@ -22,13 +22,15 @@ namespace sc2 {
 
 class TerranAgent : public Agent {
 public:
-    virtual void OnGameStart() final;
+    void OnGameStart() final;
 
-    virtual void OnStep() final;
+    void OnStep() final;
 
-    virtual void OnGameEnd() final;
+    void OnGameEnd() final;
 
-    virtual void OnUnitIdle(const sc2::Unit* unit) final;
+    void OnUnitIdle(const sc2::Unit* unit) final;
+
+    void OnUnitCreated(const sc2::Unit* unit) final;
 
 
     //~ Agent State ~//

@@ -310,6 +310,12 @@ struct FAgentBuildings {
     std::array<uint16_t, NUM_TERRAN_BUILDINGS> CurrentlyInConstruction;
 
     FAgentBuildings() : BuildingCounts{}, CurrentlyInConstruction{} {
+
+        // Initialize the building counts and construction counts to 0
+        for (uint8_t i = 0; i < NUM_TERRAN_BUILDINGS; i++) {
+            BuildingCounts[i] = 0;
+            CurrentlyInConstruction[i] = 0;
+        }
     }
 
     uint16_t GetBuildingCount(const sc2::UNIT_TYPEID BuildingType) const {
@@ -325,7 +331,11 @@ struct FAgentBuildings {
     }
 
     void DecrementBuildingCount(const sc2::UNIT_TYPEID BuildingType) {
-        BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)]--;
+        if (BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)] > 1) {
+            BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)]--;
+            return;
+        }
+        BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)] = 0;
     }
 
     uint16_t GetCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType) const {
@@ -341,7 +351,11 @@ struct FAgentBuildings {
     }
 
     void DecrementCurrentlyInConstruction(const sc2::UNIT_TYPEID BuildingType) {
-        CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)]--;
+        if (CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)] > 1) {
+            CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)]--;
+            return;
+        }
+        CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)] = 0;
     }
 
     bool IsBuildingInConstruction(const sc2::UNIT_TYPEID BuildingType) const {
@@ -544,15 +558,18 @@ struct FAgentState {
                   << " | Starports: " << static_cast<int>(Buildings.GetBuildingCount(UNIT_TYPEID::TERRAN_STARPORT)) << "\n";
         std::cout << std::endl;
 
-        // Opponent Assessment
-        std::cout << "Opponent Assessment: \n";
-        std::cout << "Threat Level: " << Assessments.Opponent.GetThreatLevelAsString() << "\n";
-        std::cout << "Economic Strength: " << Assessments.Opponent.GetEconomicStrengthAsString() << "\n";
-        std::cout << "Military Strength: " << Assessments.Opponent.GetMilitaryStrengthAsString() << "\n";
-        std::cout << "Tech Level: " << Assessments.Opponent.GetTechLevelAsString() << "\n";
-        std::cout << "Map Control: " << Assessments.Opponent.GetMapControlAsString() << "\n";
-        std::cout << "Map Vision: " << Assessments.Opponent.GetMapVisionAsString() << "\n";
-        std::cout << std::endl;
+        // Building Counts and in construction
+        std::cout << "Currently Constructing: \n";
+        std::cout << "Command Centers: "
+                  << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_COMMANDCENTER))
+                  << " | Supply Depots: "
+                  << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT))
+                  << " | Barracks: "
+                  << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_BARRACKS))
+                  << " | Factories: "
+                  << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_FACTORY))
+                  << " | Starports: "
+                  << static_cast<int>(Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_STARPORT)) << "\n";
     }
 };
 
