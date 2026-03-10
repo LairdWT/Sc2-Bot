@@ -2,80 +2,89 @@
 
 ## Scope
 
-This review assumes `Singularity` is the Terran bot wired through `examples/tutorial.cc` and implemented in `examples/terran/terran.h` and `examples/terran/terran.cc`. I did a static code review only; I did not rely on a full local build to reach these findings.
+This review assumes `Singularity` is the Terran bot wired through `examples/tutorial.cc` and implemented in `examples/terran/terran.h` and `examples/terran/terran.cc`. It was refreshed after rebasing local `master` onto `origin/master`, and it reflects the current code at the time of review. This is still a static review; I did not rely on a full local build to reach these findings.
 
 ## Executive Summary
 
-The current bot has the beginnings of the architecture you described: there is a central `FAgentState`, feature layers are enabled in the entry point, and there are renderer helpers that could visualize map textures. In practice, though, the current implementation is still a simple rule bot. The feature-layer data never feeds decisions, the state machine fields stay at their defaults, and several action paths can fight themselves hard enough to stall production or degrade combat behavior.
+The bot is noticeably closer to its stated goals than it was before the rebase. Upstream changes introduced a real structure-of-arrays `FTerranUnitContainer`, static Terran economic tables, and derived counts for units and buildings that are already in construction. Those changes move the project toward the intended data-oriented design.
+
+The main remaining problems are now correctness issues in that new data pipeline and the fact that feature layers still do not influence decisions. The bot still behaves like a rules bot with random targeting rather than a texture-informed state machine, and there are a few concrete bugs that can break production accounting or issue invalid commands.
 
 ## Findings
 
-### 1. High: the build planner can overwrite its own orders in the same frame
+### 1. High: idle barracks fall through into the marine attack case
 
-`OnStepBuildUpdate()` calls `TryBuildSupplyDepot()` and `TryBuildBarracks()` back-to-back, but both functions read from the same stale `ControlledUnits` snapshot (`examples/terran/terran.cc:168-170`). `TryBuildStructure()` then chooses a worker from that snapshot without reserving it for the rest of the frame (`examples/terran/terran.cc:173-225`).
+`OnUnitIdle()` handles `TERRAN_BARRACKS` by calling `TryBuildMarine()`, but there is no `break` before the next `TERRAN_MARINE` case (`examples/terran/terran.cc:68-78`). That means an idle barracks falls through and receives the marine behavior too, which issues `ATTACK_ATTACK` toward `BarracksRally`.
 
-That means the same SCV can be selected twice in one `OnStep()`: first for a depot and then immediately for a barracks, with the second command replacing the first. Because the in-progress counters are also derived from the stale snapshot, they do not protect against this intra-frame conflict (`examples/terran/terran.cc:228-300`).
+At best this produces a steady stream of invalid commands against an immobile production structure. At worst it obscures whether the barracks training logic is behaving correctly, because every idle event mixes a valid production action with an impossible combat order.
 
-Recommended fix: introduce a per-frame reservation set for workers and pending structure intents, or queue build decisions into a command buffer and submit them once after conflict resolution.
+Recommended fix: add an explicit `break` after `TryBuildMarine()` in the barracks case.
 
-### 2. High: the marine attack routine reissues orders every frame and will thrash combat
+### 2. High: build actions still compete for the same worker within one frame
 
-Once the bot reaches 24 marines, `AllMarinesAttack()` runs on every step (`examples/terran/terran.cc:136-166`). It increments `m_CurrentStep` and then sends a fresh `MOVE_MOVE` or `ATTACK_ATTACK` command to every marine every frame, with a new random target each time.
+The new state correctly tracks buildings already under construction, but `OnStepBuildUpdate()` still runs `TryBuildSupplyDepot()` and `TryBuildBarracks()` back-to-back in the same frame (`examples/terran/terran.cc:136-140`). `TryBuildStructure()` uses `AgentState.UnitContainer.GetIdleWorker()` or the same worker snapshot for both decisions, and nothing reserves that worker after the first build command is issued (`examples/terran/terran.cc:142-203`, `examples/common/terran_unit_container.h:648-659`).
 
-In SC2 this kind of action spam usually cancels unit intent before it can complete, which leads to stutter-stepping without purpose, lost focus fire, and poor responsiveness to visible enemies. The comment says "divisible by 5" but the code actually alternates on `% 3`, which suggests the behavior is still exploratory rather than deliberate (`examples/terran/terran.cc:148-149`).
+So the same SCV can still be selected for a depot and then immediately reused for a barracks before the next observation arrives. The new in-construction counters fix inter-frame accounting, but they do not solve this same-frame command conflict.
 
-Recommended fix: only issue a new army command when the strategic target changes, or when a unit has completed or invalidated its current order.
+Recommended fix: add a per-step worker reservation or command-intent buffer so once a worker is chosen for a structure, later build passes cannot reuse it until the next observation.
 
-### 3. Medium: worker mining logic only recognizes one mineral field type
+### 3. Medium: `FTerranUnitContainer::ResetAll()` leaves `UnitBuffs` out of sync
 
-`FindNearestMineralPatch()` only accepts `UNIT_TYPEID::NEUTRAL_MINERALFIELD` (`examples/terran/terran.cc:303-317`). The API already ships a broader mineral predicate in `src/sc2api/sc2_unit_filters.cc:35-48` that covers the common mineral variants, including rich, purifier, lab, and battle station nodes.
+`AddUnit()` appends a new entry to `UnitBuffs` for every unit (`examples/common/terran_unit_container.h:161`), but `ResetAll()` does not clear `UnitBuffs` when the container is rebuilt from a fresh observation (`examples/common/terran_unit_container.h:204-232`).
 
-On maps that expose a different mineral field type, an idle SCV can fail to find a patch and fall into the `ATTACK_ATTACK` fallback in `OnUnitIdle()` (`examples/terran/terran.cc:55-63`). That turns a simple idle-worker recovery path into a possible economy failure.
+That breaks the SoA invariant after the first update: most arrays represent the current frame, while `UnitBuffs` still starts with stale entries from previous frames. Any filter that reads `UnitBuffs[Index]`, such as `FilterByUnitBuffActive()`, will then be working against mismatched data (`examples/common/terran_unit_container.h:470-476`).
+
+Recommended fix: clear `UnitBuffs` inside `ResetAll()` alongside the other per-unit arrays.
+
+### 4. Medium: building counts double-count add-ons as barracks, factories, and starports
+
+The Terran building table includes add-on unit types like `TERRAN_BARRACKSREACTOR`, `TERRAN_BARRACKSTECHLAB`, `TERRAN_FACTORYREACTOR`, and `TERRAN_STARPORTTECHLAB` (`examples/common/terran_models.h:189-220`). `FAgentBuildings::GetBarracksCount()`, `GetFactoryCount()`, and `GetStarportCount()` then sum those add-on entries together with the base production structure counts (`examples/common/bot_status_models.h:381-399`).
+
+That inflates production structure totals as soon as add-ons exist. A single barracks with a tech lab can be represented as both a barracks-related structure and a tech-lab-related structure, which makes the aggregate count look larger than the actual number of production buildings available.
+
+Recommended fix: keep add-ons tracked separately from the parent production structures, or compute production-building totals from the parent structure types only.
+
+### 5. Medium: the feature-layer pipeline is still not operational
+
+The entry point still enables feature layers (`examples/tutorial.cc:21-23`), and `TerranAgent` still caches render and minimap feature-layer pointers (`examples/terran/terran.cc:10-13`, `examples/terran/terran.cc:30-37`). But those textures are not consumed anywhere in the decision loop. The only related logic in `OnStep()` remains commented-out debug rendering.
+
+The new state system is a better data-oriented foundation, but it still derives decisions from raw counts and hard-coded thresholds rather than from map textures, influence data, or real state transitions. That means the core design goal you described is still not implemented, even though the scaffolding is getting stronger.
+
+Recommended fix: add a derived-state pass that turns feature-layer data into compact metrics, then drive strategy and action selection from those metrics instead of bypassing them.
+
+### 6. Medium: build and combat targeting still ignore placement, pathing, and map bounds
+
+The bot still generates build and attack targets by adding only positive random offsets to worker positions, the start location, or the enemy start location (`examples/terran/terran.cc:17-18`, `examples/terran/terran.cc:75-77`, `examples/terran/terran.cc:149-152`, `examples/terran/terran.cc:198-201`). There is still no `Query()->Placement()` validation for structures and no pathing or playable-area clamp for combat targets.
+
+So even after the rebase, the bot can still request off-map targets, blocked build cells, or otherwise invalid positions. Because the logic retries these actions every step, those bad targets can turn into persistent command spam instead of a single failed attempt.
+
+Recommended fix: derive legal target regions from `GameInfo`, clamp randomized positions to the playable rectangle, and validate structure placement before sending the command.
+
+### 7. Medium: worker mining still only recognizes one mineral field type
+
+`FindNearestMineralPatch()` still only accepts `UNIT_TYPEID::NEUTRAL_MINERALFIELD` (`examples/terran/terran.cc:299-313`). The API already provides a broader mineral predicate in `src/sc2api/sc2_unit_filters.cc:35-48` that covers the normal ladder mineral variants.
+
+On maps that expose a different mineral field type, idle SCVs can still miss the nearest patch and fall back to `ATTACK_ATTACK` toward the enemy start location (`examples/terran/terran.cc:57-65`).
 
 Recommended fix: replace the manual equality check with `sc2::IsMineralPatch()`.
 
-### 4. Medium: the state machine and feature-layer pipeline are mostly declarative, not operational
+### 8. Low: the example target is still packaged by including a `.cc` file directly
 
-The entry point enables feature layers (`examples/tutorial.cc:21-23`), and `TerranAgent` stores pointers to both render and minimap feature data (`examples/terran/terran.cc:10-13`, `examples/terran/terran.cc:30-37`). But the bot never reads those textures to derive map control, vision, threat, scouting, or terrain-aware behavior. The only texture-related calls in `OnStep()` are commented-out debug draws.
-
-The same pattern shows up in the "state machine". `FAgentState` defines progression, assessments, and strategy enums (`examples/common/bot_status_models.h:16-37`, `examples/common/bot_status_models.h:268-430`), but `UpdateAgentState()` only populates raw economy and army counts (`examples/terran/terran.cc:89-121`). The higher-level fields remain at constructor defaults, and the action logic bypasses them entirely in favor of direct thresholds and random offsets (`examples/terran/terran.cc:47-80`, `examples/terran/terran.cc:127-170`).
-
-Recommended fix: add a derived-state pass that consumes observation plus feature-layer metrics, then drive build and combat policies exclusively from that derived state.
-
-### 5. Medium: movement and build targets ignore bounds, pathing, and placement validation
-
-Several commands generate positions by adding only positive random offsets to the start or enemy start location (`examples/terran/terran.cc:17-18`, `examples/terran/terran.cc:77-79`, `examples/terran/terran.cc:153-161`, `examples/terran/terran.cc:222-223`). There is no clamp to the playable area, no `Query()->PathingDistance()` check, and no `Query()->Placement()` check before issuing a build.
-
-The result is that orders can be aimed off-map, into blocked terrain, or into invalid build cells, especially on spawns near the upper or right edges of the map. Because the bot retries these actions every step, invalid targets can turn into persistent command spam instead of one clean failure.
-
-Recommended fix: derive legal target positions from `GameInfo`, clamp randomization to the playable rectangle, and validate structure placement before issuing a build command.
-
-### 6. Low: the example packaging is brittle because `tutorial.cc` includes a `.cc` file directly
-
-`examples/tutorial.cc` includes both `terran/terran.h` and `terran/terran.cc` (`examples/tutorial.cc:6-7`). This works for the current example target, but it hides the real source ownership from the build graph and creates an easy future ODR trap if `terran.cc` is ever added as a normal source file as well.
+`examples/tutorial.cc` still includes both `terran/terran.h` and `terran/terran.cc` (`examples/tutorial.cc:6-7`). This works for the current example target, but it still hides source ownership from the build graph and makes future refactors easy to break through duplicate compilation.
 
 Recommended fix: add `terran/terran.cc` to the example target in CMake and include only the header from `tutorial.cc`.
 
-## Architecture Notes
+## What Improved Upstream
 
-### What is already heading in the right direction
-
-- `FAgentState` is a reasonable starting point for a data-oriented blackboard.
-- `tutorial.cc` correctly enables feature layers, which is the right prerequisite for a texture-driven bot.
-- The renderer helpers in `terran.h` are useful for debugging what the bot "sees".
-
-### What is still missing for the stated design goal
-
-- A pass that converts feature-layer textures into compact derived metrics.
-- Real state transitions for progression, assessment, and strategy.
-- A command-intent layer that prevents different systems from fighting over the same unit in the same frame.
-- Bot-specific tests; the repository has framework and feature-layer tests, but nothing exercising `TerranAgent` behavior directly.
+- `FAgentState` now carries economy, unit, and building state through a real update path instead of only ad hoc counters.
+- `FTerranUnitContainer` is a meaningful move toward the project’s data-oriented goal.
+- Construction-in-progress tracking is now explicit for both units and buildings.
+- Marine production is no longer solely dependent on the `OnUnitIdle` callback.
 
 ## Suggested Next Steps
 
-1. Create a per-frame derived-state pipeline:
-   `Observation -> texture metrics -> FAgentState -> action selection`.
-2. Add worker and structure reservations so build decisions cannot overwrite each other within one frame.
-3. Replace the continuous marine command spam with target persistence and event-driven retasking.
-4. Use `IsMineralPatch`, `Query()->Placement()`, and map bounds clamping to harden basic economy and build behavior.
-5. Add small deterministic tests around state derivation and action selection, even if full SC2 integration tests stay expensive.
+1. Fix the barracks fallthrough and the missing `UnitBuffs.clear()` first, because both are correctness bugs in the current implementation.
+2. Add a per-frame command reservation layer so structure-building systems cannot fight over the same SCV.
+3. Separate parent production structures from add-ons in the building aggregates.
+4. Replace random target generation with legal target selection based on map bounds, placement checks, and pathing validation.
+5. Start feeding feature-layer-derived metrics into `FAgentState` so the data-oriented architecture becomes the actual decision engine instead of just a reporting layer.
