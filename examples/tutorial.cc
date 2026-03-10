@@ -1,29 +1,31 @@
 #include <iostream>
+
 #include "sc2api/sc2_api.h"
 #include "sc2renderer/sc2_renderer.h"
 #include "sc2utils/sc2_manage_process.h"
 
 #include "terran/terran.h"
-#include "terran/terran.cc"
 
 #include "common/render_settings.h"
 
 int main(int argc, char* argv[])
 {
-    sc2::TerranAgent Agent;
+    sc2::TerranAgent agent;
 
-    sc2::Coordinator Coordinator;
-    if (!Coordinator.LoadSettings(argc, argv))
+    sc2::Coordinator coordinator;
+    if (!coordinator.LoadSettings(argc, argv))
     {
         return 1;
     }
 
-    static const sc2::FeatureLayerSettings Settings(CAMERA_WIDTH, FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE);
-    Coordinator.SetFeatureLayers(Settings);
-    Coordinator.SetParticipants({CreateParticipant(sc2::Race::Terran, &Agent), CreateComputer(sc2::Race::Random, sc2::Difficulty::Medium)});
-    Coordinator.LaunchStarcraft();
-    Coordinator.StartGame(sc2::kMapBelShirVestigeLE);
-    while (Coordinator.Update())
+    static const sc2::FeatureLayerSettings settings(CAMERA_WIDTH, FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE,
+                                                    FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE);
+    coordinator.SetFeatureLayers(settings);
+    coordinator.SetParticipants(
+        {CreateParticipant(sc2::Race::Terran, &agent), CreateComputer(sc2::Race::Random, sc2::Difficulty::Medium)});
+    coordinator.LaunchStarcraft();
+    coordinator.StartGame(sc2::kMapBelShirVestigeLE);
+    while (coordinator.Update())
     {
         if (sc2::PollKeyPress())
         {

@@ -3,97 +3,88 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <unordered_set>
+#include <vector>
 
-#include "common/logging.h"
-#include "common/render_settings.h"
 #include "common/bot_status_models.h"
 #include "common/economic_models.h"
+#include "common/logging.h"
+#include "common/render_settings.h"
 
-#include "sc2api/sc2_api.h"             // For Agent, ObservationInterface, ABILITY_ID, UNIT_TYPEID, etc.
-#include "sc2api/sc2_client.h"          // For Client and Agent
-#include "sc2api/sc2_common.h"          // For Point2D
-#include "sc2api/sc2_typeenums.h"       // For ABILITY_ID, UNIT_TYPEID
-#include "sc2api/sc2_unit.h"            // For Unit, Units
-#include <sc2api/sc2_unit_filters.h>    // For IsUnit type filter
+#include "sc2api/sc2_api.h"
+#include "sc2api/sc2_client.h"
+#include "sc2api/sc2_common.h"
+#include "sc2api/sc2_typeenums.h"
+#include "sc2api/sc2_unit.h"
+#include "sc2api/sc2_unit_filters.h"
 #include "sc2renderer/sc2_renderer.h"
 #include "sc2utils/sc2_manage_process.h"
 
-namespace sc2 {
+namespace sc2
+{
 
-class TerranAgent : public Agent {
+class TerranAgent : public Agent
+{
 public:
     void OnGameStart() final;
-
     void OnStep() final;
-
     void OnGameEnd() final;
+    void OnUnitIdle(const Unit* UnitPtr) final;
+    void OnUnitCreated(const Unit* UnitPtr) final;
 
-    void OnUnitIdle(const sc2::Unit* unit) final;
-
-    void OnUnitCreated(const sc2::Unit* unit) final;
-
-
-    //~ Agent State ~//
-    void UpdateAgentState();
-
+    void UpdateAgentState(const FFrameContext& Frame);
     void PrintAgentState();
 
-    //~ Unit events
-    inline void OnStepUnitUpdate();
-
-    inline size_t CountUnitType(const sc2::UNIT_TYPEID unit_type) {
-        return m_Observation->GetUnits(sc2::Unit::Alliance::Self, sc2::IsUnit(unit_type)).size();
-    }
+    void ProduceRecoveryIntents(const FFrameContext& Frame);
+    void ProduceStructureBuildIntents(const FFrameContext& Frame);
+    void ProduceUnitProductionIntents(const FFrameContext& Frame);
+    void ProduceArmyIntents(const FFrameContext& Frame);
+    void ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents);
 
     void AllMarinesAttack();
 
-    //~ Build Structure Actions
-    void OnStepBuildUpdate();
-
-    bool TryBuildStructure(sc2::ABILITY_ID StructureAbilityId, sc2::UNIT_TYPEID UnitTypeId);
-
+    bool TryBuildStructure(ABILITY_ID StructureAbilityId, UNIT_TYPEID WorkerTypeId, int Priority);
     bool TryBuildSupplyDepot();
-
     bool TryBuildBarracks();
-
-    //~ Build Unit Actions
-    bool ShouldBuildMarine();
-
+    bool ShouldBuildSCV() const;
+    bool TryBuildSCV();
+    bool ShouldBuildMarine() const;
     bool TryBuildMarine();
+    bool ShouldLaunchMarineAttack() const;
 
-
-    //~ Environment Query
-    const sc2::Unit* FindNearestMineralPatch(const sc2::Point2D& Origin);
+    const Unit* FindNearestMineralPatch(const Point2D& Origin);
+    Point2D GetEnemyTargetLocation() const;
+    Point2D GetRandomPointNear(const Point2D& Origin, float XRadius, float YRadius) const;
 
     Units NeutralUnits;
     Point2D BarracksRally;
-
-    //~ Agent State ~//
     FAgentState AgentState;
+    std::vector<FUnitIntent> ResolvedIntents;
 
 private:
-
-    inline void DrawFeatureLayer1BPP(const SC2APIProtocol::ImageData& image_data, int off_x, int off_y) {
-        renderer::Matrix1BPP(image_data.data().c_str(), image_data.size().x(), image_data.size().y(), off_x, off_y,
-                                  PIXEL_DRAW_SIZE, PIXEL_DRAW_SIZE);
+    inline void DrawFeatureLayer1BPP(const SC2APIProtocol::ImageData& ImageData, int OffsetX, int OffsetY)
+    {
+        renderer::Matrix1BPP(ImageData.data().c_str(), ImageData.size().x(), ImageData.size().y(), OffsetX, OffsetY,
+                             PIXEL_DRAW_SIZE, PIXEL_DRAW_SIZE);
     }
 
-    inline void DrawFeatureLayerUnits8BPP(const SC2APIProtocol::ImageData& image_data, int off_x, int off_y) {
-        renderer::Matrix8BPPPlayers(image_data.data().c_str(), image_data.size().x(), image_data.size().y(), off_x,
-                                         off_y, PIXEL_DRAW_SIZE, PIXEL_DRAW_SIZE);
+    inline void DrawFeatureLayerUnits8BPP(const SC2APIProtocol::ImageData& ImageData, int OffsetX, int OffsetY)
+    {
+        renderer::Matrix8BPPPlayers(ImageData.data().c_str(), ImageData.size().x(), ImageData.size().y(), OffsetX,
+                                    OffsetY, PIXEL_DRAW_SIZE, PIXEL_DRAW_SIZE);
     }
 
-    inline void DrawFeatureLayerHeightMap8BPP(const SC2APIProtocol::ImageData& image_data, int off_x, int off_y) {
-        renderer::Matrix8BPPHeightMap(image_data.data().c_str(), image_data.size().x(), image_data.size().y(),
-                                           off_x, off_y, PIXEL_DRAW_SIZE, PIXEL_DRAW_SIZE);
+    inline void DrawFeatureLayerHeightMap8BPP(const SC2APIProtocol::ImageData& ImageData, int OffsetX, int OffsetY)
+    {
+        renderer::Matrix8BPPHeightMap(ImageData.data().c_str(), ImageData.size().x(), ImageData.size().y(), OffsetX,
+                                      OffsetY, PIXEL_DRAW_SIZE, PIXEL_DRAW_SIZE);
     }
 
-    const ObservationInterface* m_Observation{nullptr};
-    const SC2APIProtocol::Observation* m_RawObservation{nullptr};
-    const SC2APIProtocol::FeatureLayers* m_Render{nullptr};
-    const SC2APIProtocol::FeatureLayersMinimap* m_MinimapRender{nullptr};
-
-    uint64_t m_CurrentStep{0};
+    const ObservationInterface* ObservationPtr{nullptr};
+    uint64_t CurrentStep{0};
+    FIntentBuffer IntentBuffer;
+    FIntentArbiter IntentArbiter;
+    std::unordered_set<Tag> PendingRecoveryWorkers;
 };
 
-}  // end namespace sc2
+}  // namespace sc2

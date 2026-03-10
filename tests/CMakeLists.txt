@@ -12,13 +12,14 @@ set(sc2test_sources
     test_observation_interface.cc
     test_performance.cc
     test_restart.cc
+    test_singularity_framework.cc
     test_snapshots.cc
     test_unit_command_common.cc
     test_unit_command.cc)
 
 add_executable(all_tests ${sc2test_sources})
 
-target_include_directories(all_tests PRIVATE "${PROJECT_SOURCE_DIR}/examples/common")
+target_include_directories(all_tests PRIVATE "${PROJECT_SOURCE_DIR}/examples" "${PROJECT_SOURCE_DIR}/examples/common")
 
 set_target_properties(all_tests PROPERTIES FOLDER tests)
 

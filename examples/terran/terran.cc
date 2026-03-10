@@ -1,316 +1,458 @@
-#pragma once
-
 #include "terran.h"
 
-namespace sc2 {
+namespace sc2
+{
 
-void TerranAgent::OnGameStart() {
-    // sc2::renderer::Initialize("Feature layers", 50, 50, DRAW_SIZE_TWO, DRAW_SIZE_TWO);
+void TerranAgent::OnGameStart()
+{
+    CurrentStep = 0;
+    ObservationPtr = Observation();
+    if (!ObservationPtr)
+    {
+        SCLOG(LoggingVerbosity::error, "ERROR in TerranAgent::OnGameStart() - Observation() is null");
+        return;
+    }
 
-    m_Observation = Observation();
-    m_RawObservation = m_Observation->GetRawObservation();
-    m_Render = &m_RawObservation->feature_layer_data().renders();
-    m_MinimapRender = &m_RawObservation->feature_layer_data().minimap_renders();
+    BarracksRally = GetRandomPointNear(Point2D(ObservationPtr->GetStartLocation()), 5.0f, 5.0f);
 
-    float rx = sc2::GetRandomScalar();
-    float ry = sc2::GetRandomScalar();
-    BarracksRally =
-        sc2::Point2D(m_Observation->GetStartLocation().x + rx * 5.0f, m_Observation->GetStartLocation().y + ry * 5.0f);
-
+    const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
+    UpdateAgentState(Frame);
     PrintAgentState();
 }
 
-void TerranAgent::OnStep() {
-    m_CurrentStep++;
+void TerranAgent::OnStep()
+{
+    ++CurrentStep;
 
-    UpdateAgentState();
-    OnStepUnitUpdate();
-    OnStepBuildUpdate();
+    ObservationPtr = Observation();
+    if (!ObservationPtr)
+    {
+        SCLOG(LoggingVerbosity::error, "ERROR in TerranAgent::OnStep() - Observation() is null");
+        return;
+    }
 
-    m_RawObservation = Observation()->GetRawObservation();
-    m_Render = &m_RawObservation->feature_layer_data().renders();
-    m_MinimapRender = &m_RawObservation->feature_layer_data().minimap_renders();
+    const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
 
-    // DrawFeatureLayerUnits8BPP(m_Render->unit_density(), 0, 0);
-    // DrawFeatureLayer1BPP(m_Render->selected(), DRAW_SIZE, 0);
-    // DrawFeatureLayerHeightMap8BPP(m_MinimapRender->height_map(), 0, DRAW_SIZE);
-    // DrawFeatureLayer1BPP(m_MinimapRender->camera(), DRAW_SIZE, DRAW_SIZE);
+    UpdateAgentState(Frame);
 
-    // sc2::renderer::Render();
-    if (m_CurrentStep % 120 == 0) {
+    IntentBuffer.Reset();
+    ProduceRecoveryIntents(Frame);
+    ProduceStructureBuildIntents(Frame);
+    ProduceUnitProductionIntents(Frame);
+    ProduceArmyIntents(Frame);
+
+    ResolvedIntents = IntentArbiter.Resolve(Frame, AgentState.UnitContainer, IntentBuffer);
+    ExecuteResolvedIntents(Frame, ResolvedIntents);
+
+    if (CurrentStep % 120 == 0)
+    {
         PrintAgentState();
     }
 }
 
-void TerranAgent::OnGameEnd() {
+void TerranAgent::OnGameEnd()
+{
     sc2::renderer::Shutdown();
 }
 
-void TerranAgent::OnUnitIdle(const sc2::Unit* unit) {
-    switch (unit->unit_type.ToType()) {
-        case sc2::UNIT_TYPEID::TERRAN_COMMANDCENTER: {
-            if (CountUnitType(sc2::UNIT_TYPEID::TERRAN_SCV) < 26)
-                Actions()->UnitCommand(unit, sc2::ABILITY_ID::TRAIN_SCV);
-            break;
-        }
-
-        case sc2::UNIT_TYPEID::TERRAN_SCV: {
-            const sc2::Unit* NearestMineralPatch = FindNearestMineralPatch(unit->pos);
-            if (!NearestMineralPatch) {
-                Actions()->UnitCommand(unit, sc2::ABILITY_ID::ATTACK_ATTACK,
-                                       m_Observation->GetGameInfo().enemy_start_locations.front());
-                break;
-            }
-            Actions()->UnitCommand(unit, sc2::ABILITY_ID::SMART, NearestMineralPatch);
-            break;
-        }
-
-        case sc2::UNIT_TYPEID::TERRAN_BARRACKS: {
-            TryBuildMarine();
-        }
-
-        case sc2::UNIT_TYPEID::TERRAN_MARINE: {
-            float rx = sc2::GetRandomScalar();
-            float ry = sc2::GetRandomScalar();
-            BarracksRally = sc2::Point2D(m_Observation->GetStartLocation().x + rx * 15.0f,
-                                         m_Observation->GetStartLocation().y + ry * 15.0f);
-            Actions()->UnitCommand(unit, sc2::ABILITY_ID::ATTACK_ATTACK, BarracksRally);
-            break;
-        }
-
-        default: {
-            break;
-        }
-    }
-}
-
-void TerranAgent::OnUnitCreated(const sc2::Unit* unit) {
-    return;
-}
-
-void TerranAgent::UpdateAgentState() {
-    if (!m_Observation) {
-        SCLOG(LoggingVerbosity::error, "ERROR in TerranAgent::OnStepUnitUpdate() - m_Observation is null");
+void TerranAgent::OnUnitIdle(const Unit* UnitPtr)
+{
+    if (!UnitPtr)
+    {
         return;
     }
-    NeutralUnits = m_Observation->GetUnits(Unit::Alliance::Neutral);
 
-    AgentState.Update(m_Observation);
+    if (UnitPtr->unit_type.ToType() == UNIT_TYPEID::TERRAN_SCV)
+    {
+        PendingRecoveryWorkers.insert(UnitPtr->tag);
+    }
 }
 
-void TerranAgent::PrintAgentState() {
+void TerranAgent::OnUnitCreated(const Unit* UnitPtr)
+{
+    (void)UnitPtr;
+}
+
+void TerranAgent::UpdateAgentState(const FFrameContext& Frame)
+{
+    if (!Frame.Observation)
+    {
+        SCLOG(LoggingVerbosity::error, "ERROR in TerranAgent::UpdateAgentState() - observation is null");
+        return;
+    }
+
+    NeutralUnits = Frame.Observation->GetUnits(Unit::Alliance::Neutral);
+    AgentState.Update(Frame);
+}
+
+void TerranAgent::PrintAgentState()
+{
     AgentState.PrintStatus();
 }
 
-void TerranAgent::OnStepUnitUpdate() {
-    if (AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE) >= 24) {
+void TerranAgent::ProduceRecoveryIntents(const FFrameContext& Frame)
+{
+    (void)Frame;
+
+    std::unordered_set<Tag> RecoveryCandidates = std::move(PendingRecoveryWorkers);
+    PendingRecoveryWorkers.clear();
+
+    for (const Unit* Worker : AgentState.UnitContainer.GetWorkers())
+    {
+        if (Worker && Worker->orders.empty())
+        {
+            RecoveryCandidates.insert(Worker->tag);
+        }
+    }
+
+    for (Tag WorkerTag : RecoveryCandidates)
+    {
+        const Unit* Worker = AgentState.UnitContainer.GetUnitByTag(WorkerTag);
+        if (!Worker || !Worker->orders.empty())
+        {
+            continue;
+        }
+
+        const Unit* NearestMineralPatch = FindNearestMineralPatch(Worker->pos);
+        if (NearestMineralPatch)
+        {
+            IntentBuffer.Add(FUnitIntent::CreateUnitTarget(Worker->tag, ABILITY_ID::SMART, NearestMineralPatch->tag,
+                                                           300, EIntentDomain::Recovery));
+            continue;
+        }
+
+        IntentBuffer.Add(FUnitIntent::CreatePointTarget(Worker->tag, ABILITY_ID::ATTACK_ATTACK,
+                                                        GetEnemyTargetLocation(), 300,
+                                                        EIntentDomain::Recovery, true));
+    }
+}
+
+void TerranAgent::ProduceStructureBuildIntents(const FFrameContext& Frame)
+{
+    (void)Frame;
+    TryBuildSupplyDepot();
+    TryBuildBarracks();
+}
+
+void TerranAgent::ProduceUnitProductionIntents(const FFrameContext& Frame)
+{
+    (void)Frame;
+    TryBuildSCV();
+    TryBuildMarine();
+}
+
+void TerranAgent::ProduceArmyIntents(const FFrameContext& Frame)
+{
+    (void)Frame;
+    if (ShouldLaunchMarineAttack())
+    {
         AllMarinesAttack();
     }
 }
 
-void TerranAgent::AllMarinesAttack() {
-    sc2::Units Marines = m_Observation->GetUnits(sc2::Unit::Alliance::Self,
-                                                    sc2::IsUnit(sc2::UNIT_TYPEID::TERRAN_MARINE));
-    for (const sc2::Unit* Marine : Marines) {
-        
-        // if current step is divisible by 5, move to a random location
-        if (m_CurrentStep % 3 == 1) {
+void TerranAgent::ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents)
+{
+    (void)Frame;
 
-            float rx = sc2::GetRandomScalar();
-            float ry = sc2::GetRandomScalar();
-            sc2::Point2D MoveLocation =
-                sc2::Point2D(rx * 20.0f, ry * 5.0f) + m_Observation->GetGameInfo().enemy_start_locations.front();
-
-            Actions()->UnitCommand(Marine, sc2::ABILITY_ID::MOVE_MOVE, MoveLocation);
-        } else {
-            float rx = sc2::GetRandomScalar();
-            float ry = sc2::GetRandomScalar();
-            sc2::Point2D AttackLocation =
-                sc2::Point2D(rx * 15.0f, ry * 15.0f) + m_Observation->GetGameInfo().enemy_start_locations.front();
-
-            Actions()->UnitCommand(Marine, sc2::ABILITY_ID::ATTACK_ATTACK, AttackLocation);
+    for (const FUnitIntent& Intent : Intents)
+    {
+        switch (Intent.TargetKind)
+        {
+            case EIntentTargetKind::None:
+                Actions()->UnitCommand(Intent.ActorTag, Intent.Ability, Intent.Queued);
+                break;
+            case EIntentTargetKind::Point:
+                Actions()->UnitCommand(Intent.ActorTag, Intent.Ability, Intent.TargetPoint, Intent.Queued);
+                break;
+            case EIntentTargetKind::Unit:
+                Actions()->UnitCommand(Intent.ActorTag, Intent.Ability, Intent.TargetUnitTag, Intent.Queued);
+                break;
+            default:
+                break;
         }
     }
 }
 
-void TerranAgent::OnStepBuildUpdate() {
-    TryBuildSupplyDepot();
-    TryBuildMarine();
-    TryBuildBarracks();
+void TerranAgent::AllMarinesAttack()
+{
+    if (!ObservationPtr)
+    {
+        return;
+    }
+
+    const Units Marines = ObservationPtr->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_MARINE));
+    const bool HasEnemyContact = AgentState.SpatialMetrics.Map.HasEnemy || AgentState.SpatialMetrics.Minimap.HasEnemy;
+    const Point2D EnemyTarget = GetEnemyTargetLocation();
+
+    for (const Unit* Marine : Marines)
+    {
+        if (!Marine || Marine->build_progress < 1.0f)
+        {
+            continue;
+        }
+
+        const bool UseDirectAttack = HasEnemyContact || (CurrentStep % 3 != 1);
+        const Point2D Target = UseDirectAttack ? GetRandomPointNear(EnemyTarget, 15.0f, 15.0f)
+                                                 : GetRandomPointNear(EnemyTarget, 20.0f, 5.0f);
+        const AbilityID Ability = UseDirectAttack ? ABILITY_ID::ATTACK_ATTACK : ABILITY_ID::MOVE_MOVE;
+
+        IntentBuffer.Add(FUnitIntent::CreatePointTarget(Marine->tag, Ability, Target, 50,
+                                                        EIntentDomain::ArmyCombat, true));
+    }
 }
 
-bool TerranAgent::TryBuildStructure(sc2::ABILITY_ID StructureAbilityId, sc2::UNIT_TYPEID UnitTypeId) {
-    const sc2::Unit* UnitToBuild = nullptr;
-    float ShortestDistance = std::numeric_limits<float>::max();
-    sc2::Point2D BuildPosition = sc2::Point2D(50.0f, 50.0f);
+bool TerranAgent::TryBuildStructure(ABILITY_ID StructureAbilityId, UNIT_TYPEID WorkerTypeId, int Priority)
+{
+    const Point2D BuildAnchor = ObservationPtr ? Point2D(ObservationPtr->GetStartLocation()) : Point2D();
 
-    UnitToBuild = AgentState.UnitContainer.GetIdleWorker();
-    if (UnitToBuild) {
-        float rx = sc2::GetRandomScalar();
-        float ry = sc2::GetRandomScalar();
-        Actions()->UnitCommand(UnitToBuild, StructureAbilityId,
-                               sc2::Point2D(UnitToBuild->pos.x + rx * 15.0f, UnitToBuild->pos.y + ry * 15.0f));
-        return true;
-    }
+    const Unit* IdleWorker = nullptr;
+    const Unit* GatheringWorker = nullptr;
+    const Unit* FallbackWorker = nullptr;
+    float GatheringDistance = std::numeric_limits<float>::max();
+    float FallbackDistance = std::numeric_limits<float>::max();
 
-    std::vector<const sc2::Unit*>& Workers = AgentState.UnitContainer.GetWorkers();
-    for (const sc2::Unit* ControlledUnit : Workers) {
-        if (ControlledUnit->unit_type == UnitTypeId && ControlledUnit->orders.empty()) {
-            float distance = sc2::DistanceSquared2D(ControlledUnit->pos, BuildPosition);
-            if (distance < ShortestDistance) {
-                UnitToBuild = ControlledUnit;
-                ShortestDistance = distance;
+    for (const Unit* Worker : AgentState.UnitContainer.GetWorkers())
+    {
+        if (!Worker || Worker->unit_type.ToType() != WorkerTypeId)
+        {
+            continue;
+        }
+        if (IntentBuffer.HasIntentForActorInDomain(Worker->tag, EIntentDomain::StructureBuild))
+        {
+            continue;
+        }
+
+        if (Worker->orders.empty())
+        {
+            IdleWorker = Worker;
+            break;
+        }
+
+        const float DistanceValue = DistanceSquared2D(Worker->pos, BuildAnchor);
+        if (Worker->orders.front().ability_id == ABILITY_ID::HARVEST_GATHER)
+        {
+            if (!GatheringWorker || DistanceValue < GatheringDistance)
+            {
+                GatheringWorker = Worker;
+                GatheringDistance = DistanceValue;
             }
+            continue;
+        }
+
+        if (!FallbackWorker || DistanceValue < FallbackDistance)
+        {
+            FallbackWorker = Worker;
+            FallbackDistance = DistanceValue;
         }
     }
 
-    if (!UnitToBuild) {
-        for (const sc2::Unit* ControlledUnit : Workers) {
-            if (ControlledUnit->unit_type == UnitTypeId) {
-                if (!ControlledUnit->orders.empty() &&
-                    ControlledUnit->orders[0].ability_id == sc2::ABILITY_ID::HARVEST_GATHER) {
-                    float distance = sc2::DistanceSquared2D(ControlledUnit->pos, BuildPosition);
-                    if (distance < ShortestDistance) {
-                        UnitToBuild = ControlledUnit;
-                        ShortestDistance = distance;
-                    }
-                }
-            }
-        }
-    }
-
-    if (!UnitToBuild) {
-        for (const sc2::Unit* ControlledUnit : Workers) {
-            if (ControlledUnit->unit_type == UnitTypeId) {
-                float distance = sc2::DistanceSquared2D(ControlledUnit->pos, BuildPosition);
-                if (distance < ShortestDistance) {
-                    UnitToBuild = ControlledUnit;
-                    ShortestDistance = distance;
-                }
-            }
-        }
-    }
-
-    if (!UnitToBuild) {
+    const Unit* WorkerToBuild = IdleWorker ? IdleWorker : (GatheringWorker ? GatheringWorker : FallbackWorker);
+    if (!WorkerToBuild)
+    {
         return false;
     }
 
-    float rx = sc2::GetRandomScalar();
-    float ry = sc2::GetRandomScalar();
-    Actions()->UnitCommand(UnitToBuild, StructureAbilityId,
-                            sc2::Point2D(UnitToBuild->pos.x + rx * 15.0f, UnitToBuild->pos.y + ry * 15.0f));
+    const float BuildSpread = StructureAbilityId == ABILITY_ID::BUILD_SUPPLYDEPOT ? 10.0f : 14.0f;
+    IntentBuffer.Add(FUnitIntent::CreatePointTarget(WorkerToBuild->tag, StructureAbilityId,
+                                                    GetRandomPointNear(Point2D(WorkerToBuild->pos), BuildSpread,
+                                                                       BuildSpread),
+                                                    Priority, EIntentDomain::StructureBuild, false, true));
     return true;
 }
 
-bool TerranAgent::TryBuildSupplyDepot() {
-    // Check if we are close to the supply cap
-    if (AgentState.Economy.SupplyCap >= 200) {
+bool TerranAgent::TryBuildSupplyDepot()
+{
+    if (AgentState.Economy.SupplyCap >= 200)
+    {
         return false;
     }
 
-    if (AgentState.Economy.Supply <= (AgentState.Economy.SupplyCap - (AgentState.Economy.SupplyCap / 6))) {
+    if (AgentState.Economy.Supply <= (AgentState.Economy.SupplyCap - (AgentState.Economy.SupplyCap / 6)))
+    {
         return false;
     }
 
-    // If no barracks exist yet, don't build more supply depots than needed
-    if (AgentState.Buildings.GetBarracksCount() < 1 && AgentState.Buildings.GetSupplyDepotCount() > 0) {
+    if (AgentState.Buildings.GetBarracksCount() < 1 && AgentState.Buildings.GetSupplyDepotCount() > 0)
+    {
         return false;
     }
 
-    // Limit the number of supply depots being built concurrently to avoid over-issuing commands
-    const int max_supply_depots_in_progress = 2;
+    const int MaxSupplyDepotsInProgress = 2;
     if (AgentState.Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT) >=
-        max_supply_depots_in_progress) {
+        MaxSupplyDepotsInProgress)
+    {
         return false;
     }
 
-    if (TryBuildStructure(sc2::ABILITY_ID::BUILD_SUPPLYDEPOT, sc2::UNIT_TYPEID::TERRAN_SCV)) {
-        return true;
-    }
-
-    return false;
+    return TryBuildStructure(ABILITY_ID::BUILD_SUPPLYDEPOT, UNIT_TYPEID::TERRAN_SCV, 220);
 }
 
-bool TerranAgent::TryBuildBarracks() {
-    // Ensure there are enough supply depots, command centers, and workers before building a barracks
+bool TerranAgent::TryBuildBarracks()
+{
     if (AgentState.Buildings.GetSupplyDepotCount() < 1 || AgentState.Buildings.GetTownHallCount() < 1 ||
-        AgentState.Units.GetWorkerCount() < 8) {
+        AgentState.Units.GetWorkerCount() < 8)
+    {
         return false;
     }
 
-    // Ensure there are enough supply depots if building multiple barracks
-    if (AgentState.Buildings.GetSupplyDepotCount() < 2 && AgentState.Buildings.GetBarracksCount() > 0) {
+    if (AgentState.Buildings.GetSupplyDepotCount() < 2 && AgentState.Buildings.GetBarracksCount() > 0)
+    {
         return false;
     }
 
-    // Avoid building too many barracks if mineral count is low
-    if (AgentState.Buildings.GetBarracksCount() > 4 && AgentState.Economy.Minerals < 600) {
+    if (AgentState.Buildings.GetBarracksCount() > 4 && AgentState.Economy.Minerals < 600)
+    {
         return false;
     }
 
-    // Prevent nearly getting supply blocked before building a barracks
-    if (m_Observation->GetFoodCap() - m_Observation->GetFoodUsed() < 2) {
+    if (AgentState.Economy.SupplyAvailable < 2)
+    {
         return false;
     }
 
-    // Limit the number of barracks being built concurrently
-    const int max_barracks_in_progress = 2;
-    if (AgentState.Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_BARRACKS) >= max_barracks_in_progress) {
+    const int MaxBarracksInProgress = 2;
+    if (AgentState.Buildings.GetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_BARRACKS) >= MaxBarracksInProgress)
+    {
         return false;
     }
 
-    if (TryBuildStructure(sc2::ABILITY_ID::BUILD_BARRACKS, sc2::UNIT_TYPEID::TERRAN_SCV)) {
-        return true;
-    }
-
-    return false;
+    return TryBuildStructure(ABILITY_ID::BUILD_BARRACKS, UNIT_TYPEID::TERRAN_SCV, 180);
 }
 
-bool TerranAgent::ShouldBuildMarine() {
-    if (AgentState.Economy.Minerals < 51) {
+bool TerranAgent::ShouldBuildSCV() const
+{
+    if (AgentState.Economy.Minerals < 50)
+    {
         return false;
     }
 
-    if (AgentState.Economy.SupplyAvailable < 1) {
+    if (AgentState.Economy.SupplyAvailable < 1)
+    {
         return false;
     }
 
-    if (AgentState.Buildings.GetBarracksCount() < 1) {
+    const uint16_t TownHallCount = AgentState.Buildings.GetTownHallCount();
+    if (TownHallCount < 1)
+    {
+        return false;
+    }
+
+    const uint16_t TargetWorkerCount = static_cast<uint16_t>(TownHallCount * 26);
+    return AgentState.Units.GetWorkerCount() + AgentState.Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_SCV) <
+           TargetWorkerCount;
+}
+
+bool TerranAgent::TryBuildSCV()
+{
+    if (!ShouldBuildSCV())
+    {
+        return false;
+    }
+
+    const Unit* TownHall = AgentState.UnitContainer.GetFirstIdleTownHall();
+    if (!TownHall || IntentBuffer.HasIntentForActorInDomain(TownHall->tag, EIntentDomain::UnitProduction))
+    {
+        return false;
+    }
+
+    IntentBuffer.Add(FUnitIntent::CreateNoTarget(TownHall->tag, ABILITY_ID::TRAIN_SCV, 140,
+                                                 EIntentDomain::UnitProduction));
+    return true;
+}
+
+bool TerranAgent::ShouldBuildMarine() const
+{
+    if (AgentState.Economy.Minerals < 50)
+    {
+        return false;
+    }
+
+    if (AgentState.Economy.SupplyAvailable < 1)
+    {
+        return false;
+    }
+
+    if (AgentState.Buildings.GetBarracksCount() < 1)
+    {
         return false;
     }
 
     return true;
 }
 
-bool TerranAgent::TryBuildMarine() {
-    if (!ShouldBuildMarine()) {
+bool TerranAgent::TryBuildMarine()
+{
+    if (!ShouldBuildMarine())
+    {
         return false;
     }
 
-    const sc2::Unit* Barracks = AgentState.UnitContainer.GetFirstIdleBarracks();
-    if (!Barracks) {
+    const Unit* Barracks = AgentState.UnitContainer.GetFirstIdleBarracks();
+    if (!Barracks || IntentBuffer.HasIntentForActorInDomain(Barracks->tag, EIntentDomain::UnitProduction))
+    {
         return false;
     }
 
-    Actions()->UnitCommand(Barracks, sc2::ABILITY_ID::TRAIN_MARINE);
+    IntentBuffer.Add(FUnitIntent::CreateNoTarget(Barracks->tag, ABILITY_ID::TRAIN_MARINE, 120,
+                                                 EIntentDomain::UnitProduction));
     return true;
 }
 
-const sc2::Unit* TerranAgent::FindNearestMineralPatch(const sc2::Point2D& Origin) {
+bool TerranAgent::ShouldLaunchMarineAttack() const
+{
+    if (AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE) < 24)
+    {
+        return false;
+    }
+
+    const bool HasEnemyContact = AgentState.SpatialMetrics.Map.HasEnemy || AgentState.SpatialMetrics.Minimap.HasEnemy;
+    const uint64_t Cadence = HasEnemyContact ? 6 : 12;
+    return Cadence > 0 && (CurrentStep % Cadence) == 0;
+}
+
+const Unit* TerranAgent::FindNearestMineralPatch(const Point2D& Origin)
+{
     float NearestDistance = std::numeric_limits<float>::max();
-    const sc2::Unit* Target = nullptr;
+    const Unit* Target = nullptr;
+    const IsMineralPatch MineralFilter;
 
-    for (const sc2::Unit* NeutralUnit : NeutralUnits) {
-        if (NeutralUnit->unit_type == sc2::UNIT_TYPEID::NEUTRAL_MINERALFIELD) {
-            sc2::Point2D Diff = NeutralUnit->pos - Origin;
-            float Distance = sc2::Dot2D(Diff, Diff);
-            if (Distance <= NearestDistance) {
-                NearestDistance = Distance;
-                Target = NeutralUnit;
-            }
+    for (const Unit* NeutralUnit : NeutralUnits)
+    {
+        if (!NeutralUnit || !MineralFilter(*NeutralUnit))
+        {
+            continue;
+        }
+
+        const Point2D Diff = Point2D(NeutralUnit->pos) - Origin;
+        const float DistanceValue = Dot2D(Diff, Diff);
+        if (DistanceValue <= NearestDistance)
+        {
+            NearestDistance = DistanceValue;
+            Target = NeutralUnit;
         }
     }
+
     return Target;
 }
 
-}  // end namespace sc2
+Point2D TerranAgent::GetEnemyTargetLocation() const
+{
+    if (ObservationPtr && !ObservationPtr->GetGameInfo().enemy_start_locations.empty())
+    {
+        return ObservationPtr->GetGameInfo().enemy_start_locations.front();
+    }
+
+    if (ObservationPtr)
+    {
+        return Point2D(ObservationPtr->GetStartLocation());
+    }
+
+    return Point2D();
+}
+
+Point2D TerranAgent::GetRandomPointNear(const Point2D& Origin, float XRadius, float YRadius) const
+{
+    return Point2D(Origin.x + GetRandomScalar() * XRadius, Origin.y + GetRandomScalar() * YRadius);
+}
+
+}  // namespace sc2

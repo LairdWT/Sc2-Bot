@@ -8,7 +8,7 @@ function (example_project_extra project_name source_code extra_libs)
 
     add_executable(${project_name} ${example_project_sources})
 
-    target_include_directories(${project_name} PRIVATE common)
+    target_include_directories(${project_name} PRIVATE . common terran)
 
     set_target_properties(${project_name} PROPERTIES FOLDER examples)
 
@@ -34,5 +34,5 @@ endfunction ()
 if (BUILD_SC2_RENDERER)
     # example_project_extra(feature_layers feature_layers.cc sc2renderer)
     # example_project_extra(rendered rendered.cc sc2renderer)
-    example_project_extra(tutorial tutorial.cc sc2renderer)
+    example_project_extra(tutorial "tutorial.cc;terran/terran.cc" sc2renderer)
 endif ()

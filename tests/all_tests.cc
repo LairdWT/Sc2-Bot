@@ -12,28 +12,31 @@
 #include "test_performance.h"
 #include "test_rendered.h"
 #include "test_restart.h"
+#include "test_singularity_framework.h"
 #include "test_snapshots.h"
 #include "test_unit_command.h"
 
-// Tests. Easier to extern than create a .h for a single function prototype.
-namespace sc2 {
+namespace sc2
+{
 bool TestAbilityRemap(int argc, char** argv);
 }
 
 #define TEST(X)                                                    \
     std::cout << "Running test: " << #X << std::endl;              \
-    if (X(argc, argv)) {                                           \
+    if (X(argc, argv))                                             \
+    {                                                              \
         std::cout << "Test: " << #X << " succeeded." << std::endl; \
-    } else {                                                       \
+    }                                                              \
+    else                                                           \
+    {                                                              \
         success = false;                                           \
         std::cerr << "Test: " << #X << " failed!" << std::endl;    \
     }
 
-//*************************************************************************************************
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
     bool success = true;
 
-    // Add tests here.
     TEST(sc2::TestAbilityRemap);
     TEST(sc2::TestSnapshots);
     TEST(sc2::TestMultiplayer);
@@ -42,22 +45,27 @@ int main(int argc, char* argv[]) {
     TEST(sc2::TestUnitCommand);
     TEST(sc2::TestPerformance);
     TEST(sc2::TestObservationInterface);
-    // TEST(sc2::TestObservationActions);
+    TEST(sc2::TestSingularityFramework);
 
 #ifdef BUILD_SC2_RENDERER
     TEST(sc2::TestRendered);
 #endif
 
     if (success)
+    {
         std::cout << "All tests succeeded!" << std::endl;
+    }
     else
+    {
         std::cerr << "Some tests failed!" << std::endl;
+    }
 
-    if (sc2::IsInDebugger()) {
-        // When debugging, this prevents the console from disappearing before it can be read.
+    if (sc2::IsInDebugger())
+    {
         std::cout << "Hit any key to exit..." << std::endl;
         while (!sc2::PollKeyPress())
-            ;
+        {
+        }
     }
 
     return success ? 0 : -1;
