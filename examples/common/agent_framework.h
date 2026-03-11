@@ -269,7 +269,7 @@ struct FAgentSpatialChannels
             return;
         }
 
-        const SC2APIProtocol::ObservationFeatureLayer& FeatureLayerData = Frame.RawObservation->FeatureLayerData();
+        const SC2APIProtocol::ObservationFeatureLayer& FeatureLayerData = Frame.RawObservation->feature_layer_data();
         if (!FeatureLayerData.has_renders() || !FeatureLayerData.has_minimap_renders())
         {
             return;

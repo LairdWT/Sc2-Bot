@@ -13,14 +13,6 @@ set(CIVETWEB_ENABLE_WEBSOCKETS ON CACHE BOOL "" FORCE)
 # Disable IPv6 as we use only IPv4
 set(CIVETWEB_ENABLE_IPV6 OFF CACHE BOOL "" FORCE)
 
-# Apply source code tweaks
-set(workdir "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/civetweb")
-set(civetweb_patches
-    "${CMAKE_CURRENT_LIST_DIR}/0001-Setting-TCP_NODELAY-on-outbound-connections.patch"
-    "${CMAKE_CURRENT_LIST_DIR}/0002-Moving-include-CTest-into-if-testing-guard.patch"
-)
-set(patch_executor git apply --ignore-whitespace ${civetweb_patches})
-
 if (APPLE)
     add_compile_options(
         -Wno-expansion-to-defined
@@ -32,13 +24,19 @@ if (APPLE)
     )
 endif ()
 
+# Civetweb v1.15 already contains the local patch changes that were
+# historically applied here. Set a minimum policy version only while
+# adding the third-party project so CMake 4.x accepts its older policy
+# declarations without changing the fetched source.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 FetchContent_Declare(
     civetweb
     GIT_REPOSITORY https://github.com/civetweb/civetweb.git
     GIT_TAG v1.15
-    PATCH_COMMAND ${patch_executor}
 )
 FetchContent_MakeAvailable(civetweb)
+unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 set_target_properties(civetweb-c-library PROPERTIES FOLDER contrib)
 

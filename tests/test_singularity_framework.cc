@@ -10,6 +10,7 @@
 #include "common/bot_status_models.h"
 #include "common/terran_unit_container.h"
 #include "sc2api/sc2_api.h"
+#include "sc2api/sc2_score.h"
 
 namespace sc2
 {

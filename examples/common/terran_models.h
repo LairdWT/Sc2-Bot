@@ -34,7 +34,7 @@ static constexpr UNIT_TYPEID TERRAN_UNIT_TYPES[NUM_TERRAN_UNITS] = {
     UNIT_TYPEID::TERRAN_VIKINGFIGHTER
 };
 
-uint8_t GetTerranUnitTypeIndex(const UNIT_TYPEID UnitType) {
+inline uint8_t GetTerranUnitTypeIndex(const UNIT_TYPEID UnitType) {
     switch (UnitType) {
         case UNIT_TYPEID::TERRAN_MARINE:
             return 0;
@@ -90,7 +90,7 @@ uint8_t GetTerranUnitTypeIndex(const UNIT_TYPEID UnitType) {
     }
 }
 
-bool IsTerranUnit(const UNIT_TYPEID UnitType) {
+inline bool IsTerranUnit(const UNIT_TYPEID UnitType) {
     switch (UnitType) {
         case UNIT_TYPEID::TERRAN_MARINE:
         case UNIT_TYPEID::TERRAN_MARAUDER:
@@ -123,7 +123,7 @@ bool IsTerranUnit(const UNIT_TYPEID UnitType) {
     }
 }
 
-bool IsTrainTerranUnit(const ABILITY_ID Order) {
+inline bool IsTrainTerranUnit(const ABILITY_ID Order) {
     switch (Order) {
         case ABILITY_ID::TRAIN_MARINE:
         case ABILITY_ID::TRAIN_MARAUDER:
@@ -147,7 +147,7 @@ bool IsTrainTerranUnit(const ABILITY_ID Order) {
     }
 }
 
-UNIT_TYPEID TerranUnitTrainToUnitType(const ABILITY_ID Order) {
+inline UNIT_TYPEID TerranUnitTrainToUnitType(const ABILITY_ID Order) {
     switch (Order) {
         case ABILITY_ID::TRAIN_MARINE:
             return UNIT_TYPEID::TERRAN_MARINE;
@@ -219,7 +219,7 @@ static constexpr UNIT_TYPEID TERRAN_BUILDING_TYPES[NUM_TERRAN_BUILDINGS] = {
     UNIT_TYPEID::TERRAN_TECHLAB
 };
 
-uint8_t GetTerranBuildingTypeIndex(const UNIT_TYPEID BuildingType) {
+inline uint8_t GetTerranBuildingTypeIndex(const UNIT_TYPEID BuildingType) {
     switch (BuildingType) {
         case UNIT_TYPEID::TERRAN_ARMORY:
             return 0;
@@ -285,7 +285,7 @@ uint8_t GetTerranBuildingTypeIndex(const UNIT_TYPEID BuildingType) {
     }
 }
 
-bool IsTerranBuilding(const UNIT_TYPEID BuildingType) {
+inline bool IsTerranBuilding(const UNIT_TYPEID BuildingType) {
     switch (BuildingType) {
         case UNIT_TYPEID::TERRAN_ARMORY:
         case UNIT_TYPEID::TERRAN_BARRACKS:
@@ -353,7 +353,7 @@ static constexpr ABILITY_ID TERRAN_RESEARCH_UPGRADE_TYPES[NUM_TERRAN_UPGRADES] =
     ABILITY_ID::RESEARCH_BATTLECRUISERWEAPONREFIT
 };
 
-uint8_t GetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType) {
+inline uint8_t GetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType) {
     switch (UpgradeType) {
         case ABILITY_ID::RESEARCH_STIMPACK: return 0;
         case ABILITY_ID::RESEARCH_COMBATSHIELD: return 1;
