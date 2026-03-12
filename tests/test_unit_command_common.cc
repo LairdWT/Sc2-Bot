@@ -196,6 +196,10 @@ void TestUnitCommandNoTarget::IssueUnitCommand(ActionInterface* act) {
         return;
     }
 
+    if (!test_unit_ || test_units_.empty()) {
+        return;
+    }
+
     VerifyOwnerOfUnits(test_units_);
 
     if (test_units_.size() > 1) {
@@ -223,6 +227,10 @@ void TestUnitCommandTargetingPoint::IssueUnitCommand(ActionInterface* act) {
     }
 
     if (ability_command_sent_) {
+        return;
+    }
+
+    if (!test_unit_ || test_units_.empty()) {
         return;
     }
 
@@ -269,6 +277,10 @@ void TestUnitCommandTargetingUnit::IssueUnitCommand(ActionInterface* act) {
         if (unit->unit_type == target_unit_type_) {
             target_unit_ = unit;
         }
+    }
+
+    if (!test_unit_ || test_units_.empty() || !target_unit_) {
+        return;
     }
 
     VerifyOwnerOfUnits(test_units_);

@@ -7,6 +7,7 @@ set(sc2test_sources
     test_feature_layer_mp.cc
     test_feature_layer.cc
     test_framework.cc
+    test_map_paths.cc
     test_movement_combat.cc
     test_multiplayer.cc
     test_observation_interface.cc

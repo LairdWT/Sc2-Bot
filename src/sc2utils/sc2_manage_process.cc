@@ -65,6 +65,56 @@
 
 namespace sc2 {
 
+namespace {
+
+#if defined(_WIN32)
+static constexpr char kPathSeparator = '\\';
+#else
+static constexpr char kPathSeparator = '/';
+#endif
+
+static std::string GetParentDirectory(const std::string& Path) {
+    const std::size_t LastSeparatorIndex = Path.find_last_of("/\\");
+    if (LastSeparatorIndex == std::string::npos) {
+        return std::string();
+    }
+
+    return Path.substr(0, LastSeparatorIndex);
+}
+
+static std::string BuildMapsDirectory(const std::string& RootDirectory) {
+    if (RootDirectory.empty()) {
+        return std::string();
+    }
+
+    return RootDirectory + kPathSeparator + "maps" + kPathSeparator;
+}
+
+static bool IsLibraryMapsDirectory(const std::string& MapsDirectory) {
+    return DoesFileExist(MapsDirectory + "Test/Empty.SC2Map");
+}
+
+static std::string FindLibraryMapsDirectory(const std::string& ExePath) {
+    std::string SearchDirectory = GetParentDirectory(ExePath);
+    while (!SearchDirectory.empty()) {
+        const std::string CandidateDirectory = BuildMapsDirectory(SearchDirectory);
+        if (IsLibraryMapsDirectory(CandidateDirectory)) {
+            return CandidateDirectory;
+        }
+
+        const std::string ParentDirectory = GetParentDirectory(SearchDirectory);
+        if (ParentDirectory == SearchDirectory) {
+            break;
+        }
+
+        SearchDirectory = ParentDirectory;
+    }
+
+    return std::string();
+}
+
+}  // namespace
+
 void SleepFor(unsigned int ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
@@ -125,12 +175,8 @@ static std::string GetExePath() {
 }
 
 std::string GetLibraryMapsDirectory() {
-    std::string result = GetExePath();
-    result = result.substr(0, result.find_last_of("\\"));
-    result = result.substr(0, result.find_last_of("\\"));
-    result = result.substr(0, result.find_last_of("\\"));
-    result += "\\maps\\";
-    return result;
+    const std::string ExePath = GetExePath();
+    return FindLibraryMapsDirectory(ExePath);
 }
 
 std::string GetGameMapsDirectory(const std::string& process_path) {
@@ -335,11 +381,7 @@ std::string GetLibraryMapsDirectory() {
         free(resolvedPath);
     }
 
-    result = result.substr(0, result.find_last_of("/"));
-    result = result.substr(0, result.find_last_of("/"));
-    result = result.substr(0, result.find_last_of("/"));
-    result += "/maps/";
-    return result;
+    return FindLibraryMapsDirectory(result);
 }
 
 std::string GetGameMapsDirectory(const std::string& process_path) {

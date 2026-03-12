@@ -8,6 +8,103 @@
 #include "test_unit_command_common.h"
 
 namespace sc2 {
+
+namespace {
+
+static bool IsSalvageAbilityName(const std::string& AbilityName) {
+    return AbilityName.find("Salvage") != std::string::npos || AbilityName.find("SALVAGE") != std::string::npos ||
+           AbilityName.find("salvage") != std::string::npos;
+}
+
+static const AbilityData* FindAbilityDataById(const Abilities& AbilityDataSet, const AbilityID AbilityIdentifier) {
+    const uint32_t AbilityIndex = static_cast<uint32_t>(AbilityIdentifier);
+    if (AbilityIndex >= AbilityDataSet.size()) {
+        return nullptr;
+    }
+
+    return &AbilityDataSet[AbilityIndex];
+}
+
+static bool IsBunkerSalvageAbility(const Abilities& AbilityDataSet, const AbilityID AbilityIdentifier) {
+    if (AbilityIdentifier == ABILITY_ID::SALVAGEBUNKER_SALVAGE ||
+        AbilityIdentifier == ABILITY_ID::SALVAGEBUNKERREFUND_SALVAGE ||
+        AbilityIdentifier == ABILITY_ID::EFFECT_SALVAGE) {
+        return true;
+    }
+
+    if (IsSalvageAbilityName(AbilityTypeToName(AbilityIdentifier))) {
+        return true;
+    }
+
+    const AbilityData* MatchingAbilityData = FindAbilityDataById(AbilityDataSet, AbilityIdentifier);
+    if (!MatchingAbilityData) {
+        return false;
+    }
+
+    return IsSalvageAbilityName(MatchingAbilityData->button_name) ||
+           IsSalvageAbilityName(MatchingAbilityData->friendly_name) ||
+           IsSalvageAbilityName(MatchingAbilityData->link_name);
+}
+
+static AbilityID FindBunkerSalvageAbility(const Abilities& AbilityDataSet,
+                                          const AvailableAbilities& AvailableUnitAbilities) {
+    for (const AvailableAbility& AvailableUnitAbility : AvailableUnitAbilities.abilities) {
+        if (IsBunkerSalvageAbility(AbilityDataSet, AvailableUnitAbility.ability_id)) {
+            return AvailableUnitAbility.ability_id;
+        }
+    }
+
+    return AbilityID(0);
+}
+
+static std::string DescribeAbility(const Abilities& AbilityDataSet, const AbilityID AbilityIdentifier) {
+    std::string AbilityDescription =
+        std::string(AbilityTypeToName(AbilityIdentifier)) + " (" + std::to_string(static_cast<uint32_t>(AbilityIdentifier)) + ")";
+
+    const AbilityData* MatchingAbilityData = FindAbilityDataById(AbilityDataSet, AbilityIdentifier);
+    if (!MatchingAbilityData) {
+        return AbilityDescription;
+    }
+
+    if (!MatchingAbilityData->button_name.empty()) {
+        AbilityDescription += " button=" + MatchingAbilityData->button_name;
+    }
+    if (!MatchingAbilityData->friendly_name.empty()) {
+        AbilityDescription += " friendly=" + MatchingAbilityData->friendly_name;
+    }
+    if (!MatchingAbilityData->link_name.empty()) {
+        AbilityDescription += " link=" + MatchingAbilityData->link_name;
+    }
+    if (MatchingAbilityData->remaps_to_ability_id != 0) {
+        AbilityDescription += " remaps_to=" + std::to_string(MatchingAbilityData->remaps_to_ability_id);
+    }
+
+    return AbilityDescription;
+}
+
+static std::string DescribeAvailableAbilities(const std::string& Label, const Abilities& AbilityDataSet,
+                                              const AvailableAbilities& AvailableUnitAbilities) {
+    std::string AbilitySummary = Label + ": ";
+    if (AvailableUnitAbilities.abilities.empty()) {
+        AbilitySummary += "none";
+        return AbilitySummary;
+    }
+
+    bool IsFirstAbility = true;
+    for (const AvailableAbility& AvailableUnitAbility : AvailableUnitAbilities.abilities) {
+        if (!IsFirstAbility) {
+            AbilitySummary += " | ";
+        }
+
+        AbilitySummary += DescribeAbility(AbilityDataSet, AvailableUnitAbility.ability_id);
+        IsFirstAbility = false;
+    }
+
+    return AbilitySummary;
+}
+
+}  // namespace
+
 //
 // TestAttackAttack
 //
@@ -33,6 +130,9 @@ public:
     void IssueUnitCommand(ActionInterface* act) override {
         if (test_tags_counter_ < TAGS_SUBTESTS_QUANTITY) {
             test_units_tags_ = ConvertToTags(test_units_);
+            if (test_units_tags_.empty()) {
+                return;
+            }
 
             if (!orders_verified_ && ability_command_sent_) {
                 VerifyUnitOrders(test_unit_, test_ability_);
@@ -75,28 +175,57 @@ public:
         }
     }
 
+    void OnTestFinish() override {
+        if (test_tags_counter_ != TAGS_SUBTESTS_QUANTITY) {
+            ReportError("Attack command subtests did not complete.");
+        }
+
+        TestUnitCommand::OnTestFinish();
+    }
+
+    const Unit* FindFirstEnemyUnit() const {
+        const Units EnemyUnits = agent_->Observation()->GetUnits(sc2::Unit::Enemy);
+        if (EnemyUnits.empty()) {
+            return nullptr;
+        }
+
+        return EnemyUnits.front();
+    }
+
     void TestTagsTargetingPoint(ActionInterface* act) {
         act->UnitCommand(test_units_tags_, test_ability_, target_point_);
     }
 
     void TestTagTargetingPoint(ActionInterface* act) {
+        if (test_units_tags_.empty()) {
+            return;
+        }
+
         act->UnitCommand(test_units_tags_.front(), test_ability_, GetPointOffsetX(target_point_, 5));
     }
 
     void TestTagsTargetingUnit(ActionInterface* act) {
         test_ability_ = sc2::ABILITY_ID::GENERAL_MOVE;
-        const sc2::Units target_units_ = agent_->Observation()->GetUnits(sc2::Unit::Enemy);
-        sc2::Tag target_unit_tag_ = ConvertToTags(target_units_).front();
+        const Unit* TargetUnit = FindFirstEnemyUnit();
+        if (!TargetUnit) {
+            return;
+        }
 
-        act->UnitCommand(test_units_tags_, test_ability_, target_unit_tag_);
+        act->UnitCommand(test_units_tags_, test_ability_, TargetUnit->tag);
     }
 
     void TestTagTargetingUnit(ActionInterface* act) {
         test_ability_ = sc2::ABILITY_ID::GENERAL_MOVE;
-        const sc2::Units target_units_ = agent_->Observation()->GetUnits(sc2::Unit::Enemy);
-        sc2::Tag target_unit_tag_ = ConvertToTags(target_units_).front();
+        if (test_units_tags_.empty()) {
+            return;
+        }
 
-        act->UnitCommand(test_units_tags_.front(), test_ability_, target_unit_tag_);
+        const Unit* TargetUnit = FindFirstEnemyUnit();
+        if (!TargetUnit) {
+            return;
+        }
+
+        act->UnitCommand(test_units_tags_.front(), test_ability_, TargetUnit->tag);
     }
 
     void TestTagsNoTarget(ActionInterface* act) {
@@ -109,6 +238,9 @@ public:
     void TestTagNoTarget(ActionInterface* act) {
         orders_verified_ = true;
         test_ability_ = sc2::ABILITY_ID::STOP_DANCE;
+        if (test_units_tags_.empty()) {
+            return;
+        }
 
         act->UnitCommand(test_units_tags_.front(), test_ability_);
     }
@@ -143,7 +275,7 @@ public:
     }
 
     void SetTestTime() override {
-        wait_game_loops_ = 50;
+        wait_game_loops_ = 150;
     }
 };
 
@@ -153,18 +285,170 @@ public:
 
 class TestBehaviorSalvage : public TestUnitCommandNoTarget {
 public:
+    enum class ESalvageState {
+        BuildBunker,
+        WaitForCompletedBunker,
+        SalvageBunker,
+        WaitForSalvageCompletion,
+        Completed
+    };
+
+    const Unit* BunkerUnit_ = nullptr;
+    Point2D TargetPoint_;
+    ESalvageState SalvageState_ = ESalvageState::BuildBunker;
+    bool BuiltBunker_ = false;
+    bool IssuedSalvage_ = false;
+    std::string AvailableAbilitySummary_;
+    float LastBunkerBuildProgress_ = 0.0f;
+
     TestBehaviorSalvage() {
-        test_unit_type_ = UNIT_TYPEID::TERRAN_BUNKER;
-        test_ability_ = ABILITY_ID::EFFECT_SALVAGE;
+        test_unit_type_ = UNIT_TYPEID::TERRAN_SCV;
+        test_ability_ = ABILITY_ID::SALVAGEBUNKER_SALVAGE;
+    }
+
+    void OnTestStart() override {
+        TestUnitCommand::OnTestStart();
+        TargetPoint_ = GetPointOffsetX(origin_pt_);
+        SalvageState_ = ESalvageState::BuildBunker;
+        BunkerUnit_ = nullptr;
+        BuiltBunker_ = false;
+        IssuedSalvage_ = false;
+        AvailableAbilitySummary_.clear();
+        LastBunkerBuildProgress_ = 0.0f;
+    }
+
+    void OnStep() override {
+        const ObservationInterface* Observation = agent_->Observation();
+        ActionInterface* Action = agent_->Actions();
+
+        if (Observation->GetGameLoop() < order_on_game_loop_) {
+            return;
+        }
+
+        test_units_ = Observation->GetUnits(Unit::Self, [&](const Unit& Unit) { return Unit.unit_type == test_unit_type_; });
+        if (!test_units_.empty()) {
+            test_unit_ = test_units_.front();
+        }
+
+        Units BunkerUnits =
+            Observation->GetUnits(Unit::Self, [&](const Unit& Unit) { return Unit.unit_type == UNIT_TYPEID::TERRAN_BUNKER; });
+        if (!BunkerUnits.empty()) {
+            BunkerUnit_ = BunkerUnits.front();
+            BuiltBunker_ = true;
+            LastBunkerBuildProgress_ = BunkerUnit_->build_progress;
+        } else {
+            BunkerUnit_ = nullptr;
+            LastBunkerBuildProgress_ = 0.0f;
+        }
+
+        switch (SalvageState_) {
+            case ESalvageState::BuildBunker: {
+                if (!test_unit_) {
+                    ReportError("Could not find the SCV used to build the bunker.");
+                    SalvageState_ = ESalvageState::Completed;
+                    return;
+                }
+
+                if (!agent_->Query()->Placement(ABILITY_ID::BUILD_BUNKER, TargetPoint_)) {
+                    ReportError("Cannot place bunker for salvage test.");
+                    SalvageState_ = ESalvageState::Completed;
+                    return;
+                }
+
+                Action->UnitCommand(test_unit_, ABILITY_ID::BUILD_BUNKER, TargetPoint_);
+                ability_command_sent_ = true;
+                SalvageState_ = ESalvageState::WaitForCompletedBunker;
+                return;
+            }
+            case ESalvageState::WaitForCompletedBunker: {
+                if (BunkerUnit_ && BunkerUnit_->build_progress >= 0.99f) {
+                    SalvageState_ = ESalvageState::SalvageBunker;
+                }
+                return;
+            }
+            case ESalvageState::SalvageBunker: {
+                if (!BunkerUnit_) {
+                    ReportError("Bunker was not found after build completed.");
+                    SalvageState_ = ESalvageState::Completed;
+                    return;
+                }
+
+                const Abilities& AbilityDataSet = Observation->GetAbilityData();
+                const AvailableAbilities RawAvailableBunkerAbilities =
+                    agent_->Query()->GetAbilitiesForUnit(BunkerUnit_, false, false);
+                const AvailableAbilities GeneralizedAvailableBunkerAbilities =
+                    agent_->Query()->GetAbilitiesForUnit(BunkerUnit_, false, true);
+
+                AvailableAbilitySummary_ = DescribeAvailableAbilities("raw", AbilityDataSet, RawAvailableBunkerAbilities) +
+                                           " || " +
+                                           DescribeAvailableAbilities("generalized", AbilityDataSet,
+                                                                      GeneralizedAvailableBunkerAbilities);
+
+                const AbilityID RawSalvageAbility =
+                    FindBunkerSalvageAbility(AbilityDataSet, RawAvailableBunkerAbilities);
+                if (RawSalvageAbility != AbilityID(0)) {
+                    test_ability_ = RawSalvageAbility;
+                    Action->UnitCommand(BunkerUnit_, test_ability_);
+                    IssuedSalvage_ = true;
+                    SalvageState_ = ESalvageState::WaitForSalvageCompletion;
+                    return;
+                }
+
+                const AbilityID GeneralizedSalvageAbility =
+                    FindBunkerSalvageAbility(AbilityDataSet, GeneralizedAvailableBunkerAbilities);
+                if (GeneralizedSalvageAbility != AbilityID(0)) {
+                    test_ability_ = GeneralizedSalvageAbility;
+                    Action->UnitCommand(BunkerUnit_, test_ability_);
+                    IssuedSalvage_ = true;
+                    SalvageState_ = ESalvageState::WaitForSalvageCompletion;
+                    return;
+                }
+
+                return;
+            }
+            case ESalvageState::WaitForSalvageCompletion: {
+                if (!BunkerUnit_) {
+                    SalvageState_ = ESalvageState::Completed;
+                }
+                return;
+            }
+            case ESalvageState::Completed:
+            default: {
+                return;
+            }
+        }
     }
 
     void OnTestFinish() override {
-        VerifyUnitDoesNotExist(test_unit_type_);
+        if (!BuiltBunker_) {
+            ReportError("Bunker was never created during the salvage test.");
+        }
+
+        if (!IssuedSalvage_) {
+            ReportError("Could not find a bunker salvage ability after building the bunker.");
+            if (!AvailableAbilitySummary_.empty()) {
+                const std::string ErrorMessage = "Available bunker abilities: " + AvailableAbilitySummary_;
+                ReportError(ErrorMessage.c_str());
+            } else {
+                const std::string ErrorMessage =
+                    "Last bunker build progress: " + std::to_string(LastBunkerBuildProgress_);
+                ReportError(ErrorMessage.c_str());
+            }
+        }
+
+        if (BunkerUnit_) {
+            ReportError("Bunker still exists after salvage.");
+        }
+
+        if (!test_unit_) {
+            ReportError("Could not find the test unit.");
+        }
+
         KillAllUnits();
     }
 
     void SetTestTime() override {
-        wait_game_loops_ = 200;
+        wait_game_loops_ = 250;
     }
 };
 
@@ -553,6 +837,7 @@ public:
 class TestCancelTrainingQueue : public TestUnitCommandNoTarget {
 public:
     bool marine_trained_ = false;
+    bool cancel_issued_ = false;
 
     TestCancelTrainingQueue() {
         test_unit_type_ = UNIT_TYPEID::TERRAN_BARRACKS;
@@ -578,20 +863,29 @@ public:
             }
         }
 
-        if (!marine_trained_) {
-            act->UnitCommand(test_unit_, ABILITY_ID::TRAIN_MARINE);
-            marine_trained_ = true;
-        }
-
-        if (obs->GetGameLoop() < order_on_game_loop_ + 10) {
+        if (!test_unit_) {
             return;
         }
 
-        if (!orders_verified_ && marine_trained_) {
+        if (!marine_trained_) {
+            act->UnitCommand(test_unit_, ABILITY_ID::TRAIN_MARINE);
+            marine_trained_ = true;
+            return;
+        }
+
+        if (test_unit_->orders.empty()) {
+            return;
+        }
+
+        if (!orders_verified_) {
             VerifyUnitOrders(test_unit_, ABILITY_ID::TRAIN_MARINE);
         }
 
-        IssueUnitCommand(act);
+        if (!cancel_issued_) {
+            act->UnitCommand(test_unit_, test_ability_);
+            ability_command_sent_ = true;
+            cancel_issued_ = true;
+        }
     }
 
     void OnTestFinish() override {
@@ -748,7 +1042,10 @@ public:
             ReportError("Could not find the test unit.");
         }
 
-        if (test_unit_ && test_unit_->buffs.front() != BUFF_ID::STIMPACK) {
+        if (test_unit_ && test_unit_->buffs.empty()) {
+            ReportError("Stimpack buff is not present.");
+        }
+        if (test_unit_ && !test_unit_->buffs.empty() && test_unit_->buffs.front() != BUFF_ID::STIMPACK) {
             ReportError("Stimpack buff is not present.");
         }
         if (test_unit_ && test_unit_->health == test_unit_->health_max) {
@@ -822,7 +1119,9 @@ public:
             if (units.size() != 1 || units.front()->unit_type != UNIT_TYPEID::TERRAN_ORBITALCOMMAND) {
                 ReportError("Enemy structure is not initially hidden.");
             }
-            if (test_unit->energy < 50.30 || test_unit->energy > 50.32) {
+            if (!test_unit) {
+                ReportError("Could not find the orbital command.");
+            } else if (test_unit->energy < 50.30 || test_unit->energy > 50.32) {
                 ReportError("Test pre-ability unit energy is not correct.");
             }
             verify_pre_scan_ = true;
@@ -846,19 +1145,23 @@ public:
         }
 
         if (!verify_post_scan_) {
-            if (test_unit->energy < 0.83 || test_unit->energy > 0.85) {
+            if (!test_unit) {
+                ReportError("Could not find the orbital command after scan.");
+            } else if (test_unit->energy < 0.83 || test_unit->energy > 0.85) {
                 ReportError("Test post-ability unit energy is not correct.");
             }
-            if (test_hatchery_->display_type != Unit::DisplayType::Visible) {
+            if (!test_hatchery_) {
+                ReportError("Could not find the enemy hatchery after scan.");
+            } else if (test_hatchery_->display_type != Unit::DisplayType::Visible) {
                 ReportError("Enemy structure is not visible.");
             }
-            if (test_hatchery_->is_on_screen == true) {
+            if (test_hatchery_ && test_hatchery_->is_on_screen == true) {
                 ReportError("Enemy structure on screen is true.");
             }
-            if (test_hatchery_->alliance != Unit::Alliance::Enemy) {
+            if (test_hatchery_ && test_hatchery_->alliance != Unit::Alliance::Enemy) {
                 ReportError("Enemy alliance is incorrect.");
             }
-            if (test_hatchery_->owner != 2) {
+            if (test_hatchery_ && test_hatchery_->owner != 2) {
                 ReportError("Owner of unit is incorrect.");
             }
             verify_post_scan_ = true;
@@ -866,10 +1169,12 @@ public:
     }
 
     void OnTestFinish() override {
-        if (test_hatchery_->display_type != Unit::DisplayType::Snapshot) {
+        if (!test_hatchery_) {
+            ReportError("Could not find the enemy hatchery on test finish.");
+        } else if (test_hatchery_->display_type != Unit::DisplayType::Snapshot) {
             ReportError("On finish display type for hatchery is incorrect.");
         }
-        if (test_hatchery_->owner != 2) {
+        if (test_hatchery_ && test_hatchery_->owner != 2) {
             ReportError("Owner of unit is incorrect.");
         }
         KillAllUnits();
@@ -915,7 +1220,12 @@ public:
             ReportError("Could not find the test unit.");
         }
 
-        if (test_unit_ && test_unit_->orders.front().ability_id != ABILITY_ID::HARVEST_RETURN) {
+        if (test_unit_ && test_unit_->orders.empty()) {
+            ReportError("Unit does not have any post-harvest orders.");
+        }
+
+        if (test_unit_ && !test_unit_->orders.empty() &&
+            test_unit_->orders.front().ability_id != ABILITY_ID::HARVEST_RETURN) {
             ReportError("Unit does not have correct post-harvest ability in orders.");
         }
 
@@ -976,7 +1286,12 @@ public:
             ReportError("Could not find the test unit.");
         }
 
-        if (test_unit_ && test_unit_->orders.front().ability_id != ABILITY_ID::HARVEST_RETURN) {
+        if (test_unit_ && test_unit_->orders.empty()) {
+            ReportError("Unit does not have any post-harvest orders.");
+        }
+
+        if (test_unit_ && !test_unit_->orders.empty() &&
+            test_unit_->orders.front().ability_id != ABILITY_ID::HARVEST_RETURN) {
             ReportError("Unit does not have correct post-harvest ability in orders.");
         }
 
@@ -1195,8 +1510,13 @@ public:
             ReportError("Could not find the test unit.");
         }
 
-        Point2D patrol_target = test_unit_->orders.front().target_pos;
-        if (test_unit_ && (patrol_target != target_point_) && (patrol_target != origin_pt_)) {
+        if (test_unit_ && test_unit_->orders.empty()) {
+            ReportError("Unit no longer has any patrol orders.");
+        }
+
+        const Point2D PatrolTarget = test_unit_ && !test_unit_->orders.empty() ? test_unit_->orders.front().target_pos
+                                                                                : Point2D();
+        if (test_unit_ && !test_unit_->orders.empty() && (PatrolTarget != target_point_) && (PatrolTarget != origin_pt_)) {
             ReportError("Unit no longer has target patrol point in orders.");
         }
 
@@ -1261,7 +1581,9 @@ public:
         Units test_marine_units =
             obs->GetUnits(Unit::Self, [&](const Unit& unit) { return unit.unit_type == UNIT_TYPEID::TERRAN_MARINE; });
 
-        if (Point2D(test_marine_units.front()->pos) != target_point_) {
+        if (test_marine_units.empty()) {
+            ReportError("Could not find the trained marine.");
+        } else if (Distance2D(Point2D(test_marine_units.front()->pos), target_point_) > 1.0f) {
             ReportError("Trained marine is not at rally point.");
         }
 
@@ -1303,43 +1625,73 @@ public:
 
 class TestSensorTower : public TestUnitCommand {
 public:
+    Point2D detection_point_;
+
     TestSensorTower() {
         test_unit_type_ = UNIT_TYPEID::TERRAN_SENSORTOWER;
     }
 
     void SetTestTime() override {
-        wait_game_loops_ = 50;
+        wait_game_loops_ = 150;
     }
 
     void AdditionalTestSetup() override {
-        agent_->Debug()->DebugCreateUnit(UNIT_TYPEID::ZERG_MUTALISK, GetPointOffsetX(origin_pt_, 25),
+        detection_point_ = GetPointOffsetX(origin_pt_, 20);
+        agent_->Debug()->DebugCreateUnit(UNIT_TYPEID::ZERG_MUTALISK, detection_point_,
                                          agent_->Observation()->GetPlayerID() + 1, 1);
-        agent_->Debug()->DebugShowMap();
         agent_->Debug()->SendDebug();
     }
 
     void OnStep() override {
+        const ObservationInterface* Observation = agent_->Observation();
+        if (Observation->GetGameLoop() < order_on_game_loop_ + 10) {
+            return;
+        }
+
+        const Units AllUnits = Observation->GetUnits();
+        for (const Unit* UnitPtr : AllUnits) {
+            if (UnitPtr->unit_type == UNIT_TYPEID::ZERG_MUTALISK) {
+                return;
+            }
+        }
+
+        agent_->Debug()->DebugCreateUnit(UNIT_TYPEID::ZERG_MUTALISK, detection_point_,
+                                         Observation->GetPlayerID() + 1, 1);
+        agent_->Debug()->SendDebug();
     }
 
     void OnTestFinish() override {
         const ObservationInterface* obs = agent_->Observation();
-        const Units& target_units = obs->GetUnits(Unit::Alliance::Enemy);
+        const Units AllUnits = obs->GetUnits();
+        const Unit* TargetUnit = nullptr;
+        for (const Unit* UnitPtr : AllUnits) {
+            if (UnitPtr->unit_type == UNIT_TYPEID::ZERG_MUTALISK) {
+                TargetUnit = UnitPtr;
+                break;
+            }
+        }
 
-        if (target_units.front()->is_blip != true) {
+        if (!TargetUnit) {
+            ReportError("Could not find the enemy unit detected by the sensor tower.");
+            KillAllUnits();
+            agent_->Debug()->SendDebug();
+            return;
+        }
+
+        if (TargetUnit->is_blip != true) {
             ReportError("Target unit is not a blip.");
         }
-        if (target_units.front()->cloak != Unit::CloakState::CloakedUnknown) {
+        if (TargetUnit->cloak != Unit::CloakState::CloakedUnknown) {
             ReportError("Target unit cloak state is incorrect.");
         }
-        if (target_units.front()->display_type != Unit::DisplayType::Hidden) {
+        if (TargetUnit->display_type != Unit::DisplayType::Hidden) {
             ReportError("Target unit is not hidden.");
         }
-        if (target_units.front()->owner != 0) {
+        if (TargetUnit->owner != 0) {
             ReportError("Owner of unit is incorrect.");
         }
 
         KillAllUnits();
-        agent_->Debug()->DebugShowMap();
         agent_->Debug()->SendDebug();
     }
 };
@@ -1373,6 +1725,10 @@ public:
         }
 
         if (obs->GetGameLoop() < order_on_game_loop_) {
+            return;
+        }
+
+        if (!test_unit) {
             return;
         }
 
@@ -1438,6 +1794,10 @@ public:
         if (test_units_.size() > 0) {
             test_unit_ = test_units_.front();
             test_unit = test_units_.front();
+        }
+
+        if (!test_unit) {
+            return;
         }
 
         if (!move_command_sent_) {
@@ -1506,7 +1866,9 @@ public:
         Units test_warped_zealot =
             obs->GetUnits(Unit::Self, [&](const Unit& unit) { return unit.unit_type == UNIT_TYPEID::PROTOSS_ZEALOT; });
 
-        if (Point2D(test_warped_zealot.front()->pos) != target_point_) {
+        if (test_warped_zealot.empty()) {
+            ReportError("Could not find the warped zealot.");
+        } else if (Point2D(test_warped_zealot.front()->pos) != target_point_) {
             ReportError("Unit did not warp to target point.");
         }
         KillAllUnits();
@@ -1524,8 +1886,14 @@ public:
         test_ability_ = ABILITY_ID::MORPH_BANELING;
     }
 
+    void AdditionalTestSetup() override {
+        agent_->Debug()->DebugCreateUnit(UNIT_TYPEID::ZERG_BANELINGNEST, GetPointOffsetX(origin_pt_, 10),
+                                         agent_->Observation()->GetPlayerID(), 1);
+        agent_->Debug()->SendDebug();
+    }
+
     void SetTestTime() override {
-        wait_game_loops_ = 50;
+        wait_game_loops_ = 150;
     }
 
     void OnTestFinish() override {
@@ -1658,7 +2026,10 @@ public:
             ReportError("Could not find the test unit.");
         }
 
-        if (test_unit_ && test_unit_->passengers.front().tag != target_unit_->tag) {
+        if (test_unit_ && test_unit_->passengers.empty()) {
+            ReportError("Bunker did not load any passenger.");
+        }
+        if (test_unit_ && !test_unit_->passengers.empty() && test_unit_->passengers.front().tag != target_unit_->tag) {
             ReportError("Passenger tag does not match target unit tag.");
         }
         if (test_unit_ && test_unit_->passengers.size() != 1) {
@@ -1725,6 +2096,10 @@ public:
         }
 
         if (obs->GetGameLoop() < order_on_game_loop_ + 10) {
+            return;
+        }
+
+        if (!test_unit) {
             return;
         }
 

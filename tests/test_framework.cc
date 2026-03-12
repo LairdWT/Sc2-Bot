@@ -9,6 +9,20 @@
 
 namespace sc2 {
 
+namespace {
+
+static std::string GetSequenceName(const TestSequence& TestSequenceInstance) {
+    std::string TestName = typeid(TestSequenceInstance).name();
+    const std::size_t NamespaceIndex = TestName.find("::");
+    if (NamespaceIndex != std::string::npos) {
+        TestName = TestName.substr(NamespaceIndex + 2);
+    }
+
+    return TestName;
+}
+
+}  // namespace
+
 //
 // TestSequence
 //
@@ -21,9 +35,7 @@ bool TestSequence::DidSucceed() const {
 }
 
 void TestSequence::ReportError(const char* error) {
-    test_name_ = typeid(*this).name();
-    test_name_ = test_name_.substr(test_name_.find("::") + 2, -1);
-
+    test_name_ = GetSequenceName(*this);
     errors_.push_back(error);
 }
 
@@ -77,6 +89,7 @@ void UnitTestBot::OnStep() {
             return;
         }
 
+        std::cout << "Starting sequence: " << GetSequenceName(*sequences_[current_sequence_]) << std::endl;
         sequences_[current_sequence_]->OnTestStart();
         game_loop_done_ = game_loop + sequences_[current_sequence_]->wait_game_loops_;
         return;

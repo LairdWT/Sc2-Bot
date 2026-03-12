@@ -1,5 +1,12 @@
+#include <cstdlib>
 #include <iostream>
 #include <string>
+
+#if defined(_WIN32)
+#include <crtdbg.h>
+#include <stdlib.h>
+#include <windows.h>
+#endif
 
 #include "sc2utils/sc2_manage_process.h"
 #include "test_actions.h"
@@ -7,6 +14,7 @@
 #include "test_feature_layer.h"
 #include "test_feature_layer_mp.h"
 #include "test_movement_combat.h"
+#include "test_map_paths.h"
 #include "test_multiplayer.h"
 #include "test_observation_interface.h"
 #include "test_performance.h"
@@ -21,22 +29,65 @@ namespace sc2
 bool TestAbilityRemap(int argc, char** argv);
 }
 
+static bool ShouldWaitOnExit() {
+    const char* wait_on_exit_value = std::getenv("SC2_WAIT_ON_EXIT");
+    if (!wait_on_exit_value) {
+        return false;
+    }
+
+    const std::string wait_on_exit_string = wait_on_exit_value;
+    return wait_on_exit_string == "1" || wait_on_exit_string == "true" || wait_on_exit_string == "TRUE";
+}
+
+static bool ShouldRunTest(const std::string& TestName) {
+    const char* test_filter_value = std::getenv("SC2_TEST_FILTER");
+    if (!test_filter_value) {
+        return true;
+    }
+
+    return TestName == test_filter_value;
+}
+
+#if defined(_WIN32)
+static void ConfigureWindowsErrorHandling() {
+    ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+
+#if defined(_DEBUG)
+    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+}
+#endif
+
 #define TEST(X)                                                    \
-    std::cout << "Running test: " << #X << std::endl;              \
-    if (X(argc, argv))                                             \
+    if (ShouldRunTest(#X))                                         \
     {                                                              \
-        std::cout << "Test: " << #X << " succeeded." << std::endl; \
-    }                                                              \
-    else                                                           \
-    {                                                              \
-        success = false;                                           \
-        std::cerr << "Test: " << #X << " failed!" << std::endl;    \
+        std::cout << "Running test: " << #X << std::endl;          \
+        if (X(argc, argv))                                         \
+        {                                                          \
+            std::cout << "Test: " << #X << " succeeded." << std::endl; \
+        }                                                          \
+        else                                                       \
+        {                                                          \
+            success = false;                                       \
+            std::cerr << "Test: " << #X << " failed!" << std::endl; \
+        }                                                          \
     }
 
 int main(int argc, char* argv[])
 {
+#if defined(_WIN32)
+    ConfigureWindowsErrorHandling();
+#endif
+
     bool success = true;
 
+    TEST(sc2::TestMapPaths);
     TEST(sc2::TestAbilityRemap);
     TEST(sc2::TestSnapshots);
     TEST(sc2::TestMultiplayer);
@@ -60,9 +111,9 @@ int main(int argc, char* argv[])
         std::cerr << "Some tests failed!" << std::endl;
     }
 
-    if (sc2::IsInDebugger())
+    if (ShouldWaitOnExit())
     {
-        std::cout << "Hit any key to exit..." << std::endl;
+        std::cout << "SC2_WAIT_ON_EXIT is enabled. Hit any key to exit..." << std::endl;
         while (!sc2::PollKeyPress())
         {
         }
