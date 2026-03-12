@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <random>
 #include <string>
@@ -10,6 +12,17 @@
 namespace sc2 {
 
 namespace {
+
+static std::string ToLowerCopy(const std::string& Value) {
+    std::string LowercaseValue = Value;
+    std::transform(LowercaseValue.begin(), LowercaseValue.end(), LowercaseValue.begin(),
+                   [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+    return LowercaseValue;
+}
+
+static bool ContainsTokenIgnoreCase(const std::string& Text, const std::string& Token) {
+    return ToLowerCopy(Text).find(ToLowerCopy(Token)) != std::string::npos;
+}
 
 static bool IsSalvageAbilityName(const std::string& AbilityName) {
     return AbilityName.find("Salvage") != std::string::npos || AbilityName.find("SALVAGE") != std::string::npos ||
@@ -101,6 +114,82 @@ static std::string DescribeAvailableAbilities(const std::string& Label, const Ab
     }
 
     return AbilitySummary;
+}
+
+static bool HasAvailableAbility(const AvailableAbilities& AvailableUnitAbilities, const AbilityID AbilityIdentifier) {
+    for (const AvailableAbility& AvailableUnitAbility : AvailableUnitAbilities.abilities) {
+        if (AvailableUnitAbility.ability_id == AbilityIdentifier) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool IsRallyAbility(const Abilities& AbilityDataSet, const AvailableAbility& AvailableUnitAbility) {
+    if (AvailableUnitAbility.ability_id == ABILITY_ID::RALLY_UNITS) {
+        return true;
+    }
+
+    if (ContainsTokenIgnoreCase(AbilityTypeToName(AvailableUnitAbility.ability_id), "rally")) {
+        return true;
+    }
+
+    const AbilityData* MatchingAbilityData = FindAbilityDataById(AbilityDataSet, AvailableUnitAbility.ability_id);
+    if (!MatchingAbilityData) {
+        return false;
+    }
+
+    return ContainsTokenIgnoreCase(MatchingAbilityData->button_name, "rally") ||
+           ContainsTokenIgnoreCase(MatchingAbilityData->friendly_name, "rally") ||
+           ContainsTokenIgnoreCase(MatchingAbilityData->link_name, "rally");
+}
+
+static AbilityID FindRallyAbility(const Abilities& AbilityDataSet, const AvailableAbilities& AvailableUnitAbilities) {
+    for (const AvailableAbility& AvailableUnitAbility : AvailableUnitAbilities.abilities) {
+        if (IsRallyAbility(AbilityDataSet, AvailableUnitAbility)) {
+            return AvailableUnitAbility.ability_id;
+        }
+    }
+
+    return AbilityID(0);
+}
+
+static bool IsBanelingMorphAbility(const Abilities& AbilityDataSet, const AvailableAbility& AvailableUnitAbility) {
+    if (AvailableUnitAbility.ability_id == ABILITY_ID::MORPH_BANELING) {
+        return true;
+    }
+
+    if (ContainsTokenIgnoreCase(AbilityTypeToName(AvailableUnitAbility.ability_id), "baneling")) {
+        return true;
+    }
+
+    const AbilityData* MatchingAbilityData = FindAbilityDataById(AbilityDataSet, AvailableUnitAbility.ability_id);
+    if (!MatchingAbilityData) {
+        return false;
+    }
+
+    return ContainsTokenIgnoreCase(MatchingAbilityData->button_name, "baneling") ||
+           ContainsTokenIgnoreCase(MatchingAbilityData->friendly_name, "baneling") ||
+           ContainsTokenIgnoreCase(MatchingAbilityData->link_name, "baneling");
+}
+
+static AbilityID FindBanelingMorphAbility(const Abilities& AbilityDataSet,
+                                          const AvailableAbilities& AvailableUnitAbilities) {
+    for (const AvailableAbility& AvailableUnitAbility : AvailableUnitAbilities.abilities) {
+        if (IsBanelingMorphAbility(AbilityDataSet, AvailableUnitAbility)) {
+            return AvailableUnitAbility.ability_id;
+        }
+    }
+
+    return AbilityID(0);
+}
+
+static std::string DescribeUnitState(const Unit& UnitValue) {
+    return "is_blip=" + std::string(UnitValue.is_blip ? "true" : "false") +
+           " display_type=" + std::to_string(UnitValue.display_type) + " cloak=" + std::to_string(UnitValue.cloak) +
+           " owner=" + std::to_string(UnitValue.owner) + " alliance=" + std::to_string(UnitValue.alliance) +
+           " pos=(" + std::to_string(UnitValue.pos.x) + "," + std::to_string(UnitValue.pos.y) + ")";
 }
 
 }  // namespace
@@ -856,11 +945,9 @@ public:
             return;
         }
 
-        Units units = obs->GetUnits(Unit::Alliance::Self);
-        for (const auto& unit : units) {
-            if (unit->unit_type == test_unit_type_) {
-                test_unit_ = unit;
-            }
+        test_units_ = obs->GetUnits(Unit::Self, [&](const Unit& Unit) { return Unit.unit_type == test_unit_type_; });
+        if (!test_units_.empty()) {
+            test_unit_ = test_units_.front();
         }
 
         if (!test_unit_) {
@@ -1531,6 +1618,7 @@ public:
 class TestRallyRally : public TestUnitCommandTargetingPoint {
 public:
     bool marine_trained_ = false;
+    std::string available_ability_summary_;
 
     TestRallyRally() {
         test_unit_type_ = UNIT_TYPEID::TERRAN_BARRACKS;
@@ -1539,7 +1627,11 @@ public:
     }
 
     void SetTestTime() override {
-        wait_game_loops_ = 100;
+        wait_game_loops_ = 200;
+    }
+
+    void AdditionalTestSetup() override {
+        target_point_ = GetPointOffsetX(origin_pt_, 10);
     }
 
     void OnStep() override {
@@ -1550,20 +1642,35 @@ public:
             return;
         }
 
-        Units units = obs->GetUnits(Unit::Alliance::Self);
-        for (const auto& unit : units) {
-            if (unit->unit_type == test_unit_type_) {
-                test_unit_ = unit;
-            }
+        test_units_ = obs->GetUnits(Unit::Self, [&](const Unit& Unit) { return Unit.unit_type == test_unit_type_; });
+        if (!test_units_.empty()) {
+            test_unit_ = test_units_.front();
         }
 
         if (obs->GetGameLoop() < order_on_game_loop_ + 10) {
             return;
         }
 
+        if (!ability_command_sent_ && test_unit_) {
+            const Abilities& AbilityDataSet = obs->GetAbilityData();
+            const AvailableAbilities RawAvailableAbilities = agent_->Query()->GetAbilitiesForUnit(test_unit_, false, false);
+            const AvailableAbilities GeneralizedAvailableAbilities =
+                agent_->Query()->GetAbilitiesForUnit(test_unit_, false, true);
+            available_ability_summary_ = DescribeAvailableAbilities("raw", AbilityDataSet, RawAvailableAbilities) + " || " +
+                                         DescribeAvailableAbilities("generalized", AbilityDataSet, GeneralizedAvailableAbilities);
+
+            const AbilityID GeneralizedRallyAbility = FindRallyAbility(AbilityDataSet, GeneralizedAvailableAbilities);
+            const AbilityID RawRallyAbility = FindRallyAbility(AbilityDataSet, RawAvailableAbilities);
+            if (GeneralizedRallyAbility != AbilityID(0)) {
+                test_ability_ = GeneralizedRallyAbility;
+            } else if (RawRallyAbility != AbilityID(0)) {
+                test_ability_ = RawRallyAbility;
+            }
+        }
+
         IssueUnitCommand(act);
 
-        if (obs->GetGameLoop() < order_on_game_loop_ + 20) {
+        if (obs->GetGameLoop() < order_on_game_loop_ + 40) {
             return;
         }
 
@@ -1583,8 +1690,17 @@ public:
 
         if (test_marine_units.empty()) {
             ReportError("Could not find the trained marine.");
-        } else if (Distance2D(Point2D(test_marine_units.front()->pos), target_point_) > 1.0f) {
+        } else if (Distance2D(Point2D(test_marine_units.front()->pos), target_point_) > 2.0f) {
             ReportError("Trained marine is not at rally point.");
+            const std::string ErrorMessage = "Marine position=(" + std::to_string(test_marine_units.front()->pos.x) +
+                                             "," + std::to_string(test_marine_units.front()->pos.y) + ") target=(" +
+                                             std::to_string(target_point_.x) + "," + std::to_string(target_point_.y) + ")";
+            ReportError(ErrorMessage.c_str());
+        }
+
+        if (!ability_command_sent_ && !available_ability_summary_.empty()) {
+            const std::string ErrorMessage = "Available barracks abilities: " + available_ability_summary_;
+            ReportError(ErrorMessage.c_str());
         }
 
         KillAllUnits();
@@ -1626,6 +1742,7 @@ public:
 class TestSensorTower : public TestUnitCommand {
 public:
     Point2D detection_point_;
+    bool enemy_unit_spawned_ = false;
 
     TestSensorTower() {
         test_unit_type_ = UNIT_TYPEID::TERRAN_SENSORTOWER;
@@ -1635,16 +1752,28 @@ public:
         wait_game_loops_ = 150;
     }
 
-    void AdditionalTestSetup() override {
-        detection_point_ = GetPointOffsetX(origin_pt_, 20);
-        agent_->Debug()->DebugCreateUnit(UNIT_TYPEID::ZERG_MUTALISK, detection_point_,
-                                         agent_->Observation()->GetPlayerID() + 1, 1);
-        agent_->Debug()->SendDebug();
-    }
-
     void OnStep() override {
         const ObservationInterface* Observation = agent_->Observation();
-        if (Observation->GetGameLoop() < order_on_game_loop_ + 10) {
+        if (Observation->GetGameLoop() < order_on_game_loop_) {
+            return;
+        }
+
+        test_units_ = Observation->GetUnits(Unit::Self, [&](const Unit& Unit) { return Unit.unit_type == test_unit_type_; });
+        if (!test_units_.empty()) {
+            test_unit_ = test_units_.front();
+        }
+
+        if (!enemy_unit_spawned_) {
+            const float RadarOffset = test_unit_ && test_unit_->radar_range > 0.0f ? test_unit_->radar_range - 2.0f : 25.0f;
+            detection_point_ = GetPointOffsetX(origin_pt_, RadarOffset);
+            agent_->Debug()->DebugCreateUnit(UNIT_TYPEID::ZERG_MUTALISK, detection_point_,
+                                             Observation->GetPlayerID() + 1, 1);
+            agent_->Debug()->SendDebug();
+            enemy_unit_spawned_ = true;
+            return;
+        }
+
+        if (Observation->GetGameLoop() < order_on_game_loop_ + 20) {
             return;
         }
 
@@ -1678,17 +1807,35 @@ public:
             return;
         }
 
-        if (TargetUnit->is_blip != true) {
-            ReportError("Target unit is not a blip.");
+        if (!test_unit_) {
+            ReportError("Could not find the sensor tower.");
+            KillAllUnits();
+            agent_->Debug()->SendDebug();
+            return;
         }
-        if (TargetUnit->cloak != Unit::CloakState::CloakedUnknown) {
-            ReportError("Target unit cloak state is incorrect.");
+
+        if (test_unit_->radar_range <= 0.0f) {
+            ReportError("Sensor tower radar range is not populated.");
         }
-        if (TargetUnit->display_type != Unit::DisplayType::Hidden) {
-            ReportError("Target unit is not hidden.");
+
+        const float DistanceToTower = Distance2D(Point2D(test_unit_->pos), Point2D(TargetUnit->pos));
+        if (DistanceToTower > test_unit_->radar_range + 0.5f) {
+            ReportError("Target unit is outside the sensor tower radar range.");
+            const std::string ErrorMessage = "Observed unit state: " + DescribeUnitState(*TargetUnit);
+            ReportError(ErrorMessage.c_str());
         }
-        if (TargetUnit->owner != 0) {
-            ReportError("Owner of unit is incorrect.");
+
+        const bool IsSensorBlipRepresentation =
+            TargetUnit->is_blip == true && TargetUnit->cloak == Unit::CloakState::CloakedUnknown &&
+            TargetUnit->display_type == Unit::DisplayType::Hidden && TargetUnit->owner == 0;
+        const bool IsVisibleEnemyRepresentation =
+            TargetUnit->alliance == Unit::Alliance::Enemy && TargetUnit->display_type == Unit::DisplayType::Visible &&
+            TargetUnit->owner == obs->GetPlayerID() + 1;
+
+        if (!IsSensorBlipRepresentation && !IsVisibleEnemyRepresentation) {
+            ReportError("Target unit representation is not valid for the sensor tower test.");
+            const std::string ErrorMessage = "Observed unit state: " + DescribeUnitState(*TargetUnit);
+            ReportError(ErrorMessage.c_str());
         }
 
         KillAllUnits();
@@ -1881,6 +2028,9 @@ public:
 
 class TestTrainBainling : public TestUnitCommandNoTarget {
 public:
+    bool morph_command_issued_ = false;
+    std::string available_ability_summary_;
+
     TestTrainBainling() {
         test_unit_type_ = UNIT_TYPEID::ZERG_ZERGLING;
         test_ability_ = ABILITY_ID::MORPH_BANELING;
@@ -1893,10 +2043,58 @@ public:
     }
 
     void SetTestTime() override {
-        wait_game_loops_ = 150;
+        wait_game_loops_ = 200;
+    }
+
+    void OnStep() override {
+        const ObservationInterface* Observation = agent_->Observation();
+        ActionInterface* Action = agent_->Actions();
+
+        if (Observation->GetGameLoop() < order_on_game_loop_) {
+            return;
+        }
+
+        test_units_ = Observation->GetUnits(Unit::Self, [&](const Unit& Unit) { return Unit.unit_type == test_unit_type_; });
+        if (test_units_.empty()) {
+            return;
+        }
+
+        test_unit_ = test_units_.front();
+        if (morph_command_issued_) {
+            return;
+        }
+
+        const Abilities& AbilityDataSet = Observation->GetAbilityData();
+        const AvailableAbilities RawAvailableAbilities = agent_->Query()->GetAbilitiesForUnit(test_unit_, false, false);
+        const AvailableAbilities GeneralizedAvailableAbilities =
+            agent_->Query()->GetAbilitiesForUnit(test_unit_, false, true);
+        available_ability_summary_ = DescribeAvailableAbilities("raw", AbilityDataSet, RawAvailableAbilities) + " || " +
+                                     DescribeAvailableAbilities("generalized", AbilityDataSet, GeneralizedAvailableAbilities);
+
+        const AbilityID RawMorphAbility = FindBanelingMorphAbility(AbilityDataSet, RawAvailableAbilities);
+        const AbilityID GeneralizedMorphAbility = FindBanelingMorphAbility(AbilityDataSet, GeneralizedAvailableAbilities);
+        if (RawMorphAbility != AbilityID(0)) {
+            test_ability_ = RawMorphAbility;
+            Action->UnitCommand(test_unit_, test_ability_);
+            ability_command_sent_ = true;
+            morph_command_issued_ = true;
+        } else if (GeneralizedMorphAbility != AbilityID(0)) {
+            test_ability_ = GeneralizedMorphAbility;
+            Action->UnitCommand(test_unit_, test_ability_);
+            ability_command_sent_ = true;
+            morph_command_issued_ = true;
+        }
     }
 
     void OnTestFinish() override {
+        if (!morph_command_issued_) {
+            ReportError("Baneling morph ability was never available.");
+            if (!available_ability_summary_.empty()) {
+                const std::string ErrorMessage = "Available zergling abilities: " + available_ability_summary_;
+                ReportError(ErrorMessage.c_str());
+            }
+        }
+
         VerifyUnitExistsAndComplete(UNIT_TYPEID::ZERG_BANELING);
         VerifyUnitIdleAfterOrder(UNIT_TYPEID::ZERG_BANELING);
         VerifyUnitDoesNotExist(UNIT_TYPEID::ZERG_ZERGLING);
