@@ -330,13 +330,14 @@ struct FAgentUnits
                 case UNIT_TYPEID::TERRAN_MULE:
                     continue;
                 default:
-                    ArmyValueMinerals +=
-                        GetUnitCount(UnitType) * TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitType).CostData.Minerals;
-                    ArmyValueVespene +=
-                        GetUnitCount(UnitType) * TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitType).CostData.Vespine;
-                    ArmySupply +=
-                        GetUnitCount(UnitType) * TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitType).CostData.Supply;
+                {
+                    const uint16_t UnitCountValue = GetUnitCount(UnitType);
+                    const FUnitCostData& UnitCostDataValue = TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitType);
+                    ArmyValueMinerals += UnitCountValue * UnitCostDataValue.CostData.Minerals;
+                    ArmyValueVespene += UnitCountValue * UnitCostDataValue.CostData.Vespine;
+                    ArmySupply += UnitCountValue * UnitCostDataValue.CostData.Supply;
                     break;
+                }
             }
         }
     }
@@ -348,23 +349,32 @@ struct FAgentUnits
 
     uint16_t GetUnitCount(UNIT_TYPEID UnitType) const
     {
-        return UnitCounts[GetTerranUnitTypeIndex(UnitType)];
+        const size_t UnitTypeIndex = GetTerranUnitTypeIndex(UnitType);
+        return IsTerranUnitTypeIndexValid(UnitTypeIndex) ? UnitCounts[UnitTypeIndex] : 0;
     }
 
     void SetUnitCount(UNIT_TYPEID UnitType, uint16_t Count)
     {
-        UnitCounts[GetTerranUnitTypeIndex(UnitType)] = Count;
+        const size_t UnitTypeIndex = GetTerranUnitTypeIndex(UnitType);
+        if (IsTerranUnitTypeIndexValid(UnitTypeIndex))
+        {
+            UnitCounts[UnitTypeIndex] = Count;
+        }
     }
 
     void IncrementUnitCount(UNIT_TYPEID UnitType)
     {
-        UnitCounts[GetTerranUnitTypeIndex(UnitType)]++;
+        const size_t UnitTypeIndex = GetTerranUnitTypeIndex(UnitType);
+        if (IsTerranUnitTypeIndexValid(UnitTypeIndex))
+        {
+            UnitCounts[UnitTypeIndex]++;
+        }
     }
 
     void DecrementUnitCount(UNIT_TYPEID UnitType)
     {
         const size_t Index = GetTerranUnitTypeIndex(UnitType);
-        if (UnitCounts[Index] > 0)
+        if (IsTerranUnitTypeIndexValid(Index) && UnitCounts[Index] > 0)
         {
             UnitCounts[Index]--;
         }
@@ -372,17 +382,26 @@ struct FAgentUnits
 
     void SetUnitsInConstruction(UNIT_TYPEID UnitType, uint16_t Count)
     {
-        UnitsInConstruction[GetTerranUnitTypeIndex(UnitType)] = Count;
+        const size_t UnitTypeIndex = GetTerranUnitTypeIndex(UnitType);
+        if (IsTerranUnitTypeIndexValid(UnitTypeIndex))
+        {
+            UnitsInConstruction[UnitTypeIndex] = Count;
+        }
     }
 
     void IncrementUnitsInConstruction(UNIT_TYPEID UnitType)
     {
-        UnitsInConstruction[GetTerranUnitTypeIndex(UnitType)]++;
+        const size_t UnitTypeIndex = GetTerranUnitTypeIndex(UnitType);
+        if (IsTerranUnitTypeIndexValid(UnitTypeIndex))
+        {
+            UnitsInConstruction[UnitTypeIndex]++;
+        }
     }
 
     uint16_t GetUnitsInConstruction(UNIT_TYPEID UnitType) const
     {
-        return UnitsInConstruction[GetTerranUnitTypeIndex(UnitType)];
+        const size_t UnitTypeIndex = GetTerranUnitTypeIndex(UnitType);
+        return IsTerranUnitTypeIndexValid(UnitTypeIndex) ? UnitsInConstruction[UnitTypeIndex] : 0;
     }
 
     uint16_t GetWorkerCount() const
@@ -411,23 +430,32 @@ struct FAgentBuildings
 
     uint16_t GetBuildingCount(UNIT_TYPEID BuildingType) const
     {
-        return BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)];
+        const size_t BuildingTypeIndex = GetTerranBuildingTypeIndex(BuildingType);
+        return IsTerranBuildingTypeIndexValid(BuildingTypeIndex) ? BuildingCounts[BuildingTypeIndex] : 0;
     }
 
     void SetBuildingCount(UNIT_TYPEID BuildingType, uint16_t Count)
     {
-        BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)] = Count;
+        const size_t BuildingTypeIndex = GetTerranBuildingTypeIndex(BuildingType);
+        if (IsTerranBuildingTypeIndexValid(BuildingTypeIndex))
+        {
+            BuildingCounts[BuildingTypeIndex] = Count;
+        }
     }
 
     void IncrementBuildingCount(UNIT_TYPEID BuildingType)
     {
-        BuildingCounts[GetTerranBuildingTypeIndex(BuildingType)]++;
+        const size_t BuildingTypeIndex = GetTerranBuildingTypeIndex(BuildingType);
+        if (IsTerranBuildingTypeIndexValid(BuildingTypeIndex))
+        {
+            BuildingCounts[BuildingTypeIndex]++;
+        }
     }
 
     void DecrementBuildingCount(UNIT_TYPEID BuildingType)
     {
         const size_t Index = GetTerranBuildingTypeIndex(BuildingType);
-        if (BuildingCounts[Index] > 0)
+        if (IsTerranBuildingTypeIndexValid(Index) && BuildingCounts[Index] > 0)
         {
             BuildingCounts[Index]--;
         }
@@ -435,17 +463,26 @@ struct FAgentBuildings
 
     uint16_t GetCurrentlyInConstruction(UNIT_TYPEID BuildingType) const
     {
-        return CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)];
+        const size_t BuildingTypeIndex = GetTerranBuildingTypeIndex(BuildingType);
+        return IsTerranBuildingTypeIndexValid(BuildingTypeIndex) ? CurrentlyInConstruction[BuildingTypeIndex] : 0;
     }
 
     void SetCurrentlyInConstruction(UNIT_TYPEID BuildingType, uint16_t Count)
     {
-        CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)] = Count;
+        const size_t BuildingTypeIndex = GetTerranBuildingTypeIndex(BuildingType);
+        if (IsTerranBuildingTypeIndexValid(BuildingTypeIndex))
+        {
+            CurrentlyInConstruction[BuildingTypeIndex] = Count;
+        }
     }
 
     void IncrementCurrentlyInConstruction(UNIT_TYPEID BuildingType)
     {
-        CurrentlyInConstruction[GetTerranBuildingTypeIndex(BuildingType)]++;
+        const size_t BuildingTypeIndex = GetTerranBuildingTypeIndex(BuildingType);
+        if (IsTerranBuildingTypeIndexValid(BuildingTypeIndex))
+        {
+            CurrentlyInConstruction[BuildingTypeIndex]++;
+        }
     }
 
     uint16_t GetTownHallCount() const

@@ -72,3 +72,12 @@ package-lock.json
 
 # Clangd cache
 .cache/
+
+# Local Codex and generated workspace data
+.appdata/
+.dotnet/
+codex-skill-drafts/
+out/
+output/
+tmp/
+RunSc2TestWithWatchdog.ps1

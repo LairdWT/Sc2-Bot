@@ -69,6 +69,10 @@ if (MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded$<$<CONFIG:Debug>:Debug>)
 endif ()
 
+if (BUILD_API_EXAMPLES OR BUILD_API_TESTS)
+    add_subdirectory(examples/common)
+endif ()
+
 if (BUILD_API_EXAMPLES)
     add_subdirectory(examples)
 endif ()

@@ -12,7 +12,7 @@ function (example_project_extra project_name source_code extra_libs)
 
     set_target_properties(${project_name} PROPERTIES FOLDER examples)
 
-    target_link_libraries(${project_name} PRIVATE cpp_sc2 ${extra_libs})
+    target_link_libraries(${project_name} PRIVATE sc2_terran_bot_common ${extra_libs})
 endfunction ()
 
 # Function to generate a simple example project

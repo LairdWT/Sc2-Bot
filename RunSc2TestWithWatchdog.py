@@ -208,7 +208,6 @@ def Main() -> int:
                 env=Environment,
                 stdout=LogFileHandle,
                 stderr=subprocess.STDOUT,
-                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             JobHandle = AttachProcessToKillOnCloseJob(LogFileHandle, Process)
 

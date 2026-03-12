@@ -1,10 +1,18 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
+#include "sc2api/sc2_typeenums.h"
+
 namespace sc2 {
 
 static constexpr size_t NUM_TERRAN_UNITS = 25;
 static constexpr size_t NUM_TERRAN_BUILDINGS = 30;
 static constexpr size_t NUM_TERRAN_UPGRADES = 27;
+static constexpr size_t INVALID_TERRAN_UNIT_TYPE_INDEX = NUM_TERRAN_UNITS;
+static constexpr size_t INVALID_TERRAN_BUILDING_TYPE_INDEX = NUM_TERRAN_BUILDINGS;
+static constexpr size_t INVALID_TERRAN_UPGRADE_TYPE_INDEX = NUM_TERRAN_UPGRADES;
 
 static constexpr UNIT_TYPEID TERRAN_UNIT_TYPES[NUM_TERRAN_UNITS] = {
     UNIT_TYPEID::TERRAN_MARINE,
@@ -34,60 +42,98 @@ static constexpr UNIT_TYPEID TERRAN_UNIT_TYPES[NUM_TERRAN_UNITS] = {
     UNIT_TYPEID::TERRAN_VIKINGFIGHTER
 };
 
-inline uint8_t GetTerranUnitTypeIndex(const UNIT_TYPEID UnitType) {
+inline bool IsTerranUnitTypeIndexValid(const size_t UnitTypeIndexValue) {
+    return UnitTypeIndexValue < NUM_TERRAN_UNITS;
+}
+
+inline bool TryGetTerranUnitTypeIndex(const UNIT_TYPEID UnitType, size_t& UnitTypeIndexValue) {
     switch (UnitType) {
         case UNIT_TYPEID::TERRAN_MARINE:
-            return 0;
+            UnitTypeIndexValue = 0;
+            return true;
         case UNIT_TYPEID::TERRAN_MARAUDER:
-            return 1;
+            UnitTypeIndexValue = 1;
+            return true;
         case UNIT_TYPEID::TERRAN_MEDIVAC:
-            return 2;
+            UnitTypeIndexValue = 2;
+            return true;
         case UNIT_TYPEID::TERRAN_WIDOWMINE:
-            return 3;
+            UnitTypeIndexValue = 3;
+            return true;
         case UNIT_TYPEID::TERRAN_WIDOWMINEBURROWED:
-            return 4;
+            UnitTypeIndexValue = 4;
+            return true;
         case UNIT_TYPEID::TERRAN_AUTOTURRET:
-            return 5;
+            UnitTypeIndexValue = 5;
+            return true;
         case UNIT_TYPEID::TERRAN_BANSHEE:
-            return 6;
+            UnitTypeIndexValue = 6;
+            return true;
         case UNIT_TYPEID::TERRAN_BATTLECRUISER:
-            return 7;
+            UnitTypeIndexValue = 7;
+            return true;
         case UNIT_TYPEID::TERRAN_CYCLONE:
-            return 8;
+            UnitTypeIndexValue = 8;
+            return true;
         case UNIT_TYPEID::TERRAN_GHOST:
-            return 9;
+            UnitTypeIndexValue = 9;
+            return true;
         case UNIT_TYPEID::TERRAN_HELLION:
-            return 10;
+            UnitTypeIndexValue = 10;
+            return true;
         case UNIT_TYPEID::TERRAN_HELLIONTANK:
-            return 11;
+            UnitTypeIndexValue = 11;
+            return true;
         case UNIT_TYPEID::TERRAN_LIBERATOR:
-            return 12;
+            UnitTypeIndexValue = 12;
+            return true;
         case UNIT_TYPEID::TERRAN_LIBERATORAG:
-            return 13;
+            UnitTypeIndexValue = 13;
+            return true;
         case UNIT_TYPEID::TERRAN_MULE:
-            return 14;
+            UnitTypeIndexValue = 14;
+            return true;
         case UNIT_TYPEID::TERRAN_NUKE:
-            return 15;
+            UnitTypeIndexValue = 15;
+            return true;
         case UNIT_TYPEID::TERRAN_RAVEN:
-            return 16;
+            UnitTypeIndexValue = 16;
+            return true;
         case UNIT_TYPEID::TERRAN_REAPER:
-            return 17;
+            UnitTypeIndexValue = 17;
+            return true;
         case UNIT_TYPEID::TERRAN_SCV:
-            return 18;
+            UnitTypeIndexValue = 18;
+            return true;
         case UNIT_TYPEID::TERRAN_SIEGETANK:
-            return 19;
+            UnitTypeIndexValue = 19;
+            return true;
         case UNIT_TYPEID::TERRAN_SIEGETANKSIEGED:
-            return 20;
+            UnitTypeIndexValue = 20;
+            return true;
         case UNIT_TYPEID::TERRAN_THOR:
-            return 21;
+            UnitTypeIndexValue = 21;
+            return true;
         case UNIT_TYPEID::TERRAN_THORAP:
-            return 22;
+            UnitTypeIndexValue = 22;
+            return true;
         case UNIT_TYPEID::TERRAN_VIKINGASSAULT:
-            return 23;
+            UnitTypeIndexValue = 23;
+            return true;
         case UNIT_TYPEID::TERRAN_VIKINGFIGHTER:
-            return 24;
-        default: return 255;  // Invalid index
+            UnitTypeIndexValue = 24;
+            return true;
+        default:
+            UnitTypeIndexValue = INVALID_TERRAN_UNIT_TYPE_INDEX;
+            return false;
     }
+}
+
+inline size_t GetTerranUnitTypeIndex(const UNIT_TYPEID UnitType) {
+    size_t UnitTypeIndexValue = INVALID_TERRAN_UNIT_TYPE_INDEX;
+    const bool FoundValue = TryGetTerranUnitTypeIndex(UnitType, UnitTypeIndexValue);
+    (void)FoundValue;
+    return UnitTypeIndexValue;
 }
 
 inline bool IsTerranUnit(const UNIT_TYPEID UnitType) {
@@ -219,70 +265,113 @@ static constexpr UNIT_TYPEID TERRAN_BUILDING_TYPES[NUM_TERRAN_BUILDINGS] = {
     UNIT_TYPEID::TERRAN_TECHLAB
 };
 
-inline uint8_t GetTerranBuildingTypeIndex(const UNIT_TYPEID BuildingType) {
+inline bool IsTerranBuildingTypeIndexValid(const size_t BuildingTypeIndexValue) {
+    return BuildingTypeIndexValue < NUM_TERRAN_BUILDINGS;
+}
+
+inline bool TryGetTerranBuildingTypeIndex(const UNIT_TYPEID BuildingType, size_t& BuildingTypeIndexValue) {
     switch (BuildingType) {
         case UNIT_TYPEID::TERRAN_ARMORY:
-            return 0;
+            BuildingTypeIndexValue = 0;
+            return true;
         case UNIT_TYPEID::TERRAN_BARRACKS:
-            return 1;
+            BuildingTypeIndexValue = 1;
+            return true;
         case UNIT_TYPEID::TERRAN_BARRACKSFLYING:
-            return 2;
+            BuildingTypeIndexValue = 2;
+            return true;
         case UNIT_TYPEID::TERRAN_BARRACKSREACTOR:
-            return 3;
+            BuildingTypeIndexValue = 3;
+            return true;
         case UNIT_TYPEID::TERRAN_BARRACKSTECHLAB:
-            return 4;
+            BuildingTypeIndexValue = 4;
+            return true;
         case UNIT_TYPEID::TERRAN_BUNKER:
-            return 5;
+            BuildingTypeIndexValue = 5;
+            return true;
         case UNIT_TYPEID::TERRAN_COMMANDCENTER:
-            return 6;
+            BuildingTypeIndexValue = 6;
+            return true;
         case UNIT_TYPEID::TERRAN_COMMANDCENTERFLYING:
-            return 7;
+            BuildingTypeIndexValue = 7;
+            return true;
         case UNIT_TYPEID::TERRAN_ORBITALCOMMAND:
-            return 8;
+            BuildingTypeIndexValue = 8;
+            return true;
         case UNIT_TYPEID::TERRAN_ORBITALCOMMANDFLYING:
-            return 9;
+            BuildingTypeIndexValue = 9;
+            return true;
         case UNIT_TYPEID::TERRAN_PLANETARYFORTRESS:
-            return 10;
+            BuildingTypeIndexValue = 10;
+            return true;
         case UNIT_TYPEID::TERRAN_ENGINEERINGBAY:
-            return 11;
+            BuildingTypeIndexValue = 11;
+            return true;
         case UNIT_TYPEID::TERRAN_FACTORY:
-            return 12;
+            BuildingTypeIndexValue = 12;
+            return true;
         case UNIT_TYPEID::TERRAN_FACTORYFLYING:
-            return 13;
+            BuildingTypeIndexValue = 13;
+            return true;
         case UNIT_TYPEID::TERRAN_FACTORYREACTOR:
-            return 14;
+            BuildingTypeIndexValue = 14;
+            return true;
         case UNIT_TYPEID::TERRAN_FACTORYTECHLAB:
-            return 15;
+            BuildingTypeIndexValue = 15;
+            return true;
         case UNIT_TYPEID::TERRAN_FUSIONCORE:
-            return 16;
+            BuildingTypeIndexValue = 16;
+            return true;
         case UNIT_TYPEID::TERRAN_GHOSTACADEMY:
-            return 17;
+            BuildingTypeIndexValue = 17;
+            return true;
         case UNIT_TYPEID::TERRAN_MISSILETURRET:
-            return 18;
+            BuildingTypeIndexValue = 18;
+            return true;
         case UNIT_TYPEID::TERRAN_REACTOR:
-            return 19;
+            BuildingTypeIndexValue = 19;
+            return true;
         case UNIT_TYPEID::TERRAN_REFINERY:
-            return 20;
+            BuildingTypeIndexValue = 20;
+            return true;
         case UNIT_TYPEID::TERRAN_REFINERYRICH:
-            return 21;
+            BuildingTypeIndexValue = 21;
+            return true;
         case UNIT_TYPEID::TERRAN_SENSORTOWER:
-            return 22;
+            BuildingTypeIndexValue = 22;
+            return true;
         case UNIT_TYPEID::TERRAN_STARPORT:
-            return 23;
+            BuildingTypeIndexValue = 23;
+            return true;
         case UNIT_TYPEID::TERRAN_STARPORTFLYING:
-            return 24;
+            BuildingTypeIndexValue = 24;
+            return true;
         case UNIT_TYPEID::TERRAN_STARPORTREACTOR:
-            return 25;
+            BuildingTypeIndexValue = 25;
+            return true;
         case UNIT_TYPEID::TERRAN_STARPORTTECHLAB:
-            return 26;
+            BuildingTypeIndexValue = 26;
+            return true;
         case UNIT_TYPEID::TERRAN_SUPPLYDEPOT:
-            return 27;
+            BuildingTypeIndexValue = 27;
+            return true;
         case UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED:
-            return 28;
+            BuildingTypeIndexValue = 28;
+            return true;
         case UNIT_TYPEID::TERRAN_TECHLAB:
-            return 29;
-        default: return 255;
+            BuildingTypeIndexValue = 29;
+            return true;
+        default:
+            BuildingTypeIndexValue = INVALID_TERRAN_BUILDING_TYPE_INDEX;
+            return false;
     }
+}
+
+inline size_t GetTerranBuildingTypeIndex(const UNIT_TYPEID BuildingType) {
+    size_t BuildingTypeIndexValue = INVALID_TERRAN_BUILDING_TYPE_INDEX;
+    const bool FoundValue = TryGetTerranBuildingTypeIndex(BuildingType, BuildingTypeIndexValue);
+    (void)FoundValue;
+    return BuildingTypeIndexValue;
 }
 
 inline bool IsTerranBuilding(const UNIT_TYPEID BuildingType) {
@@ -353,37 +442,104 @@ static constexpr ABILITY_ID TERRAN_RESEARCH_UPGRADE_TYPES[NUM_TERRAN_UPGRADES] =
     ABILITY_ID::RESEARCH_BATTLECRUISERWEAPONREFIT
 };
 
-inline uint8_t GetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType) {
+inline bool IsTerranUpgradeTypeIndexValid(const size_t UpgradeTypeIndexValue) {
+    return UpgradeTypeIndexValue < NUM_TERRAN_UPGRADES;
+}
+
+inline bool TryGetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType, size_t& UpgradeTypeIndexValue) {
     switch (UpgradeType) {
-        case ABILITY_ID::RESEARCH_STIMPACK: return 0;
-        case ABILITY_ID::RESEARCH_COMBATSHIELD: return 1;
-        case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS: return 2;
-        case ABILITY_ID::RESEARCH_INFERNALPREIGNITER: return 3;
-        case ABILITY_ID::RESEARCH_DRILLINGCLAWS: return 4;
-        case ABILITY_ID::RESEARCH_SMARTSERVOS: return 5;
-        case ABILITY_ID::RESEARCH_CYCLONERAPIDFIRELAUNCHERS: return 6;
-        case ABILITY_ID::RESEARCH_LIBERATORAGMODE: return 7;
-        case ABILITY_ID::RESEARCH_RAVENCORVIDREACTOR: return 8;
-        case ABILITY_ID::RESEARCH_HISECAUTOTRACKING: return 9;
-        case ABILITY_ID::RESEARCH_TERRANSTRUCTUREARMORUPGRADE: return 10;
-        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1: return 11;
-        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL2: return 12;
-        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL3: return 13;
-        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL1: return 14;
-        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL2: return 15;
-        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL3: return 16;
-        case ABILITY_ID::RESEARCH_TERRANVEHICLEWEAPONSLEVEL1: return 17;
-        case ABILITY_ID::RESEARCH_TERRANVEHICLEWEAPONSLEVEL2: return 18;
-        case ABILITY_ID::RESEARCH_TERRANVEHICLEWEAPONSLEVEL3: return 19;
-        case ABILITY_ID::RESEARCH_TERRANSHIPWEAPONSLEVEL1: return 20;
-        case ABILITY_ID::RESEARCH_TERRANSHIPWEAPONSLEVEL2: return 21;
-        case ABILITY_ID::RESEARCH_TERRANSHIPWEAPONSLEVEL3: return 22;
-        case ABILITY_ID::RESEARCH_TERRANVEHICLEANDSHIPPLATINGLEVEL1: return 23;
-        case ABILITY_ID::RESEARCH_TERRANVEHICLEANDSHIPPLATINGLEVEL2: return 24;
-        case ABILITY_ID::RESEARCH_TERRANVEHICLEANDSHIPPLATINGLEVEL3: return 25;
-        case ABILITY_ID::RESEARCH_BATTLECRUISERWEAPONREFIT: return 26;
-        default: return 255;
+        case ABILITY_ID::RESEARCH_STIMPACK:
+            UpgradeTypeIndexValue = 0;
+            return true;
+        case ABILITY_ID::RESEARCH_COMBATSHIELD:
+            UpgradeTypeIndexValue = 1;
+            return true;
+        case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
+            UpgradeTypeIndexValue = 2;
+            return true;
+        case ABILITY_ID::RESEARCH_INFERNALPREIGNITER:
+            UpgradeTypeIndexValue = 3;
+            return true;
+        case ABILITY_ID::RESEARCH_DRILLINGCLAWS:
+            UpgradeTypeIndexValue = 4;
+            return true;
+        case ABILITY_ID::RESEARCH_SMARTSERVOS:
+            UpgradeTypeIndexValue = 5;
+            return true;
+        case ABILITY_ID::RESEARCH_CYCLONERAPIDFIRELAUNCHERS:
+            UpgradeTypeIndexValue = 6;
+            return true;
+        case ABILITY_ID::RESEARCH_LIBERATORAGMODE:
+            UpgradeTypeIndexValue = 7;
+            return true;
+        case ABILITY_ID::RESEARCH_RAVENCORVIDREACTOR:
+            UpgradeTypeIndexValue = 8;
+            return true;
+        case ABILITY_ID::RESEARCH_HISECAUTOTRACKING:
+            UpgradeTypeIndexValue = 9;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANSTRUCTUREARMORUPGRADE:
+            UpgradeTypeIndexValue = 10;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
+            UpgradeTypeIndexValue = 11;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL2:
+            UpgradeTypeIndexValue = 12;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL3:
+            UpgradeTypeIndexValue = 13;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL1:
+            UpgradeTypeIndexValue = 14;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL2:
+            UpgradeTypeIndexValue = 15;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL3:
+            UpgradeTypeIndexValue = 16;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANVEHICLEWEAPONSLEVEL1:
+            UpgradeTypeIndexValue = 17;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANVEHICLEWEAPONSLEVEL2:
+            UpgradeTypeIndexValue = 18;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANVEHICLEWEAPONSLEVEL3:
+            UpgradeTypeIndexValue = 19;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANSHIPWEAPONSLEVEL1:
+            UpgradeTypeIndexValue = 20;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANSHIPWEAPONSLEVEL2:
+            UpgradeTypeIndexValue = 21;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANSHIPWEAPONSLEVEL3:
+            UpgradeTypeIndexValue = 22;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANVEHICLEANDSHIPPLATINGLEVEL1:
+            UpgradeTypeIndexValue = 23;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANVEHICLEANDSHIPPLATINGLEVEL2:
+            UpgradeTypeIndexValue = 24;
+            return true;
+        case ABILITY_ID::RESEARCH_TERRANVEHICLEANDSHIPPLATINGLEVEL3:
+            UpgradeTypeIndexValue = 25;
+            return true;
+        case ABILITY_ID::RESEARCH_BATTLECRUISERWEAPONREFIT:
+            UpgradeTypeIndexValue = 26;
+            return true;
+        default:
+            UpgradeTypeIndexValue = INVALID_TERRAN_UPGRADE_TYPE_INDEX;
+            return false;
     }
+}
+
+inline size_t GetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType) {
+    size_t UpgradeTypeIndexValue = INVALID_TERRAN_UPGRADE_TYPE_INDEX;
+    const bool FoundValue = TryGetTerranUpgradeTypeIndex(UpgradeType, UpgradeTypeIndexValue);
+    (void)FoundValue;
+    return UpgradeTypeIndexValue;
 }
 
 }  // namespace sc2

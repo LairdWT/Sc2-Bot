@@ -7,9 +7,12 @@
 #include <vector>
 
 #include "common/bot_status_models.h"
+#include "common/descriptors/FGameStateDescriptor.h"
 #include "common/economic_models.h"
 #include "common/logging.h"
 #include "common/render_settings.h"
+#include "common/services/FTerranBuildPlacementService.h"
+#include "common/services/IBuildPlacementService.h"
 
 #include "sc2api/sc2_api.h"
 #include "sc2api/sc2_client.h"
@@ -52,6 +55,10 @@ public:
     bool TryBuildMarine();
     bool ShouldLaunchMarineAttack() const;
 
+    const Unit* SelectBuildWorker(UNIT_TYPEID WorkerTypeId, const Point2D& BuildAnchorValue);
+    bool TryGetStructureBuildPoint(ABILITY_ID StructureAbilityId, const Unit& WorkerUnitValue, Point2D& OutBuildPointValue);
+    bool ShouldRefreshArmyOrder(const Unit& UnitValue, ABILITY_ID AbilityValue, const Point2D& TargetPointValue) const;
+
     const Unit* FindNearestMineralPatch(const Point2D& Origin);
     Point2D GetEnemyTargetLocation() const;
     Point2D GetRandomPointNear(const Point2D& Origin, float XRadius, float YRadius) const;
@@ -85,6 +92,9 @@ private:
     FIntentBuffer IntentBuffer;
     FIntentArbiter IntentArbiter;
     std::unordered_set<Tag> PendingRecoveryWorkers;
+    FGameStateDescriptor GameStateDescriptor;
+    FTerranBuildPlacementService DefaultBuildPlacementService;
+    const IBuildPlacementService* BuildPlacementService{&DefaultBuildPlacementService};
 };
 
 }  // namespace sc2

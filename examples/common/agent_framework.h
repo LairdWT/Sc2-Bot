@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -50,6 +51,29 @@ inline Point2D ClampToPlayable(const GameInfo& GameInfoData, const Point2D& Poin
 {
     return Point2D(std::clamp(PointValue.x, GameInfoData.playable_min.x, GameInfoData.playable_max.x),
                    std::clamp(PointValue.y, GameInfoData.playable_min.y, GameInfoData.playable_max.y));
+}
+
+inline bool IsPointFinite(const Point2D& PointValue)
+{
+    return std::isfinite(PointValue.x) && std::isfinite(PointValue.y);
+}
+
+inline bool IsGroundPathingResultValid(const Unit& ActorUnitValue, const Point2D& TargetPointValue,
+                                       const float PathingDistanceValue)
+{
+    if (!std::isfinite(PathingDistanceValue) || PathingDistanceValue < 0.0f)
+    {
+        return false;
+    }
+
+    constexpr float SamePointToleranceSquared = 0.25f;
+    const float DirectDistanceSquared = DistanceSquared2D(Point2D(ActorUnitValue.pos), TargetPointValue);
+    if (PathingDistanceValue <= 0.0f && DirectDistanceSquared > SamePointToleranceSquared)
+    {
+        return false;
+    }
+
+    return true;
 }
 
 struct FSpatialChannel8BPP
@@ -561,6 +585,11 @@ struct FIntentArbiter
                 return false;
             }
 
+            if (!IsPointFinite(IntentValue.TargetPoint))
+            {
+                return false;
+            }
+
             IntentValue.TargetPoint = ClampToPlayable(*Frame.GameInfo, IntentValue.TargetPoint);
 
             if (IntentValue.RequiresPlacementValidation)
@@ -579,7 +608,7 @@ struct FIntentArbiter
                 }
 
                 const float PathingDistanceValue = Frame.Query->PathingDistance(ActorUnit, IntentValue.TargetPoint);
-                if (PathingDistanceValue < 0.0f)
+                if (!IsGroundPathingResultValid(*ActorUnit, IntentValue.TargetPoint, PathingDistanceValue))
                 {
                     return false;
                 }

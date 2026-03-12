@@ -13,7 +13,14 @@ void TerranAgent::OnGameStart()
         return;
     }
 
-    BarracksRally = GetRandomPointNear(Point2D(ObservationPtr->GetStartLocation()), 5.0f, 5.0f);
+    GameStateDescriptor.Reset();
+    GameStateDescriptor.CurrentStep = CurrentStep;
+
+    const Point2D BaseLocationValue = Point2D(ObservationPtr->GetStartLocation());
+    const Point2D PrimaryStructureAnchorValue =
+        BuildPlacementService ? BuildPlacementService->GetPrimaryStructureAnchor(GameStateDescriptor, BaseLocationValue)
+                              : BaseLocationValue;
+    BarracksRally = Point2D(PrimaryStructureAnchorValue.x + 6.0f, PrimaryStructureAnchorValue.y + 6.0f);
 
     const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
     UpdateAgentState(Frame);
@@ -32,6 +39,7 @@ void TerranAgent::OnStep()
     }
 
     const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
+    GameStateDescriptor.CurrentStep = CurrentStep;
 
     UpdateAgentState(Frame);
 
@@ -193,18 +201,20 @@ void TerranAgent::AllMarinesAttack()
 
         const bool UseDirectAttack = HasEnemyContact || (CurrentStep % 3 != 1);
         const Point2D Target = UseDirectAttack ? GetRandomPointNear(EnemyTarget, 15.0f, 15.0f)
-                                                 : GetRandomPointNear(EnemyTarget, 20.0f, 5.0f);
+                                               : GetRandomPointNear(EnemyTarget, 20.0f, 5.0f);
         const AbilityID Ability = UseDirectAttack ? ABILITY_ID::ATTACK_ATTACK : ABILITY_ID::MOVE_MOVE;
+        if (!ShouldRefreshArmyOrder(*Marine, Ability, Target))
+        {
+            continue;
+        }
 
         IntentBuffer.Add(FUnitIntent::CreatePointTarget(Marine->tag, Ability, Target, 50,
                                                         EIntentDomain::ArmyCombat, true));
     }
 }
 
-bool TerranAgent::TryBuildStructure(ABILITY_ID StructureAbilityId, UNIT_TYPEID WorkerTypeId, int Priority)
+const Unit* TerranAgent::SelectBuildWorker(const UNIT_TYPEID WorkerTypeId, const Point2D& BuildAnchorValue)
 {
-    const Point2D BuildAnchor = ObservationPtr ? Point2D(ObservationPtr->GetStartLocation()) : Point2D();
-
     const Unit* IdleWorker = nullptr;
     const Unit* GatheringWorker = nullptr;
     const Unit* FallbackWorker = nullptr;
@@ -228,7 +238,7 @@ bool TerranAgent::TryBuildStructure(ABILITY_ID StructureAbilityId, UNIT_TYPEID W
             break;
         }
 
-        const float DistanceValue = DistanceSquared2D(Worker->pos, BuildAnchor);
+        const float DistanceValue = DistanceSquared2D(Worker->pos, BuildAnchorValue);
         if (Worker->orders.front().ability_id == ABILITY_ID::HARVEST_GATHER)
         {
             if (!GatheringWorker || DistanceValue < GatheringDistance)
@@ -246,17 +256,82 @@ bool TerranAgent::TryBuildStructure(ABILITY_ID StructureAbilityId, UNIT_TYPEID W
         }
     }
 
-    const Unit* WorkerToBuild = IdleWorker ? IdleWorker : (GatheringWorker ? GatheringWorker : FallbackWorker);
+    return IdleWorker ? IdleWorker : (GatheringWorker ? GatheringWorker : FallbackWorker);
+}
+
+bool TerranAgent::TryGetStructureBuildPoint(const ABILITY_ID StructureAbilityId, const Unit& WorkerUnitValue,
+                                            Point2D& OutBuildPointValue)
+{
+    if (!ObservationPtr || !BuildPlacementService)
+    {
+        return false;
+    }
+
+    QueryInterface* QueryValue = Query();
+    if (!QueryValue)
+    {
+        return false;
+    }
+
+    const Point2D BaseLocationValue = Point2D(ObservationPtr->GetStartLocation());
+    const std::vector<Point2D> CandidateValues =
+        BuildPlacementService->GetStructurePlacementCandidates(GameStateDescriptor, StructureAbilityId, BaseLocationValue);
+    const GameInfo& GameInfoValue = ObservationPtr->GetGameInfo();
+
+    for (const Point2D& CandidateValue : CandidateValues)
+    {
+        const Point2D ClampedCandidateValue = ClampToPlayable(GameInfoValue, CandidateValue);
+        if (QueryValue->Placement(StructureAbilityId, ClampedCandidateValue, &WorkerUnitValue))
+        {
+            OutBuildPointValue = ClampedCandidateValue;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TerranAgent::ShouldRefreshArmyOrder(const Unit& UnitValue, const ABILITY_ID AbilityValue,
+                                         const Point2D& TargetPointValue) const
+{
+    if (UnitValue.orders.empty())
+    {
+        return true;
+    }
+
+    const UnitOrder& CurrentOrderValue = UnitValue.orders.front();
+    if (CurrentOrderValue.ability_id != AbilityValue)
+    {
+        return true;
+    }
+
+    constexpr float OrderRefreshDistanceSquared = 64.0f;
+    return DistanceSquared2D(CurrentOrderValue.target_pos, TargetPointValue) > OrderRefreshDistanceSquared;
+}
+
+bool TerranAgent::TryBuildStructure(const ABILITY_ID StructureAbilityId, const UNIT_TYPEID WorkerTypeId, const int Priority)
+{
+    if (!ObservationPtr || !BuildPlacementService)
+    {
+        return false;
+    }
+
+    const Point2D BaseLocationValue = Point2D(ObservationPtr->GetStartLocation());
+    const Point2D BuildAnchorValue = BuildPlacementService->GetPrimaryStructureAnchor(GameStateDescriptor, BaseLocationValue);
+    const Unit* WorkerToBuild = SelectBuildWorker(WorkerTypeId, BuildAnchorValue);
     if (!WorkerToBuild)
     {
         return false;
     }
 
-    const float BuildSpread = StructureAbilityId == ABILITY_ID::BUILD_SUPPLYDEPOT ? 10.0f : 14.0f;
-    IntentBuffer.Add(FUnitIntent::CreatePointTarget(WorkerToBuild->tag, StructureAbilityId,
-                                                    GetRandomPointNear(Point2D(WorkerToBuild->pos), BuildSpread,
-                                                                       BuildSpread),
-                                                    Priority, EIntentDomain::StructureBuild, false, true));
+    Point2D BuildPointValue;
+    if (!TryGetStructureBuildPoint(StructureAbilityId, *WorkerToBuild, BuildPointValue))
+    {
+        return false;
+    }
+
+    IntentBuffer.Add(FUnitIntent::CreatePointTarget(WorkerToBuild->tag, StructureAbilityId, BuildPointValue, Priority,
+                                                    EIntentDomain::StructureBuild, false, true));
     return true;
 }
 
@@ -452,7 +527,9 @@ Point2D TerranAgent::GetEnemyTargetLocation() const
 
 Point2D TerranAgent::GetRandomPointNear(const Point2D& Origin, float XRadius, float YRadius) const
 {
-    return Point2D(Origin.x + GetRandomScalar() * XRadius, Origin.y + GetRandomScalar() * YRadius);
+    const float SignedXOffset = ((GetRandomScalar() * 2.0f) - 1.0f) * XRadius;
+    const float SignedYOffset = ((GetRandomScalar() * 2.0f) - 1.0f) * YRadius;
+    return Point2D(Origin.x + SignedXOffset, Origin.y + SignedYOffset);
 }
 
 }  // namespace sc2

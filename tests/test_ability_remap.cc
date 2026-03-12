@@ -10,6 +10,27 @@
 #include "test_movement_combat.h"
 
 namespace sc2 {
+namespace {
+
+std::string BuildSc2SwitcherPath(const std::string& ExecutablePathValue) {
+    static const std::string VersionsDirectoryTokenValue = "\\Versions\\";
+    const std::size_t VersionsDirectoryIndexValue = ExecutablePathValue.find(VersionsDirectoryTokenValue);
+    if (VersionsDirectoryIndexValue == std::string::npos) {
+        return std::string();
+    }
+
+    return ExecutablePathValue.substr(0, VersionsDirectoryIndexValue) + "\\Support64\\SC2Switcher_x64.exe";
+}
+
+void PreferSc2SwitcherExecutable(Coordinator& CoordinatorValue) {
+    const std::string CurrentExecutablePathValue = CoordinatorValue.GetExePath();
+    const std::string SwitcherExecutablePathValue = BuildSc2SwitcherPath(CurrentExecutablePathValue);
+    if (!SwitcherExecutablePathValue.empty() && DoesFileExist(SwitcherExecutablePathValue)) {
+        CoordinatorValue.SetProcessPath(SwitcherExecutablePathValue);
+    }
+}
+
+}  // namespace
 
 //
 // TestRemapStart
@@ -206,6 +227,7 @@ bool TestAbilityRemap(int argc, char** argv) {
         return false;
     }
 
+    PreferSc2SwitcherExecutable(coordinator);
     coordinator.SetFeatureLayers(sc2::FeatureLayerSettings());
 
     // Add the custom bot, it will control the players.

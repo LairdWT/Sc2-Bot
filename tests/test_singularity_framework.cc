@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -724,6 +725,23 @@ bool TestIntentArbitrationAndValidation()
     const std::vector<FUnitIntent> PathingRejected = ArbiterValue.Resolve(FrameValue, Container, PathingBuffer);
     Check(PathingRejected.empty(), Success,
           "Pathing validation should drop unreachable point-target intents before execution.");
+
+    QueryValue.UnitPathingResult = 0.0f;
+    const std::vector<FUnitIntent> ZeroDistanceRejected = ArbiterValue.Resolve(FrameValue, Container, PathingBuffer);
+    Check(ZeroDistanceRejected.empty(), Success,
+          "Zero-distance pathing results should be rejected when the target point is still meaningfully far away.");
+
+    FIntentBuffer SamePointBuffer;
+    SamePointBuffer.Add(FUnitIntent::CreatePointTarget(MarineUnit.tag, ABILITY_ID::MOVE_MOVE, Point2D(MarineUnit.pos),
+                                                       50, EIntentDomain::ArmyCombat, true));
+    const std::vector<FUnitIntent> SamePointAccepted = ArbiterValue.Resolve(FrameValue, Container, SamePointBuffer);
+    Check(SamePointAccepted.size() == 1, Success,
+          "Zero-distance pathing should remain valid when the unit is already at the requested target point.");
+
+    QueryValue.UnitPathingResult = std::numeric_limits<float>::quiet_NaN();
+    const std::vector<FUnitIntent> NaNPathingRejected = ArbiterValue.Resolve(FrameValue, Container, PathingBuffer);
+    Check(NaNPathingRejected.empty(), Success,
+          "Non-finite pathing results should be rejected before execution.");
 
     return Success;
 }

@@ -1,6 +1,7 @@
 set(sc2test_sources
     all_tests.cc
     feature_layers_shared.cc
+    test_command_authority_scheduling.cc
     test_ability_remap.cc
     test_actions.cc
     test_app.cc
@@ -15,6 +16,9 @@ set(sc2test_sources
     test_restart.cc
     test_singularity_framework.cc
     test_snapshots.cc
+    test_terran_economic_models.cc
+    test_terran_build_placement_service.cc
+    test_terran_bot_scaffolding.cc
     test_unit_command_common.cc
     test_unit_command.cc)
 
@@ -29,4 +33,4 @@ if (BUILD_SC2_RENDERER)
     target_compile_definitions(all_tests PRIVATE -DBUILD_SC2_RENDERER)
 endif ()
 
-target_link_libraries(all_tests sc2api sc2lib sc2utils)
+target_link_libraries(all_tests PRIVATE sc2_terran_bot_common)

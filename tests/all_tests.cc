@@ -11,6 +11,7 @@
 #include "sc2utils/sc2_manage_process.h"
 #include "test_actions.h"
 #include "test_app.h"
+#include "test_command_authority_scheduling.h"
 #include "test_feature_layer.h"
 #include "test_feature_layer_mp.h"
 #include "test_movement_combat.h"
@@ -22,6 +23,9 @@
 #include "test_restart.h"
 #include "test_singularity_framework.h"
 #include "test_snapshots.h"
+#include "test_terran_build_placement_service.h"
+#include "test_terran_economic_models.h"
+#include "test_terran_bot_scaffolding.h"
 #include "test_unit_command.h"
 
 namespace sc2
@@ -97,6 +101,10 @@ int main(int argc, char* argv[])
     TEST(sc2::TestPerformance);
     TEST(sc2::TestObservationInterface);
     TEST(sc2::TestSingularityFramework);
+    TEST(sc2::TestTerranEconomicModels);
+    TEST(sc2::TestCommandAuthorityScheduling);
+    TEST(sc2::TestTerranBuildPlacementService);
+    TEST(sc2::TestTerranBotScaffolding);
 
 #ifdef BUILD_SC2_RENDERER
     TEST(sc2::TestRendered);
