@@ -232,6 +232,15 @@ Point2D GetSpawnHorizontalMainBaseStepForTest(const Point2D& BaseLocationValue, 
     return IsLeftSideValue ? Point2D(-6.0f, 0.0f) : Point2D(6.0f, 0.0f);
 }
 
+Point2D GetOneCellStepTowardPointForTest(const Point2D& FromPointValue, const Point2D& ToPointValue)
+{
+    const float DeltaXValue = ToPointValue.x - FromPointValue.x;
+    const float DeltaYValue = ToPointValue.y - FromPointValue.y;
+    const float StepXValue = std::abs(DeltaXValue) >= 0.5f ? (DeltaXValue > 0.0f ? 1.0f : -1.0f) : 0.0f;
+    const float StepYValue = std::abs(DeltaYValue) >= 0.5f ? (DeltaYValue > 0.0f ? 1.0f : -1.0f) : 0.0f;
+    return Point2D(StepXValue, StepYValue);
+}
+
 bool ContainsSlot(const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue,
                   const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
                   const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
@@ -603,6 +612,9 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         AuthoredUpperLeftBuildPlacementContextValue.BaseLocation,
         AuthoredLayoutGameInfoValue.playable_min,
         AuthoredLayoutGameInfoValue.playable_max);
+    const Point2D ExpectedCommandCenterPullStepValue = GetOneCellStepTowardPointForTest(
+        AuthoredUpperLeftBuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint,
+        AuthoredUpperLeftBuildPlacementContextValue.BaseLocation);
     const Point2D ExpectedRailBarracksPointValue =
         AuthoredUpperLeftBuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint +
         ExpectedHorizontalMainBaseStepValue;
@@ -612,7 +624,8 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         ExpectedRailFactoryPointValue + ExpectedHorizontalMainBaseStepValue;
     const Point2D ExpectedAuthoredFactoryPointValue =
         AuthoredUpperLeftBuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint +
-        ExpectedVerticalMainBaseStepValue;
+        ExpectedVerticalMainBaseStepValue +
+        ExpectedCommandCenterPullStepValue;
     const Point2D ExpectedAuthoredStarportPointValue =
         ExpectedAuthoredFactoryPointValue + ExpectedVerticalMainBaseStepValue;
     Check(ArePointsEqual(AuthoredUpperLeftBuildPlacementContextValue.MainBaseLayoutDescriptor.LayoutAnchorPoint,

@@ -1479,12 +1479,6 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     DeferralReasonValue = GetWorkerAvailabilityDeferralReason(AgentStateValue);
                     break;
                 }
-                if (FrameValue.Query == nullptr ||
-                    !FrameValue.Query->Placement(ABILITY_ID::BUILD_COMMANDCENTER, ExpansionLocationValue, WorkerUnitValue))
-                {
-                    DeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
-                    break;
-                }
 
                 if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, UNIT_TYPEID::TERRAN_COMMANDCENTER))
                 {

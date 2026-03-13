@@ -37,6 +37,8 @@ bool Check(const bool ConditionValue, bool& SuccessValue, const std::string& Mes
 
 struct FakeQuery : QueryInterface
 {
+    bool RejectWorkerSpecificCommandCenterPlacementValue = false;
+
     AvailableAbilities GetAbilitiesForUnit(const Unit* UnitPtr, bool IgnoreResourceRequirements = false,
                                            bool UseGeneralizedAbility = true) override
     {
@@ -77,9 +79,14 @@ struct FakeQuery : QueryInterface
     bool Placement(const AbilityID& AbilityIdValue, const Point2D& TargetPointValue,
                    const Unit* UnitPtr = nullptr) override
     {
-        (void)AbilityIdValue;
         (void)TargetPointValue;
-        (void)UnitPtr;
+        if (RejectWorkerSpecificCommandCenterPlacementValue &&
+            AbilityIdValue == ABILITY_ID::BUILD_COMMANDCENTER &&
+            UnitPtr != nullptr)
+        {
+            return false;
+        }
+
         return true;
     }
 
@@ -900,6 +907,73 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
                   ECommandOrderDeferralReason::ReservedSlotOccupied,
               SuccessValue,
               "A claimed exact preferred rail slot should defer with ReservedSlotOccupied instead of drifting.");
+    }
+
+    std::vector<Unit> CommandCenterUnitStorageValue;
+    CommandCenterUnitStorageValue.push_back(
+        MakeUnit(801U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(12.0f, 10.0f), false));
+    CommandCenterUnitStorageValue.push_back(MakeUnit(802U, UNIT_TYPEID::TERRAN_COMMANDCENTER,
+                                                     Unit::Alliance::Self, Point2D(10.0f, 10.0f), true));
+
+    Units CommandCenterUnitPointersValue;
+    AppendUnitPointers(CommandCenterUnitStorageValue, CommandCenterUnitPointersValue);
+
+    FakeObservation CommandCenterObservationValue;
+    CommandCenterObservationValue.GameLoopValue = 500U;
+    CommandCenterObservationValue.SetUnits(CommandCenterUnitPointersValue);
+
+    FakeQuery CommandCenterQueryValue;
+    CommandCenterQueryValue.RejectWorkerSpecificCommandCenterPlacementValue = true;
+    const FFrameContext CommandCenterFrameValue =
+        FFrameContext::Create(&CommandCenterObservationValue, &CommandCenterQueryValue, 5U);
+
+    FAgentState CommandCenterAgentStateValue;
+    CommandCenterAgentStateValue.Update(CommandCenterFrameValue);
+
+    FGameStateDescriptor CommandCenterGameStateDescriptorValue;
+    CommandCenterGameStateDescriptorValue.CurrentStep = 500U;
+    CommandCenterGameStateDescriptorValue.CurrentGameLoop = 500U;
+    CommandCenterGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    CommandCenterGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    CommandCenterGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    CommandCenterGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+
+    FCommandAuthoritySchedulingState& CommandCenterSchedulingStateValue =
+        CommandCenterGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord CommandCenterEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_COMMANDCENTER, 150,
+        EIntentDomain::StructureBuild, 5U);
+    CommandCenterEconomyOrderValue.TargetCount = 2U;
+    CommandCenterEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    CommandCenterEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_COMMANDCENTER;
+    const uint32_t CommandCenterEconomyOrderIdValue =
+        CommandCenterSchedulingStateValue.EnqueueOrder(CommandCenterEconomyOrderValue);
+
+    const std::vector<Point2D> CommandCenterExpansionLocationsValue =
+    {
+        Point2D(30.0f, 10.0f),
+    };
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        CommandCenterFrameValue, CommandCenterAgentStateValue, CommandCenterGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, CommandCenterExpansionLocationsValue);
+
+    size_t CommandCenterChildOrderIndexValue = 0U;
+    Check(CommandCenterSchedulingStateValue.TryGetActiveChildOrderIndex(
+              CommandCenterEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              CommandCenterChildOrderIndexValue),
+          SuccessValue,
+          "A natural expansion order should create an SCV child order when the expansion point is globally valid.");
+    if (CommandCenterSchedulingStateValue.TryGetActiveChildOrderIndex(
+            CommandCenterEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+            CommandCenterChildOrderIndexValue))
+    {
+        const FCommandOrderRecord CommandCenterChildOrderValue =
+            CommandCenterSchedulingStateValue.GetOrderRecord(CommandCenterChildOrderIndexValue);
+        Check(CommandCenterChildOrderValue.TargetPoint == Point2D(30.0f, 10.0f),
+              SuccessValue,
+              "The natural expansion child order should target the selected natural expansion location.");
     }
 
     std::vector<Unit> RefineryUnitStorageValue;

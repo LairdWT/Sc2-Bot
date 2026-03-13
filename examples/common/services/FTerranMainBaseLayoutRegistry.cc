@@ -174,6 +174,15 @@ Point2D GetSpawnHorizontalMainBaseStep(const EStartLocationBucket StartLocationB
     }
 }
 
+Point2D GetOneCellStepTowardPoint(const Point2D& FromPointValue, const Point2D& ToPointValue)
+{
+    const float DeltaXValue = ToPointValue.x - FromPointValue.x;
+    const float DeltaYValue = ToPointValue.y - FromPointValue.y;
+    const float StepXValue = std::abs(DeltaXValue) >= 0.5f ? (DeltaXValue > 0.0f ? 1.0f : -1.0f) : 0.0f;
+    const float StepYValue = std::abs(DeltaYValue) >= 0.5f ? (DeltaYValue > 0.0f ? 1.0f : -1.0f) : 0.0f;
+    return Point2D(StepXValue, StepYValue);
+}
+
 }  // namespace
 
 bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
@@ -224,6 +233,8 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
         GetSpawnVerticalMainBaseStep(StartLocationBucketValue);
     const Point2D HorizontalMainBaseStepValue =
         GetSpawnHorizontalMainBaseStep(StartLocationBucketValue);
+    const Point2D CommandCenterPullStepValue =
+        GetOneCellStepTowardPoint(WallBarracksBuildPointValue, BuildPlacementContextValue.BaseLocation);
     const Point2D ProductionRailBarracksBuildPointValue =
         WallBarracksBuildPointValue + HorizontalMainBaseStepValue;
     const Point2D ProductionRailFactoryBuildPointValue =
@@ -231,7 +242,7 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
     const Point2D ProductionRailStarportBuildPointValue =
         ProductionRailFactoryBuildPointValue + HorizontalMainBaseStepValue;
     const Point2D OpeningFactoryBuildPointValue =
-        WallBarracksBuildPointValue + VerticalMainBaseStepValue;
+        WallBarracksBuildPointValue + VerticalMainBaseStepValue + CommandCenterPullStepValue;
     const Point2D OpeningStarportBuildPointValue =
         OpeningFactoryBuildPointValue + VerticalMainBaseStepValue;
 

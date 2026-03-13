@@ -3,10 +3,10 @@
 You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building placement effort.
 
 ## Immediate User Requests
-- Preserve the current placement success in git before further changes.
+- Preserve the current placement and natural-expansion success in git before further changes.
 - Keep `RESUME.md` current.
 - Preserve the user-approved live launch path: only `cmd /c LaunchTerranEasyComputerMatch.bat`.
-- Investigate and fix the natural expansion regression after the placement snapshot is saved.
+- Expand the Terran opening plan to the full build order that was previously provided once that reference is identified.
 
 ## Mandatory Local Standards
 - Read `L:\Sc2_Bot\CodingStandards.md` before making code changes.
@@ -20,12 +20,9 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 
 ## Current Worktree State Before The Next Commit
 Modified:
-- `LaunchTerranEasyComputerMatch.bat`
-- `examples/common/build_orders/FOpeningPlanRegistry.cc`
-- `examples/common/services/FTerranBuildPlacementService.cc`
+- `examples/common/planning/FTerranEconomyProductionOrderExpander.cc`
 - `examples/common/services/FTerranMainBaseLayoutRegistry.cc`
 - `tests/test_terran_build_placement_service.cc`
-- `tests/test_terran_opening_plan_scheduler.cc`
 - `tests/test_terran_economy_production_order_expander.cc`
 - `RESUME.md`
 
@@ -141,6 +138,8 @@ This is necessary to determine whether the runtime actually resolved determinist
 ### What Is Working
 - The first depot, opening barracks, and second depot on the main ramp were reported by the user as being placed perfectly in a recent live run.
 - The latest confirmed live run also placed the first factory, first starport, and second barracks in the correct main-base locations.
+- The natural expansion command center now builds again after removing the extra worker-specific `BUILD_COMMANDCENTER` placement gate.
+- The latest live adjustment moved the opening factory and starport one cell closer to the starting command center, and the user confirmed that looked good.
 - The scheduler stale wall-child recovery fix is in place and covered by unit tests.
 - The shared `MainProductionWithAddon` rail is now threaded through the main-base layout descriptor, opening-plan metadata, scheduler persistence, economy expansion, and live debug output.
 - The curated Bel'Shir main production rail now builds from the live ramp wall frame instead of the earlier bad absolute coordinates.
@@ -159,23 +158,24 @@ This is necessary to determine whether the runtime actually resolved determinist
 - `LaunchTerranEasyComputerMatch.bat` now cleans stale `SC2_x64.exe` before launch and again after exit to avoid leftover websocket sessions after interrupted runs.
 
 ### What Is Still Broken
-- The current live regression is that the natural expansion command center was never built, even though the main-base production layout was correct.
-- The user previously observed gas oversaturation in the main. Gas assignment logic has been updated, but it still needs live validation in a full opening-to-natural run.
+- The next requested task is extending the Terran opening plan to the full build order that was previously provided.
+- That fuller build-order reference is not present in the current repo snapshot or this resume file yet, so it needs to be identified before editing the opening registry.
+- The user previously observed gas oversaturation in the main. Gas assignment logic has been updated, but it still needs live validation in a longer run after the build-order extension work.
 
 ### Most Important Current Diagnosis
-The last confirmed live run changed the diagnosis:
-- the production layout itself is now good enough for the opening
-- the ramp wall, factory, starport, and second barracks all landed where the user wanted them
-- the remaining opening regression moved to the natural expansion command center
+The natural-expansion regression was caused by an unnecessary second placement gate:
+- the command-center path already selected the natural expansion location with a global `BUILD_COMMANDCENTER` placement query
+- it then performed a second worker-specific `BUILD_COMMANDCENTER` placement query before creating the SCV child order
+- that extra gate was stricter than the stock Terran example path and could reject an otherwise valid expansion point
 
-The command-center path still differs from the now-working exact-slot structure path:
-- command center placement still uses the generic expansion-location selector instead of a slot descriptor
-- after the expansion location is chosen, the code performs a second worker-specific `BUILD_COMMANDCENTER` placement query before it creates the SCV child order
-- the stock Terran example path in `examples/common/bot_examples.cc` chooses the expansion point with a global placement query and then issues the worker command without that second worker-specific confirmation
+The current fix is:
+- keep the global expansion-location validation in `GetNextExpansionLocation(...)`
+- remove the extra worker-specific `BUILD_COMMANDCENTER` placement confirmation in `FTerranEconomyProductionOrderExpander`
+- cover that behavior with a unit test that fails if a worker-specific rejection blocks a globally valid natural expansion
 
-The immediate next question is therefore command-center specific:
-- is the natural step being deferred because the worker-specific placement confirmation rejects an otherwise valid expansion point
-- or is the command-center order entering `AwaitingObservedCompletion` and never recovering from a stale expansion child
+The current placement tuning is:
+- opening factory and starport are both pulled one cell toward the start location while preserving their shared addon lane
+- this is implemented in the authored Bel'Shir main-base layout descriptor by applying the same one-cell start-location pull step to the opening factory and starport chain
 
 ## Latest Confirmed Live Behavior
 - Live launch used only `cmd /c LaunchTerranEasyComputerMatch.bat`.
@@ -184,8 +184,8 @@ The immediate next question is therefore command-center specific:
   - the factory position was correct
   - the starport position was correct
   - the second barracks position was correct
-- The same live run also exposed the next regression:
-  - no natural expansion command center was ever built
+- A later live run after the command-center fix confirmed the natural expansion built again.
+- The latest live run after the one-cell pull adjustment was accepted by the user as looking good.
 
 ## Working Main-Base Placement Strategy
 - The ramp wall remains a discovered exact descriptor:
@@ -387,11 +387,11 @@ Goal of that review:
 - adapt those ideas into this codebase's descriptor and scheduler model rather than copying framework-specific behavior
 
 ## Recommended Next Steps
-1. Commit and push the current placement snapshot before changing expansion behavior.
-2. Add a focused regression test for the natural command-center opening step.
-3. Patch the command-center path to stop rejecting a valid expansion point because of a worker-specific placement query or a stale expansion child.
-4. Rebuild, rerun the focused economy and scheduler tests, then verify the fix through `cmd /c LaunchTerranEasyComputerMatch.bat`.
-5. After the natural is stable again, broaden the same per-map/per-start-side base-layout model to additional bases and defensive slot families.
+1. Commit and push the current placement and natural-expansion fixes.
+2. Identify the exact “full build order” reference the user wants encoded beyond the current 32-step `TerranTwoBaseMMMFrameOpening`.
+3. Extend `FOpeningPlanRegistry` and related tests from that concrete build-order reference instead of extrapolating from memory.
+4. Rebuild, rerun the focused opening and economy tests, then verify the expanded order through `cmd /c LaunchTerranEasyComputerMatch.bat`.
+5. After the build order is extended, broaden the same per-map/per-start-side base-layout model to additional bases and defensive slot families.
 
 ## Notes
 - `notes/MainBaseLayoutNotes.md` exists and should be updated together with any new placement report.

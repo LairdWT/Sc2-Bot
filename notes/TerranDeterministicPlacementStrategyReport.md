@@ -10,8 +10,9 @@ This report captures the Terran opening placement strategy that produced the fir
 - first starport
 - second barracks
 
-It also records the next follow-up issue that remained after that placement success:
-- the natural expansion command center was never built
+It also records the follow-up fixes that were required after that placement success:
+- the natural expansion command center path had to be relaxed
+- the opening factory and starport were pulled one cell closer to the starting command center
 
 ## Working Strategy
 
@@ -73,18 +74,25 @@ The strategy is supported by:
 - scheduler placement-slot reservation
 - live debug output for wall state and main layout state
 
-## Remaining Issue After Placement Success
+## Follow-Up Fixes After Placement Success
 
-In the latest confirmed live run:
+The first follow-up regression was:
 - the building locations were correct
 - the natural expansion command center was never built
 
-The likely next fix area is the command-center opening path in `FTerranEconomyProductionOrderExpander`:
+That fix landed in the command-center opening path in `FTerranEconomyProductionOrderExpander`:
 - expansion location selection already validates the command-center point globally
-- the code then performs a second worker-specific placement query before issuing the SCV order
-- the stock Terran example path does not rely on that second worker-specific placement confirmation
+- the code previously performed a second worker-specific placement query before issuing the SCV order
+- that second worker-specific gate was removed
+- a regression test now protects the globally-valid natural expansion path
 
-That path should be validated with a regression test and likely relaxed so a valid natural expansion point can still produce a build order.
+The second follow-up adjustment was a live tuning request:
+- move the opening factory and starport one cell closer to the starting command center
+- keep both on the same addon-safe lane
+
+That is now implemented as a one-cell pull toward the start location that is applied equally to:
+- the opening factory slot
+- the opening starport slot
 
 ## Next Extension
 
