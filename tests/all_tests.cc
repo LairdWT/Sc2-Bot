@@ -29,6 +29,7 @@
 #include "test_terran_economic_models.h"
 #include "test_terran_bot_scaffolding.h"
 #include "test_terran_opening_plan_scheduler.h"
+#include "test_terran_economy_production_order_expander.h"
 #include "test_terran_ramp_wall_controller.h"
 #include "test_terran_planners.h"
 #include "test_unit_command.h"
@@ -112,6 +113,7 @@ int main(int argc, char* argv[])
     TEST(sc2::TestTerranBuildPlacementService);
     TEST(sc2::TestTerranBotScaffolding);
     TEST(sc2::TestTerranDescriptorPipeline);
+    TEST(sc2::TestTerranEconomyProductionOrderExpander);
     TEST(sc2::TestTerranPlanners);
     TEST(sc2::TestTerranOpeningPlanScheduler);
     TEST(sc2::TestTerranRampWallController);

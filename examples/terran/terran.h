@@ -58,6 +58,7 @@ public:
     void ProduceRecoveryIntents(const FFrameContext& Frame);
     void ProduceSchedulerOpeningIntents(const FFrameContext& Frame);
     void ProduceWallGateIntents(const FFrameContext& Frame);
+    void ProduceWorkerHarvestIntents(const FFrameContext& Frame);
     void ProduceProductionRallyIntents();
     void ProduceArmyIntents(const FFrameContext& Frame);
     void AssembleCombatUnitsAtRallyPoint();

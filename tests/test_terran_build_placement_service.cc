@@ -11,11 +11,66 @@
 #include "common/services/FBuildPlacementSlot.h"
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/services/FTerranBuildPlacementService.h"
+#include "sc2api/sc2_interfaces.h"
 
 namespace sc2
 {
 namespace
 {
+
+struct FFakePlacementQuery : QueryInterface
+{
+    AvailableAbilities GetAbilitiesForUnit(const Unit* UnitPtrValue, bool IgnoreResourceRequirementsValue = false,
+                                           bool UseGeneralizedAbilityValue = true) override
+    {
+        (void)UnitPtrValue;
+        (void)IgnoreResourceRequirementsValue;
+        (void)UseGeneralizedAbilityValue;
+        return {};
+    }
+
+    std::vector<AvailableAbilities> GetAbilitiesForUnits(const Units& UnitsToQueryValue,
+                                                         bool IgnoreResourceRequirementsValue = false,
+                                                         bool UseGeneralizedAbilityValue = true) override
+    {
+        (void)IgnoreResourceRequirementsValue;
+        (void)UseGeneralizedAbilityValue;
+        return std::vector<AvailableAbilities>(UnitsToQueryValue.size());
+    }
+
+    float PathingDistance(const Point2D& StartPointValue, const Point2D& EndPointValue) override
+    {
+        (void)StartPointValue;
+        (void)EndPointValue;
+        return 1.0f;
+    }
+
+    float PathingDistance(const Unit* StartUnitValue, const Point2D& EndPointValue) override
+    {
+        (void)StartUnitValue;
+        (void)EndPointValue;
+        return 1.0f;
+    }
+
+    std::vector<float> PathingDistance(const std::vector<PathingQuery>& QueriesValue) override
+    {
+        return std::vector<float>(QueriesValue.size(), 1.0f);
+    }
+
+    bool Placement(const AbilityID& AbilityIdValue, const Point2D& TargetPointValue,
+                   const Unit* UnitPtrValue = nullptr) override
+    {
+        (void)AbilityIdValue;
+        (void)TargetPointValue;
+        (void)UnitPtrValue;
+        return true;
+    }
+
+    std::vector<bool> Placement(const std::vector<PlacementQuery>& QueriesValue) override
+    {
+        return std::vector<bool>(QueriesValue.size(), true);
+    }
+};
 
 bool Check(const bool ConditionValue, bool& SuccessValue, const std::string& MessageValue)
 {
@@ -53,6 +108,119 @@ bool ContainsSlot(const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsVal
     return false;
 }
 
+size_t GetImageCellIndex(const int WidthValue, const int TileXValue, const int TileYValue)
+{
+    return static_cast<size_t>(TileXValue + (TileYValue * WidthValue));
+}
+
+unsigned char EncodeTerrainHeight(const float TerrainHeightValue)
+{
+    return static_cast<unsigned char>(std::round((TerrainHeightValue * 8.0f) + 127.0f));
+}
+
+void SetImageCellValue(ImageData& ImageDataValue, const int TileXValue, const int TileYValue,
+                       const unsigned char EncodedValue)
+{
+    ImageDataValue.data[GetImageCellIndex(ImageDataValue.width, TileXValue, TileYValue)] =
+        static_cast<char>(EncodedValue);
+}
+
+GameInfo CreateSyntheticRampGameInfo()
+{
+    GameInfo GameInfoValue;
+    GameInfoValue.width = 64;
+    GameInfoValue.height = 64;
+    GameInfoValue.playable_min = Point2D(0.0f, 0.0f);
+    GameInfoValue.playable_max = Point2D(63.0f, 63.0f);
+
+    GameInfoValue.pathing_grid.width = GameInfoValue.width;
+    GameInfoValue.pathing_grid.height = GameInfoValue.height;
+    GameInfoValue.pathing_grid.bits_per_pixel = 8;
+    GameInfoValue.pathing_grid.data.assign(static_cast<size_t>(GameInfoValue.width * GameInfoValue.height),
+                                           static_cast<char>(0));
+
+    GameInfoValue.placement_grid.width = GameInfoValue.width;
+    GameInfoValue.placement_grid.height = GameInfoValue.height;
+    GameInfoValue.placement_grid.bits_per_pixel = 8;
+    GameInfoValue.placement_grid.data.assign(static_cast<size_t>(GameInfoValue.width * GameInfoValue.height),
+                                             static_cast<char>(255));
+
+    GameInfoValue.terrain_height.width = GameInfoValue.width;
+    GameInfoValue.terrain_height.height = GameInfoValue.height;
+    GameInfoValue.terrain_height.bits_per_pixel = 8;
+    GameInfoValue.terrain_height.data.assign(static_cast<size_t>(GameInfoValue.width * GameInfoValue.height),
+                                             static_cast<char>(EncodeTerrainHeight(2.0f)));
+
+    for (int TileXValue = 0; TileXValue <= 25; ++TileXValue)
+    {
+        for (int TileYValue = 0; TileYValue < GameInfoValue.height; ++TileYValue)
+        {
+            SetImageCellValue(GameInfoValue.terrain_height, TileXValue, TileYValue,
+                              EncodeTerrainHeight(3.0f));
+        }
+    }
+
+    const std::vector<Point2DI> UpperRampTilesValue =
+    {
+        Point2DI(26, 31),
+        Point2DI(26, 33),
+    };
+    const std::vector<Point2DI> UpperMidRampTilesValue =
+    {
+        Point2DI(27, 31),
+        Point2DI(27, 32),
+        Point2DI(27, 33),
+    };
+    const std::vector<Point2DI> MidRampTilesValue =
+    {
+        Point2DI(28, 30),
+        Point2DI(28, 31),
+        Point2DI(28, 32),
+        Point2DI(28, 33),
+        Point2DI(28, 34),
+    };
+    const std::vector<Point2DI> LowerMidRampTilesValue =
+    {
+        Point2DI(29, 31),
+        Point2DI(29, 32),
+        Point2DI(29, 33),
+    };
+    const std::vector<Point2DI> LowerRampTilesValue =
+    {
+        Point2DI(30, 31),
+        Point2DI(30, 33),
+    };
+
+    const std::vector<std::vector<Point2DI>> RampTileBandsValue =
+    {
+        UpperRampTilesValue,
+        UpperMidRampTilesValue,
+        MidRampTilesValue,
+        LowerMidRampTilesValue,
+        LowerRampTilesValue,
+    };
+    const std::vector<float> RampHeightsValue =
+    {
+        3.0f,
+        2.75f,
+        2.5f,
+        2.25f,
+        2.0f,
+    };
+
+    for (size_t BandIndexValue = 0U; BandIndexValue < RampTileBandsValue.size(); ++BandIndexValue)
+    {
+        for (const Point2DI& RampTilePointValue : RampTileBandsValue[BandIndexValue])
+        {
+            SetImageCellValue(GameInfoValue.placement_grid, RampTilePointValue.x, RampTilePointValue.y, 0U);
+            SetImageCellValue(GameInfoValue.terrain_height, RampTilePointValue.x, RampTilePointValue.y,
+                              EncodeTerrainHeight(RampHeightsValue[BandIndexValue]));
+        }
+    }
+
+    return GameInfoValue;
+}
+
 }  // namespace
 
 bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
@@ -84,6 +252,70 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetArmyAssemblyPoint(GameStateDescriptorValue, BuildPlacementContextValue);
     Check(ArePointsEqual(ArmyAssemblyPointValue, BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint),
           SuccessValue, "Army assembly should use the ramp-wall outside staging point when the wall is valid.");
+
+    FBuildPlacementContext DiagonalBuildPlacementContextValue;
+    DiagonalBuildPlacementContextValue.BaseLocation = Point2D(50.0f, 50.0f);
+    DiagonalBuildPlacementContextValue.NaturalLocation = Point2D(64.0f, 64.0f);
+    DiagonalBuildPlacementContextValue.RampWallDescriptor =
+        BuildPlacementServiceValue.GetRampWallDescriptor(FFrameContext(), DiagonalBuildPlacementContextValue);
+    Check(DiagonalBuildPlacementContextValue.RampWallDescriptor.bIsValid, SuccessValue,
+          "Ramp-wall descriptor should remain valid for diagonal natural directions.");
+    const Point2D DiagonalForwardDirectionValue =
+        Point2D(std::sqrt(0.5f), std::sqrt(0.5f));
+    const Point2D DiagonalWallToBarracksValue =
+        DiagonalBuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint -
+        DiagonalBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint;
+    Check((DiagonalWallToBarracksValue.x * DiagonalForwardDirectionValue.x) +
+                  (DiagonalWallToBarracksValue.y * DiagonalForwardDirectionValue.y) >
+              0.0f,
+          SuccessValue, "Diagonal ramp barracks placement should stay forward of the wall center.");
+    const Point2D DiagonalWallToLeftDepotValue =
+        DiagonalBuildPlacementContextValue.RampWallDescriptor.LeftDepotSlot.BuildPoint -
+        DiagonalBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint;
+    const Point2D DiagonalWallToRightDepotValue =
+        DiagonalBuildPlacementContextValue.RampWallDescriptor.RightDepotSlot.BuildPoint -
+        DiagonalBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint;
+    Check(((DiagonalWallToLeftDepotValue.x * DiagonalForwardDirectionValue.x) +
+               (DiagonalWallToLeftDepotValue.y * DiagonalForwardDirectionValue.y)) <
+                  0.0f &&
+              ((DiagonalWallToRightDepotValue.x * DiagonalForwardDirectionValue.x) +
+                   (DiagonalWallToRightDepotValue.y * DiagonalForwardDirectionValue.y)) <
+                  0.0f,
+          SuccessValue, "Diagonal ramp depots should stay on the inside side of the wall center.");
+
+    GameInfo SyntheticRampGameInfoValue = CreateSyntheticRampGameInfo();
+    FFakePlacementQuery FakePlacementQueryValue;
+    FFrameContext SyntheticFrameContextValue;
+    SyntheticFrameContextValue.GameInfo = &SyntheticRampGameInfoValue;
+    SyntheticFrameContextValue.Query = &FakePlacementQueryValue;
+
+    FBuildPlacementContext SyntheticBuildPlacementContextValue;
+    SyntheticBuildPlacementContextValue.BaseLocation = Point2D(18.0f, 32.0f);
+    SyntheticBuildPlacementContextValue.NaturalLocation = Point2D(44.0f, 32.0f);
+    SyntheticBuildPlacementContextValue.RampWallDescriptor =
+        BuildPlacementServiceValue.GetRampWallDescriptor(SyntheticFrameContextValue,
+                                                         SyntheticBuildPlacementContextValue);
+
+    Check(SyntheticBuildPlacementContextValue.RampWallDescriptor.bIsValid, SuccessValue,
+          "Ramp-wall discovery should produce a valid descriptor from a synthetic ramp grid.");
+    Check(SyntheticBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x >
+                  SyntheticBuildPlacementContextValue.BaseLocation.x &&
+              SyntheticBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x <
+                  SyntheticBuildPlacementContextValue.NaturalLocation.x,
+          SuccessValue, "Synthetic ramp wall center should lie between the main and natural bases.");
+    Check(SyntheticBuildPlacementContextValue.RampWallDescriptor.InsideStagingPoint.x <
+                  SyntheticBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x &&
+              SyntheticBuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint.x >
+                  SyntheticBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x,
+          SuccessValue, "Synthetic ramp staging points should lie on opposite sides of the wall center.");
+    Check(SyntheticBuildPlacementContextValue.RampWallDescriptor.LeftDepotSlot.BuildPoint.y >
+                  SyntheticBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.y &&
+              SyntheticBuildPlacementContextValue.RampWallDescriptor.RightDepotSlot.BuildPoint.y <
+                  SyntheticBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.y,
+          SuccessValue, "Synthetic ramp depots should straddle the wall center across the ramp width.");
+    Check(SyntheticBuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint.x <
+              SyntheticBuildPlacementContextValue.RampWallDescriptor.LeftDepotSlot.BuildPoint.x,
+          SuccessValue, "Synthetic ramp barracks should sit on the main-base side of the depot pair.");
 
     const std::vector<FBuildPlacementSlot> SupplyDepotSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,

@@ -1,5 +1,6 @@
 #include "common/services/FTerranBuildPlacementService.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -233,127 +234,468 @@ bool DoesPointSatisfyFootprintPolicy(const FFrameContext& FrameValue, const Poin
     }
 }
 
-float GetCorridorPathableScore(const PathingGrid& PathingGridValue, const Point2D& SampleCenterValue,
-                               const Point2D& LateralDirectionValue)
+bool IsTileInsidePlayableArea(const GameInfo& GameInfoValue, const Point2DI& TilePointValue)
 {
-    uint32_t PathablePointCountValue = 0U;
-    for (int LateralSampleIndexValue = -6; LateralSampleIndexValue <= 6; ++LateralSampleIndexValue)
+    return TilePointValue.x >= static_cast<int>(std::floor(GameInfoValue.playable_min.x)) &&
+           TilePointValue.x <= static_cast<int>(std::ceil(GameInfoValue.playable_max.x)) &&
+           TilePointValue.y >= static_cast<int>(std::floor(GameInfoValue.playable_min.y)) &&
+           TilePointValue.y <= static_cast<int>(std::ceil(GameInfoValue.playable_max.y)) &&
+           TilePointValue.x >= 0 && TilePointValue.x < GameInfoValue.width &&
+           TilePointValue.y >= 0 && TilePointValue.y < GameInfoValue.height;
+}
+
+size_t GetTileLinearIndex(const GameInfo& GameInfoValue, const Point2DI& TilePointValue)
+{
+    return static_cast<size_t>(TilePointValue.x + (TilePointValue.y * GameInfoValue.width));
+}
+
+Point2D GetTileCenterPoint(const Point2DI& TilePointValue)
+{
+    return Point2D(static_cast<float>(TilePointValue.x) + 0.5f, static_cast<float>(TilePointValue.y) + 0.5f);
+}
+
+bool DoesTileNeighborhoodContainHeightChange(const GameInfo& GameInfoValue, const HeightMap& HeightMapValue,
+                                             const Point2DI& TilePointValue)
+{
+    float MinimumHeightValue = HeightMapValue.TerrainHeight(TilePointValue);
+    float MaximumHeightValue = MinimumHeightValue;
+
+    for (int YOffsetValue = -1; YOffsetValue <= 1; ++YOffsetValue)
     {
-        const Point2D SamplePointValue(
-            SampleCenterValue.x + (LateralDirectionValue.x * static_cast<float>(LateralSampleIndexValue)),
-            SampleCenterValue.y + (LateralDirectionValue.y * static_cast<float>(LateralSampleIndexValue)));
-        if (PathingGridValue.IsPathable(Point2DI(static_cast<int>(std::round(SamplePointValue.x)),
-                                                 static_cast<int>(std::round(SamplePointValue.y)))))
+        for (int XOffsetValue = -1; XOffsetValue <= 1; ++XOffsetValue)
         {
-            ++PathablePointCountValue;
+            const Point2DI NeighborPointValue(TilePointValue.x + XOffsetValue, TilePointValue.y + YOffsetValue);
+            if (!IsTileInsidePlayableArea(GameInfoValue, NeighborPointValue))
+            {
+                continue;
+            }
+
+            const float NeighborHeightValue = HeightMapValue.TerrainHeight(NeighborPointValue);
+            MinimumHeightValue = std::min(MinimumHeightValue, NeighborHeightValue);
+            MaximumHeightValue = std::max(MaximumHeightValue, NeighborHeightValue);
         }
     }
 
-    return static_cast<float>(PathablePointCountValue);
+    constexpr float HeightDifferenceToleranceValue = 0.05f;
+    return (MaximumHeightValue - MinimumHeightValue) > HeightDifferenceToleranceValue;
 }
 
-Point2D FindRampWallCenterPoint(const FFrameContext& FrameValue,
-                                const FBuildPlacementContext& BuildPlacementContextValue)
+bool IsRampCandidateTile(const GameInfo& GameInfoValue, const PathingGrid& PathingGridValue,
+                         const PlacementGrid& PlacementGridValue, const HeightMap& HeightMapValue,
+                         const Point2DI& TilePointValue)
 {
-    const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
-    const Point2D LateralDirectionValue = GetLateralDirection(ForwardDirectionValue);
-    const PathingGrid PathingGridValue(*FrameValue.GameInfo);
+    return IsTileInsidePlayableArea(GameInfoValue, TilePointValue) &&
+           PathingGridValue.IsPathable(TilePointValue) &&
+           !PlacementGridValue.IsPlacable(TilePointValue) &&
+           DoesTileNeighborhoodContainHeightChange(GameInfoValue, HeightMapValue, TilePointValue);
+}
 
-    float BestScoreValue = std::numeric_limits<float>::max();
-    Point2D BestPointValue = BuildPlacementContextValue.BaseLocation +
-                             Point2D(ForwardDirectionValue.x * 8.0f, ForwardDirectionValue.y * 8.0f);
+std::vector<std::vector<Point2DI>> DiscoverRampTileGroups(const GameInfo& GameInfoValue,
+                                                          const PathingGrid& PathingGridValue,
+                                                          const PlacementGrid& PlacementGridValue,
+                                                          const HeightMap& HeightMapValue)
+{
+    std::vector<std::vector<Point2DI>> RampTileGroupsValue;
+    std::vector<uint8_t> VisitedTileValues(static_cast<size_t>(GameInfoValue.width * GameInfoValue.height), 0U);
 
-    for (int ForwardSampleIndexValue = 8; ForwardSampleIndexValue <= 20; ++ForwardSampleIndexValue)
+    for (int TileYValue = 0; TileYValue < GameInfoValue.height; ++TileYValue)
     {
-        const Point2D SampleCenterValue(
-            BuildPlacementContextValue.BaseLocation.x + (ForwardDirectionValue.x * static_cast<float>(ForwardSampleIndexValue)),
-            BuildPlacementContextValue.BaseLocation.y + (ForwardDirectionValue.y * static_cast<float>(ForwardSampleIndexValue)));
-        const float ScoreValue =
-            GetCorridorPathableScore(PathingGridValue, SampleCenterValue, LateralDirectionValue);
-        if (ScoreValue >= BestScoreValue)
+        for (int TileXValue = 0; TileXValue < GameInfoValue.width; ++TileXValue)
         {
-            continue;
-        }
+            const Point2DI StartTilePointValue(TileXValue, TileYValue);
+            if (!IsRampCandidateTile(GameInfoValue, PathingGridValue, PlacementGridValue, HeightMapValue,
+                                     StartTilePointValue))
+            {
+                continue;
+            }
 
-        BestScoreValue = ScoreValue;
-        BestPointValue = SampleCenterValue;
+            const size_t StartTileIndexValue = GetTileLinearIndex(GameInfoValue, StartTilePointValue);
+            if (VisitedTileValues[StartTileIndexValue] != 0U)
+            {
+                continue;
+            }
+
+            std::vector<Point2DI> PendingTilePointsValue;
+            std::vector<Point2DI> RampTileGroupValue;
+            PendingTilePointsValue.push_back(StartTilePointValue);
+            VisitedTileValues[StartTileIndexValue] = 1U;
+
+            for (size_t PendingTileIndexValue = 0U; PendingTileIndexValue < PendingTilePointsValue.size();
+                 ++PendingTileIndexValue)
+            {
+                const Point2DI CurrentTilePointValue = PendingTilePointsValue[PendingTileIndexValue];
+                RampTileGroupValue.push_back(CurrentTilePointValue);
+
+                for (int YOffsetValue = -1; YOffsetValue <= 1; ++YOffsetValue)
+                {
+                    for (int XOffsetValue = -1; XOffsetValue <= 1; ++XOffsetValue)
+                    {
+                        if (XOffsetValue == 0 && YOffsetValue == 0)
+                        {
+                            continue;
+                        }
+
+                        const Point2DI NeighborTilePointValue(CurrentTilePointValue.x + XOffsetValue,
+                                                              CurrentTilePointValue.y + YOffsetValue);
+                        if (!IsRampCandidateTile(GameInfoValue, PathingGridValue, PlacementGridValue, HeightMapValue,
+                                                 NeighborTilePointValue))
+                        {
+                            continue;
+                        }
+
+                        const size_t NeighborTileIndexValue =
+                            GetTileLinearIndex(GameInfoValue, NeighborTilePointValue);
+                        if (VisitedTileValues[NeighborTileIndexValue] != 0U)
+                        {
+                            continue;
+                        }
+
+                        VisitedTileValues[NeighborTileIndexValue] = 1U;
+                        PendingTilePointsValue.push_back(NeighborTilePointValue);
+                    }
+                }
+            }
+
+            constexpr size_t MinimumRampTileCountValue = 8U;
+            if (RampTileGroupValue.size() >= MinimumRampTileCountValue)
+            {
+                RampTileGroupsValue.push_back(RampTileGroupValue);
+            }
+        }
     }
 
-    return BestPointValue;
+    return RampTileGroupsValue;
 }
 
-bool TryFindPlacementNearDesiredPoint(const FFrameContext& FrameValue, const ABILITY_ID StructureAbilityIdValue,
-                                      const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
-                                      const Point2D& DesiredPointValue, Point2D& OutBuildPointValue)
+void CollectRampUpperAndLowerTiles(const std::vector<Point2DI>& RampTileGroupValue, const HeightMap& HeightMapValue,
+                                   std::vector<Point2DI>& OutUpperTilePointsValue,
+                                   std::vector<Point2DI>& OutLowerTilePointsValue)
 {
-    if (FrameValue.Query == nullptr || FrameValue.GameInfo == nullptr)
+    OutUpperTilePointsValue.clear();
+    OutLowerTilePointsValue.clear();
+    if (RampTileGroupValue.empty())
+    {
+        return;
+    }
+
+    float MinimumHeightValue = HeightMapValue.TerrainHeight(RampTileGroupValue.front());
+    float MaximumHeightValue = MinimumHeightValue;
+
+    for (const Point2DI& RampTilePointValue : RampTileGroupValue)
+    {
+        const float TileHeightValue = HeightMapValue.TerrainHeight(RampTilePointValue);
+        MinimumHeightValue = std::min(MinimumHeightValue, TileHeightValue);
+        MaximumHeightValue = std::max(MaximumHeightValue, TileHeightValue);
+    }
+
+    constexpr float HeightEqualityToleranceValue = 0.05f;
+    for (const Point2DI& RampTilePointValue : RampTileGroupValue)
+    {
+        const float TileHeightValue = HeightMapValue.TerrainHeight(RampTilePointValue);
+        if (std::fabs(TileHeightValue - MaximumHeightValue) <= HeightEqualityToleranceValue)
+        {
+            OutUpperTilePointsValue.push_back(RampTilePointValue);
+        }
+
+        if (std::fabs(TileHeightValue - MinimumHeightValue) <= HeightEqualityToleranceValue)
+        {
+            OutLowerTilePointsValue.push_back(RampTilePointValue);
+        }
+    }
+}
+
+Point2D GetAverageTileCenterPoint(const std::vector<Point2DI>& TilePointsValue)
+{
+    if (TilePointsValue.empty())
+    {
+        return Point2D();
+    }
+
+    float SumXValue = 0.0f;
+    float SumYValue = 0.0f;
+    for (const Point2DI& TilePointValue : TilePointsValue)
+    {
+        const Point2D TileCenterPointValue = GetTileCenterPoint(TilePointValue);
+        SumXValue += TileCenterPointValue.x;
+        SumYValue += TileCenterPointValue.y;
+    }
+
+    const float PointCountValue = static_cast<float>(TilePointsValue.size());
+    return Point2D(SumXValue / PointCountValue, SumYValue / PointCountValue);
+}
+
+bool TryGetRampUpperWallPoints(const std::vector<Point2DI>& UpperTilePointsValue,
+                               const Point2D& LowerRampCenterPointValue, Point2D& OutUpperWallPointOneValue,
+                               Point2D& OutUpperWallPointTwoValue)
+{
+    if (UpperTilePointsValue.size() < 2U)
     {
         return false;
     }
 
-    static const std::array<FPlacementOffsetDescriptor, 37> SearchOffsetsValue =
-    {{
-        {0.0f, 0.0f},
-        {1.0f, 0.0f},
-        {-1.0f, 0.0f},
-        {0.0f, 1.0f},
-        {0.0f, -1.0f},
-        {2.0f, 0.0f},
-        {-2.0f, 0.0f},
-        {0.0f, 2.0f},
-        {0.0f, -2.0f},
-        {1.0f, 1.0f},
-        {-1.0f, 1.0f},
-        {1.0f, -1.0f},
-        {-1.0f, -1.0f},
-        {3.0f, 0.0f},
-        {-3.0f, 0.0f},
-        {0.0f, 3.0f},
-        {0.0f, -3.0f},
-        {2.0f, 1.0f},
-        {-2.0f, 1.0f},
-        {2.0f, -1.0f},
-        {-2.0f, -1.0f},
-        {1.0f, 2.0f},
-        {-1.0f, 2.0f},
-        {1.0f, -2.0f},
-        {-1.0f, -2.0f},
-        {4.0f, 0.0f},
-        {-4.0f, 0.0f},
-        {0.0f, 4.0f},
-        {0.0f, -4.0f},
-        {3.0f, 1.0f},
-        {-3.0f, 1.0f},
-        {3.0f, -1.0f},
-        {-3.0f, -1.0f},
-        {1.0f, 3.0f},
-        {-1.0f, 3.0f},
-        {1.0f, -3.0f},
-        {-1.0f, -3.0f},
-    }};
+    std::vector<Point2DI> SortedUpperTilePointsValue = UpperTilePointsValue;
+    std::sort(SortedUpperTilePointsValue.begin(), SortedUpperTilePointsValue.end(),
+              [&LowerRampCenterPointValue](const Point2DI& LeftTilePointValue,
+                                           const Point2DI& RightTilePointValue)
+              {
+                  return DistanceSquared2D(GetTileCenterPoint(LeftTilePointValue), LowerRampCenterPointValue) >
+                         DistanceSquared2D(GetTileCenterPoint(RightTilePointValue), LowerRampCenterPointValue);
+              });
 
-    for (const FPlacementOffsetDescriptor& SearchOffsetValue : SearchOffsetsValue)
+    OutUpperWallPointOneValue = GetTileCenterPoint(SortedUpperTilePointsValue[0]);
+    OutUpperWallPointTwoValue = GetTileCenterPoint(SortedUpperTilePointsValue[1]);
+    return true;
+}
+
+bool TryGetCircleIntersectionPoints(const Point2D& CircleCenterPointOneValue,
+                                    const Point2D& CircleCenterPointTwoValue, const float RadiusValue,
+                                    Point2D& OutIntersectionPointOneValue,
+                                    Point2D& OutIntersectionPointTwoValue)
+{
+    const float CenterDistanceSquaredValue =
+        DistanceSquared2D(CircleCenterPointOneValue, CircleCenterPointTwoValue);
+    if (CenterDistanceSquaredValue <= 0.0001f)
     {
-        const Point2D CandidatePointValue(
-            DesiredPointValue.x + SearchOffsetValue.LateralOffset,
-            DesiredPointValue.y + SearchOffsetValue.ForwardOffset);
-        const Point2D ClampedCandidateValue = ClampToPlayable(*FrameValue.GameInfo, CandidatePointValue);
-        if (!DoesPointSatisfyFootprintPolicy(FrameValue, ClampedCandidateValue, StructureAbilityIdValue,
-                                             BuildPlacementFootprintPolicyValue))
+        return false;
+    }
+
+    const float CenterDistanceValue = std::sqrt(CenterDistanceSquaredValue);
+    const float MaximumIntersectionDistanceValue = RadiusValue * 2.0f;
+    if (CenterDistanceValue > MaximumIntersectionDistanceValue + 0.001f)
+    {
+        return false;
+    }
+
+    const Point2D MidPointValue = (CircleCenterPointOneValue + CircleCenterPointTwoValue) / 2.0f;
+    const float HalfCenterDistanceValue = CenterDistanceValue * 0.5f;
+    const float OffsetDistanceSquaredValue =
+        (RadiusValue * RadiusValue) - (HalfCenterDistanceValue * HalfCenterDistanceValue);
+    if (OffsetDistanceSquaredValue < -0.001f)
+    {
+        return false;
+    }
+
+    const float OffsetDistanceValue = std::sqrt(std::max(0.0f, OffsetDistanceSquaredValue));
+    const Point2D NormalizedCenterDirectionValue =
+        GetNormalizedDirection(CircleCenterPointTwoValue - CircleCenterPointOneValue);
+    const Point2D PerpendicularDirectionValue(-NormalizedCenterDirectionValue.y, NormalizedCenterDirectionValue.x);
+    OutIntersectionPointOneValue = MidPointValue + (PerpendicularDirectionValue * OffsetDistanceValue);
+    OutIntersectionPointTwoValue = MidPointValue - (PerpendicularDirectionValue * OffsetDistanceValue);
+    return true;
+}
+
+Point2D SelectIntersectionFarthestFromReference(const Point2D& IntersectionPointOneValue,
+                                                const Point2D& IntersectionPointTwoValue,
+                                                const Point2D& ReferencePointValue)
+{
+    return DistanceSquared2D(IntersectionPointOneValue, ReferencePointValue) >=
+                   DistanceSquared2D(IntersectionPointTwoValue, ReferencePointValue)
+               ? IntersectionPointOneValue
+               : IntersectionPointTwoValue;
+}
+
+bool IsPlacementCandidateValid(const FFrameContext& FrameValue, const ABILITY_ID StructureAbilityIdValue,
+                               const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
+                               const Point2D& CandidatePointValue)
+{
+    if (FrameValue.GameInfo == nullptr)
+    {
+        return false;
+    }
+
+    const Point2D ClampedCandidatePointValue = ClampToPlayable(*FrameValue.GameInfo, CandidatePointValue);
+    if (!DoesPointSatisfyFootprintPolicy(FrameValue, ClampedCandidatePointValue, StructureAbilityIdValue,
+                                         BuildPlacementFootprintPolicyValue))
+    {
+        return false;
+    }
+
+    if (FrameValue.Query != nullptr &&
+        !FrameValue.Query->Placement(StructureAbilityIdValue, ClampedCandidatePointValue))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool DoesRampGroupMatchSelectionPass(const size_t UpperTileCountValue, const size_t SelectionPassIndexValue)
+{
+    switch (SelectionPassIndexValue)
+    {
+        case 0U:
+            return UpperTileCountValue == 2U || UpperTileCountValue == 5U;
+        case 1U:
+            return UpperTileCountValue == 4U || UpperTileCountValue == 9U;
+        case 2U:
+            return UpperTileCountValue >= 2U;
+        default:
+            return false;
+    }
+}
+
+float GetRampGroupSelectionScore(const FBuildPlacementContext& BuildPlacementContextValue,
+                                 const Point2D& UpperRampCenterPointValue,
+                                 const Point2D& LowerRampCenterPointValue)
+{
+    const Point2D NaturalDirectionValue = GetForwardDirection(BuildPlacementContextValue);
+    const Point2D RampDirectionValue =
+        GetNormalizedDirection(LowerRampCenterPointValue - UpperRampCenterPointValue);
+    const float AlignmentValue = Dot2D(RampDirectionValue, NaturalDirectionValue);
+    constexpr float MinimumAlignmentValue = 0.2f;
+    if (AlignmentValue < MinimumAlignmentValue)
+    {
+        return std::numeric_limits<float>::max();
+    }
+
+    const float BaseDistanceSquaredValue =
+        DistanceSquared2D(UpperRampCenterPointValue, BuildPlacementContextValue.BaseLocation);
+    const float NaturalDistanceSquaredValue =
+        DistanceSquared2D(LowerRampCenterPointValue, BuildPlacementContextValue.NaturalLocation);
+    return BaseDistanceSquaredValue + (NaturalDistanceSquaredValue * 0.1f) +
+           ((1.0f - AlignmentValue) * 25.0f);
+}
+
+bool TrySelectMainRampTileGroup(const FBuildPlacementContext& BuildPlacementContextValue,
+                                const std::vector<std::vector<Point2DI>>& RampTileGroupsValue,
+                                const HeightMap& HeightMapValue,
+                                std::vector<Point2DI>& OutSelectedRampTileGroupValue)
+{
+    float BestSelectionScoreValue = std::numeric_limits<float>::max();
+    bool bFoundRampGroupValue = false;
+
+    for (size_t SelectionPassIndexValue = 0U; SelectionPassIndexValue < 3U; ++SelectionPassIndexValue)
+    {
+        BestSelectionScoreValue = std::numeric_limits<float>::max();
+        bFoundRampGroupValue = false;
+
+        for (const std::vector<Point2DI>& RampTileGroupValue : RampTileGroupsValue)
         {
-            continue;
+            std::vector<Point2DI> UpperTilePointsValue;
+            std::vector<Point2DI> LowerTilePointsValue;
+            CollectRampUpperAndLowerTiles(RampTileGroupValue, HeightMapValue, UpperTilePointsValue,
+                                          LowerTilePointsValue);
+            if (UpperTilePointsValue.empty() || LowerTilePointsValue.empty() ||
+                !DoesRampGroupMatchSelectionPass(UpperTilePointsValue.size(), SelectionPassIndexValue))
+            {
+                continue;
+            }
+
+            const Point2D UpperRampCenterPointValue = GetAverageTileCenterPoint(UpperTilePointsValue);
+            const Point2D LowerRampCenterPointValue = GetAverageTileCenterPoint(LowerTilePointsValue);
+            const float SelectionScoreValue =
+                GetRampGroupSelectionScore(BuildPlacementContextValue, UpperRampCenterPointValue,
+                                           LowerRampCenterPointValue);
+            if (SelectionScoreValue >= BestSelectionScoreValue)
+            {
+                continue;
+            }
+
+            BestSelectionScoreValue = SelectionScoreValue;
+            OutSelectedRampTileGroupValue = RampTileGroupValue;
+            bFoundRampGroupValue = true;
         }
 
-        if (!FrameValue.Query->Placement(StructureAbilityIdValue, ClampedCandidateValue))
+        if (bFoundRampGroupValue)
         {
-            continue;
+            return true;
         }
-
-        OutBuildPointValue = ClampedCandidateValue;
-        return true;
     }
 
     return false;
+}
+
+bool TryCreateRampWallCandidatePointsFromTileGroup(const std::vector<Point2DI>& RampTileGroupValue,
+                                                   const HeightMap& HeightMapValue,
+                                                   Point2D& OutWallCenterPointValue,
+                                                   Point2D& OutInsideStagingPointValue,
+                                                   Point2D& OutOutsideStagingPointValue,
+                                                   Point2D& OutLeftDepotBuildPointValue,
+                                                   Point2D& OutBarracksBuildPointValue,
+                                                   Point2D& OutRightDepotBuildPointValue)
+{
+    std::vector<Point2DI> UpperTilePointsValue;
+    std::vector<Point2DI> LowerTilePointsValue;
+    CollectRampUpperAndLowerTiles(RampTileGroupValue, HeightMapValue, UpperTilePointsValue,
+                                  LowerTilePointsValue);
+    if (UpperTilePointsValue.size() < 2U || LowerTilePointsValue.empty())
+    {
+        return false;
+    }
+
+    const Point2D UpperRampCenterPointValue = GetAverageTileCenterPoint(UpperTilePointsValue);
+    const Point2D LowerRampCenterPointValue = GetAverageTileCenterPoint(LowerTilePointsValue);
+
+    Point2D UpperWallPointOneValue;
+    Point2D UpperWallPointTwoValue;
+    if (!TryGetRampUpperWallPoints(UpperTilePointsValue, LowerRampCenterPointValue, UpperWallPointOneValue,
+                                   UpperWallPointTwoValue))
+    {
+        return false;
+    }
+
+    Point2D DepotIntersectionPointOneValue;
+    Point2D DepotIntersectionPointTwoValue;
+    if (!TryGetCircleIntersectionPoints(UpperWallPointOneValue, UpperWallPointTwoValue,
+                                        std::sqrt(2.5f), DepotIntersectionPointOneValue,
+                                        DepotIntersectionPointTwoValue))
+    {
+        return false;
+    }
+
+    const Point2D DepotMiddlePointValue = SelectIntersectionFarthestFromReference(
+        DepotIntersectionPointOneValue, DepotIntersectionPointTwoValue, LowerRampCenterPointValue);
+
+    Point2D BarracksIntersectionPointOneValue;
+    Point2D BarracksIntersectionPointTwoValue;
+    if (!TryGetCircleIntersectionPoints(UpperWallPointOneValue, UpperWallPointTwoValue,
+                                        std::sqrt(5.0f), BarracksIntersectionPointOneValue,
+                                        BarracksIntersectionPointTwoValue))
+    {
+        return false;
+    }
+
+    Point2D BarracksBuildPointValue = SelectIntersectionFarthestFromReference(
+        BarracksIntersectionPointOneValue, BarracksIntersectionPointTwoValue, LowerRampCenterPointValue);
+
+    const Point2D RampUpperMidPointValue = (UpperWallPointOneValue + UpperWallPointTwoValue) / 2.0f;
+    Point2D CornerDepotPointOneValue;
+    Point2D CornerDepotPointTwoValue;
+    if (!TryGetCircleIntersectionPoints(RampUpperMidPointValue, DepotMiddlePointValue, std::sqrt(5.0f),
+                                        CornerDepotPointOneValue, CornerDepotPointTwoValue))
+    {
+        return false;
+    }
+
+    const float MaximumDepotXValue = std::max(CornerDepotPointOneValue.x, CornerDepotPointTwoValue.x);
+    if ((BarracksBuildPointValue.x + 1.0f) <= MaximumDepotXValue)
+    {
+        BarracksBuildPointValue = BarracksBuildPointValue + Point2D(-2.0f, 0.0f);
+    }
+
+    const Point2D RampDirectionValue =
+        GetNormalizedDirection(LowerRampCenterPointValue - UpperRampCenterPointValue);
+    const Point2D LateralDirectionValue = GetLateralDirection(RampDirectionValue);
+    const float CornerDepotOneLateralValue =
+        Dot2D(CornerDepotPointOneValue - DepotMiddlePointValue, LateralDirectionValue);
+    const float CornerDepotTwoLateralValue =
+        Dot2D(CornerDepotPointTwoValue - DepotMiddlePointValue, LateralDirectionValue);
+    if (CornerDepotOneLateralValue >= CornerDepotTwoLateralValue)
+    {
+        OutLeftDepotBuildPointValue = CornerDepotPointOneValue;
+        OutRightDepotBuildPointValue = CornerDepotPointTwoValue;
+    }
+    else
+    {
+        OutLeftDepotBuildPointValue = CornerDepotPointTwoValue;
+        OutRightDepotBuildPointValue = CornerDepotPointOneValue;
+    }
+
+    OutWallCenterPointValue = DepotMiddlePointValue;
+    OutInsideStagingPointValue = DepotMiddlePointValue - (RampDirectionValue * 4.0f);
+    OutOutsideStagingPointValue = DepotMiddlePointValue + (RampDirectionValue * 6.0f);
+    OutBarracksBuildPointValue = BarracksBuildPointValue;
+    return true;
 }
 
 FRampWallDescriptor CreateDeterministicRampWallDescriptor(const FBuildPlacementContext& BuildPlacementContextValue)
@@ -390,53 +732,69 @@ FRampWallDescriptor CreateDeterministicRampWallDescriptor(const FBuildPlacementC
 FRampWallDescriptor CreateDiscoveredRampWallDescriptor(const FFrameContext& FrameValue,
                                                        const FBuildPlacementContext& BuildPlacementContextValue)
 {
+    FRampWallDescriptor InvalidRampWallDescriptorValue;
     const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
-    const Point2D LateralDirectionValue = GetLateralDirection(ForwardDirectionValue);
-    const Point2D RampCenterPointValue = FindRampWallCenterPoint(FrameValue, BuildPlacementContextValue);
+    const Point2D FallbackRampCenterPointValue =
+        BuildPlacementContextValue.BaseLocation + (ForwardDirectionValue * 8.0f);
+    InvalidRampWallDescriptorValue.WallCenterPoint = FallbackRampCenterPointValue;
+    InvalidRampWallDescriptorValue.InsideStagingPoint =
+        FallbackRampCenterPointValue - (ForwardDirectionValue * 4.0f);
+    InvalidRampWallDescriptorValue.OutsideStagingPoint =
+        FallbackRampCenterPointValue + (ForwardDirectionValue * 6.0f);
 
-    const Point2D DesiredLeftDepotPointValue(
-        RampCenterPointValue.x + (LateralDirectionValue.x * 3.0f) + (ForwardDirectionValue.x * 0.5f),
-        RampCenterPointValue.y + (LateralDirectionValue.y * 3.0f) + (ForwardDirectionValue.y * 0.5f));
-    const Point2D DesiredRightDepotPointValue(
-        RampCenterPointValue.x - (LateralDirectionValue.x * 3.0f) + (ForwardDirectionValue.x * 0.5f),
-        RampCenterPointValue.y - (LateralDirectionValue.y * 3.0f) + (ForwardDirectionValue.y * 0.5f));
-    const Point2D DesiredBarracksPointValue(
-        RampCenterPointValue.x + (ForwardDirectionValue.x * 3.5f),
-        RampCenterPointValue.y + (ForwardDirectionValue.y * 3.5f));
+    if (FrameValue.GameInfo == nullptr)
+    {
+        return InvalidRampWallDescriptorValue;
+    }
 
+    const PathingGrid PathingGridValue(*FrameValue.GameInfo);
+    const PlacementGrid PlacementGridValue(*FrameValue.GameInfo);
+    const HeightMap HeightMapValue(*FrameValue.GameInfo);
+    const std::vector<std::vector<Point2DI>> RampTileGroupsValue =
+        DiscoverRampTileGroups(*FrameValue.GameInfo, PathingGridValue, PlacementGridValue, HeightMapValue);
+
+    std::vector<Point2DI> SelectedRampTileGroupValue;
+    if (!TrySelectMainRampTileGroup(BuildPlacementContextValue, RampTileGroupsValue, HeightMapValue,
+                                    SelectedRampTileGroupValue))
+    {
+        return InvalidRampWallDescriptorValue;
+    }
+
+    Point2D WallCenterPointValue;
+    Point2D InsideStagingPointValue;
+    Point2D OutsideStagingPointValue;
     Point2D LeftDepotBuildPointValue;
     Point2D BarracksBuildPointValue;
     Point2D RightDepotBuildPointValue;
-    if (!TryFindPlacementNearDesiredPoint(FrameValue, ABILITY_ID::BUILD_SUPPLYDEPOT,
-                                          EBuildPlacementFootprintPolicy::StructureOnly,
-                                          DesiredLeftDepotPointValue, LeftDepotBuildPointValue) ||
-        !TryFindPlacementNearDesiredPoint(FrameValue, ABILITY_ID::BUILD_BARRACKS,
-                                          EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-                                          DesiredBarracksPointValue, BarracksBuildPointValue) ||
-        !TryFindPlacementNearDesiredPoint(FrameValue, ABILITY_ID::BUILD_SUPPLYDEPOT,
-                                          EBuildPlacementFootprintPolicy::StructureOnly,
-                                          DesiredRightDepotPointValue, RightDepotBuildPointValue))
+    if (!TryCreateRampWallCandidatePointsFromTileGroup(SelectedRampTileGroupValue, HeightMapValue,
+                                                       WallCenterPointValue, InsideStagingPointValue,
+                                                       OutsideStagingPointValue, LeftDepotBuildPointValue,
+                                                       BarracksBuildPointValue, RightDepotBuildPointValue))
     {
-        FRampWallDescriptor InvalidRampWallDescriptorValue;
-        InvalidRampWallDescriptorValue.WallCenterPoint = RampCenterPointValue;
-        InvalidRampWallDescriptorValue.InsideStagingPoint =
-            Point2D(RampCenterPointValue.x - (ForwardDirectionValue.x * 5.0f),
-                    RampCenterPointValue.y - (ForwardDirectionValue.y * 5.0f));
-        InvalidRampWallDescriptorValue.OutsideStagingPoint =
-            Point2D(RampCenterPointValue.x + (ForwardDirectionValue.x * 7.0f),
-                    RampCenterPointValue.y + (ForwardDirectionValue.y * 7.0f));
+        return InvalidRampWallDescriptorValue;
+    }
+
+    InvalidRampWallDescriptorValue.WallCenterPoint = WallCenterPointValue;
+    InvalidRampWallDescriptorValue.InsideStagingPoint = InsideStagingPointValue;
+    InvalidRampWallDescriptorValue.OutsideStagingPoint = OutsideStagingPointValue;
+    if (!IsPlacementCandidateValid(FrameValue, ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                   EBuildPlacementFootprintPolicy::StructureOnly,
+                                   LeftDepotBuildPointValue) ||
+        !IsPlacementCandidateValid(FrameValue, ABILITY_ID::BUILD_BARRACKS,
+                                   EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+                                   BarracksBuildPointValue) ||
+        !IsPlacementCandidateValid(FrameValue, ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                   EBuildPlacementFootprintPolicy::StructureOnly,
+                                   RightDepotBuildPointValue))
+    {
         return InvalidRampWallDescriptorValue;
     }
 
     FRampWallDescriptor RampWallDescriptorValue;
     RampWallDescriptorValue.bIsValid = true;
-    RampWallDescriptorValue.WallCenterPoint = RampCenterPointValue;
-    RampWallDescriptorValue.InsideStagingPoint =
-        Point2D(RampCenterPointValue.x - (ForwardDirectionValue.x * 5.0f),
-                RampCenterPointValue.y - (ForwardDirectionValue.y * 5.0f));
-    RampWallDescriptorValue.OutsideStagingPoint =
-        Point2D(RampCenterPointValue.x + (ForwardDirectionValue.x * 7.0f),
-                RampCenterPointValue.y + (ForwardDirectionValue.y * 7.0f));
+    RampWallDescriptorValue.WallCenterPoint = WallCenterPointValue;
+    RampWallDescriptorValue.InsideStagingPoint = InsideStagingPointValue;
+    RampWallDescriptorValue.OutsideStagingPoint = OutsideStagingPointValue;
     RampWallDescriptorValue.LeftDepotSlot = CreatePlacementSlot(
         EBuildPlacementSlotType::MainRampDepotLeft, EBuildPlacementFootprintPolicy::StructureOnly,
         LeftDepotBuildPointValue, 0U);
@@ -459,7 +817,7 @@ FRampWallDescriptor FTerranBuildPlacementService::GetRampWallDescriptor(
         return FRampWallDescriptor();
     }
 
-    if (!FrameValue.IsValid() || FrameValue.Query == nullptr)
+    if (FrameValue.GameInfo == nullptr)
     {
         return CreateDeterministicRampWallDescriptor(BuildPlacementContextValue);
     }

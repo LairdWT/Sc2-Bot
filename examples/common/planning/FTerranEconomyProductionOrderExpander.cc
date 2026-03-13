@@ -267,6 +267,51 @@ uint32_t CountActiveSchedulerOrdersForActor(const FCommandAuthoritySchedulingSta
     return OrderCountValue;
 }
 
+uint32_t CountActiveUnitProductionSchedulerOrdersForActor(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const Tag ActorTagValue)
+{
+    uint32_t OrderCountValue = 0U;
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != ActorTagValue ||
+            IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]) ||
+            CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution ||
+            CommandAuthoritySchedulingStateValue.IntentDomains[OrderIndexValue] != EIntentDomain::UnitProduction)
+        {
+            continue;
+        }
+
+        ++OrderCountValue;
+    }
+
+    return OrderCountValue;
+}
+
+bool HasConflictingSchedulerOrderForProductionActor(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const Tag ActorTagValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != ActorTagValue ||
+            IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] == ECommandAuthorityLayer::UnitExecution &&
+            CommandAuthoritySchedulingStateValue.IntentDomains[OrderIndexValue] == EIntentDomain::UnitProduction)
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 bool HasActiveUnitExecutionChild(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                  const uint32_t ParentOrderIdValue)
 {
@@ -391,12 +436,68 @@ float GetPlacementSlotOccupancyRadiusSquared(const FBuildPlacementSlot& BuildPla
     }
 }
 
+Point2D GetStructureFootprintHalfExtentsForUnitType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOT:
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED:
+        case UNIT_TYPEID::TERRAN_REACTOR:
+        case UNIT_TYPEID::TERRAN_BARRACKSREACTOR:
+        case UNIT_TYPEID::TERRAN_FACTORYREACTOR:
+        case UNIT_TYPEID::TERRAN_STARPORTREACTOR:
+        case UNIT_TYPEID::TERRAN_TECHLAB:
+        case UNIT_TYPEID::TERRAN_BARRACKSTECHLAB:
+        case UNIT_TYPEID::TERRAN_FACTORYTECHLAB:
+        case UNIT_TYPEID::TERRAN_STARPORTTECHLAB:
+            return Point2D(1.0f, 1.0f);
+        case UNIT_TYPEID::TERRAN_COMMANDCENTER:
+        case UNIT_TYPEID::TERRAN_ORBITALCOMMAND:
+        case UNIT_TYPEID::TERRAN_PLANETARYFORTRESS:
+            return Point2D(2.5f, 2.5f);
+        case UNIT_TYPEID::TERRAN_REFINERY:
+        case UNIT_TYPEID::TERRAN_REFINERYRICH:
+            return Point2D(1.5f, 1.5f);
+        default:
+            return Point2D(1.5f, 1.5f);
+    }
+}
+
+Point2D GetStructureFootprintHalfExtentsForAbility(const ABILITY_ID StructureAbilityIdValue)
+{
+    switch (StructureAbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_SUPPLYDEPOT:
+            return Point2D(1.0f, 1.0f);
+        case ABILITY_ID::BUILD_COMMANDCENTER:
+            return Point2D(2.5f, 2.5f);
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+        case ABILITY_ID::BUILD_REFINERY:
+        default:
+            return Point2D(1.5f, 1.5f);
+    }
+}
+
+bool DoAxisAlignedFootprintsOverlap(const Point2D& CenterPointOneValue, const Point2D& HalfExtentsOneValue,
+                                    const Point2D& CenterPointTwoValue, const Point2D& HalfExtentsTwoValue)
+{
+    constexpr float FootprintTouchToleranceValue = 0.05f;
+    return std::fabs(CenterPointOneValue.x - CenterPointTwoValue.x) <
+               ((HalfExtentsOneValue.x + HalfExtentsTwoValue.x) - FootprintTouchToleranceValue) &&
+           std::fabs(CenterPointOneValue.y - CenterPointTwoValue.y) <
+               ((HalfExtentsOneValue.y + HalfExtentsTwoValue.y) - FootprintTouchToleranceValue);
+}
+
 const Unit* FindObservedStructureOccupyingPlacementSlot(const ObservationInterface& ObservationValue,
+                                                        const ABILITY_ID StructureAbilityIdValue,
                                                         const FBuildPlacementSlot& BuildPlacementSlotValue)
 {
     const Units SelfUnitsValue = ObservationValue.GetUnits(Unit::Alliance::Self);
-    const float OccupancyRadiusSquaredValue = GetPlacementSlotOccupancyRadiusSquared(BuildPlacementSlotValue);
     const Point2D SlotBuildPointValue = BuildPlacementSlotValue.BuildPoint;
+    const Point2D SlotFootprintHalfExtentsValue =
+        GetStructureFootprintHalfExtentsForAbility(StructureAbilityIdValue);
 
     const Unit* BestOccupyingUnitValue = nullptr;
     float BestDistanceSquaredValue = std::numeric_limits<float>::max();
@@ -407,8 +508,16 @@ const Unit* FindObservedStructureOccupyingPlacementSlot(const ObservationInterfa
             continue;
         }
 
+        const Point2D ObservedStructureHalfExtentsValue =
+            GetStructureFootprintHalfExtentsForUnitType(SelfUnitValue->unit_type.ToType());
+        if (!DoAxisAlignedFootprintsOverlap(Point2D(SelfUnitValue->pos), ObservedStructureHalfExtentsValue,
+                                            SlotBuildPointValue, SlotFootprintHalfExtentsValue))
+        {
+            continue;
+        }
+
         const float DistanceSquaredValue = DistanceSquared2D(Point2D(SelfUnitValue->pos), SlotBuildPointValue);
-        if (DistanceSquaredValue > OccupancyRadiusSquaredValue || DistanceSquaredValue >= BestDistanceSquaredValue)
+        if (DistanceSquaredValue >= BestDistanceSquaredValue)
         {
             continue;
         }
@@ -504,7 +613,8 @@ bool TrySelectPlacementSlotCandidate(const FFrameContext& FrameValue,
         return false;
     }
 
-    if (FindObservedStructureOccupyingPlacementSlot(*FrameValue.Observation, NormalizedBuildPlacementSlotValue) != nullptr)
+    if (FindObservedStructureOccupyingPlacementSlot(*FrameValue.Observation, EconomyOrderValue.AbilityId,
+                                                    NormalizedBuildPlacementSlotValue) != nullptr)
     {
         return false;
     }
@@ -641,7 +751,7 @@ EReservedPlacementSlotState GetAwaitingReservedPlacementSlotState(
         ClampToPlayable(*FrameValue.GameInfo, OutReservedBuildPlacementSlotValue.BuildPoint);
     OutReservedBuildPlacementSlotValue.BuildPoint = ClampedBuildPointValue;
 
-    if (FindObservedStructureOccupyingPlacementSlot(*FrameValue.Observation,
+    if (FindObservedStructureOccupyingPlacementSlot(*FrameValue.Observation, EconomyOrderValue.AbilityId,
                                                     OutReservedBuildPlacementSlotValue) != nullptr)
     {
         return EReservedPlacementSlotState::Active;
@@ -707,17 +817,21 @@ bool DoesAddonFootprintAvoidObservedStructures(const ObservationInterface& Obser
                                                const Point2D& StructureBuildPointValue)
 {
     const Point2D AddonCenterValue = GetAddonFootprintCenter(StructureBuildPointValue);
+    const Point2D AddonFootprintHalfExtentsValue(1.0f, 1.0f);
     const Units SelfUnitsValue = ObservationValue.GetUnits(Unit::Alliance::Self);
 
     for (const Unit* SelfUnitValue : SelfUnitsValue)
     {
-        if (SelfUnitValue == nullptr || !IsTerranBuilding(SelfUnitValue->unit_type.ToType()))
+        if (SelfUnitValue == nullptr || !IsTerranBuilding(SelfUnitValue->unit_type.ToType()) ||
+            SelfUnitValue->is_flying)
         {
             continue;
         }
 
-        const float DistanceSquaredValue = DistanceSquared2D(Point2D(SelfUnitValue->pos), AddonCenterValue);
-        if (DistanceSquaredValue < 9.0f)
+        const Point2D ObservedStructureHalfExtentsValue =
+            GetStructureFootprintHalfExtentsForUnitType(SelfUnitValue->unit_type.ToType());
+        if (DoAxisAlignedFootprintsOverlap(Point2D(SelfUnitValue->pos), ObservedStructureHalfExtentsValue,
+                                           AddonCenterValue, AddonFootprintHalfExtentsValue))
         {
             return false;
         }
@@ -825,8 +939,8 @@ int GetCommittedProductionOrderCount(const FCommandAuthoritySchedulingState& Com
                                      const Unit& ProductionUnitValue)
 {
     return static_cast<int>(ProductionUnitValue.orders.size()) +
-           static_cast<int>(CountActiveSchedulerOrdersForActor(CommandAuthoritySchedulingStateValue,
-                                                               ProductionUnitValue.tag));
+           static_cast<int>(CountActiveUnitProductionSchedulerOrdersForActor(CommandAuthoritySchedulingStateValue,
+                                                                             ProductionUnitValue.tag));
 }
 
 const Unit* SelectBuildWorker(const FAgentState& AgentStateValue, const FIntentBuffer& IntentBufferValue,
@@ -1144,6 +1258,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 const Units TownHallUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsTownHall());
                 const Units GeyserUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Neutral, IsGeyser());
+                const Point2D StartLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
+                Units SortedTownHallUnitsValue;
+                SortedTownHallUnitsValue.reserve(TownHallUnitsValue.size());
                 bool HasCompletedTownHallValue = false;
                 bool HasValidGeyserPlacementValue = false;
                 bool HasWorkerAvailabilityFailureValue = false;
@@ -1156,12 +1273,46 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     }
 
                     HasCompletedTownHallValue = true;
+                    SortedTownHallUnitsValue.push_back(TownHallUnitValue);
+                }
+
+                std::stable_sort(SortedTownHallUnitsValue.begin(), SortedTownHallUnitsValue.end(),
+                                 [&StartLocationValue](const Unit* LeftTownHallUnitValue,
+                                                       const Unit* RightTownHallUnitValue)
+                                 {
+                                     return DistanceSquared2D(Point2D(LeftTownHallUnitValue->pos),
+                                                              StartLocationValue) <
+                                            DistanceSquared2D(Point2D(RightTownHallUnitValue->pos),
+                                                              StartLocationValue);
+                                 });
+
+                for (const Unit* TownHallUnitValue : SortedTownHallUnitsValue)
+                {
+                    Units NearbyGeyserUnitsValue;
+                    NearbyGeyserUnitsValue.reserve(GeyserUnitsValue.size());
+
                     for (const Unit* GeyserUnitValue : GeyserUnitsValue)
                     {
                         if (GeyserUnitValue == nullptr || Distance2D(TownHallUnitValue->pos, GeyserUnitValue->pos) > 15.0f)
                         {
                             continue;
                         }
+
+                        NearbyGeyserUnitsValue.push_back(GeyserUnitValue);
+                    }
+
+                    std::stable_sort(NearbyGeyserUnitsValue.begin(), NearbyGeyserUnitsValue.end(),
+                                     [TownHallUnitValue](const Unit* LeftGeyserUnitValue,
+                                                         const Unit* RightGeyserUnitValue)
+                                     {
+                                         return DistanceSquared2D(Point2D(LeftGeyserUnitValue->pos),
+                                                                  Point2D(TownHallUnitValue->pos)) <
+                                                DistanceSquared2D(Point2D(RightGeyserUnitValue->pos),
+                                                                  Point2D(TownHallUnitValue->pos));
+                                     });
+
+                    for (const Unit* GeyserUnitValue : NearbyGeyserUnitsValue)
+                    {
 
                         if (!FrameValue.Query->Placement(ABILITY_ID::BUILD_REFINERY, GeyserUnitValue->pos))
                         {
@@ -1425,8 +1576,10 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         continue;
                     }
 
-                    if (ProducerUnitValue->build_progress < 1.0f || IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
-                        HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue, ProducerUnitValue->tag))
+                    if (ProducerUnitValue->build_progress < 1.0f ||
+                        IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
+                        HasConflictingSchedulerOrderForProductionActor(CommandAuthoritySchedulingStateValue,
+                                                                       ProducerUnitValue->tag))
                     {
                         HasBusyProducerValue = true;
                         continue;

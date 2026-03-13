@@ -1,5 +1,7 @@
 #include "terran.h"
 
+#include <algorithm>
+
 #include "sc2lib/sc2_search.h"
 
 namespace sc2
@@ -8,6 +10,7 @@ namespace
 {
 
 constexpr float WallStructureMatchRadiusSquaredValue = 6.25f;
+constexpr int GasHarvestIntentPriorityValue = 320;
 
 EExecutionConditionState GetExecutionConditionState(const bool ConditionValue)
 {
@@ -86,6 +89,141 @@ bool IsWallDepotUnitType(const UNIT_TYPEID UnitTypeIdValue)
     }
 }
 
+bool IsRefineryUnitType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_REFINERY:
+        case UNIT_TYPEID::TERRAN_REFINERYRICH:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsHarvestGatherAbility(const ABILITY_ID AbilityIdValue)
+{
+    switch (AbilityIdValue)
+    {
+        case ABILITY_ID::HARVEST_GATHER:
+        case ABILITY_ID::HARVEST_GATHER_SCV:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsHarvestReturnAbility(const ABILITY_ID AbilityIdValue)
+{
+    switch (AbilityIdValue)
+    {
+        case ABILITY_ID::HARVEST_RETURN:
+        case ABILITY_ID::HARVEST_RETURN_SCV:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsWorkerCommittedToConstruction(const Unit& WorkerUnitValue)
+{
+    if (WorkerUnitValue.orders.empty())
+    {
+        return false;
+    }
+
+    switch (WorkerUnitValue.orders.front().ability_id.ToType())
+    {
+        case ABILITY_ID::BUILD_SUPPLYDEPOT:
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+        case ABILITY_ID::BUILD_REFINERY:
+        case ABILITY_ID::BUILD_COMMANDCENTER:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool HasActiveSchedulerOrderForActorTag(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                        const Tag ActorTagValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != ActorTagValue ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool IsWorkerCommittedToRefinery(const ObservationInterface& ObservationValue, const Unit& WorkerUnitValue)
+{
+    if (IsCarryingVespene(WorkerUnitValue))
+    {
+        return true;
+    }
+
+    if (WorkerUnitValue.orders.empty())
+    {
+        return false;
+    }
+
+    const UnitOrder& WorkerOrderValue = WorkerUnitValue.orders.front();
+    if (!IsHarvestGatherAbility(WorkerOrderValue.ability_id) && !IsHarvestReturnAbility(WorkerOrderValue.ability_id))
+    {
+        return false;
+    }
+
+    if (WorkerOrderValue.target_unit_tag == NullTag)
+    {
+        return false;
+    }
+
+    const Unit* TargetUnitValue = ObservationValue.GetUnit(WorkerOrderValue.target_unit_tag);
+    return TargetUnitValue != nullptr && IsRefineryUnitType(TargetUnitValue->unit_type.ToType());
+}
+
+bool IsWorkerCommittedToMinerals(const ObservationInterface& ObservationValue, const Unit& WorkerUnitValue)
+{
+    if (IsCarryingMinerals(WorkerUnitValue))
+    {
+        return true;
+    }
+
+    if (WorkerUnitValue.orders.empty())
+    {
+        return false;
+    }
+
+    const UnitOrder& WorkerOrderValue = WorkerUnitValue.orders.front();
+    if (!IsHarvestGatherAbility(WorkerOrderValue.ability_id) && !IsHarvestReturnAbility(WorkerOrderValue.ability_id))
+    {
+        return false;
+    }
+
+    if (WorkerOrderValue.target_unit_tag == NullTag)
+    {
+        return false;
+    }
+
+    const Unit* TargetUnitValue = ObservationValue.GetUnit(WorkerOrderValue.target_unit_tag);
+    if (TargetUnitValue == nullptr)
+    {
+        return false;
+    }
+
+    const IsMineralPatch MineralPatchFilterValue;
+    return MineralPatchFilterValue(*TargetUnitValue);
+}
+
 bool DoesUnitMatchWallSlot(const Unit& SelfUnitValue, const FBuildPlacementSlot& BuildPlacementSlotValue)
 {
     if (!SelfUnitValue.is_building || SelfUnitValue.is_flying)
@@ -145,6 +283,58 @@ const char* GetWallSlotOccupancyLabel(const Unit* OccupyingUnitValue)
     return OccupyingUnitValue->build_progress >= 1.0f ? "Filled" : "InProgress";
 }
 
+const Unit* SelectWorkerForRefinery(const ObservationInterface& ObservationValue, const FAgentState& AgentStateValue,
+                                    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                    const FIntentBuffer& IntentBufferValue, const Unit& RefineryUnitValue,
+                                    const std::unordered_set<Tag>& ReservedWorkerTagsValue)
+{
+    const Unit* BestIdleWorkerValue = nullptr;
+    float BestIdleWorkerDistanceSquaredValue = std::numeric_limits<float>::max();
+    const Unit* BestMineralWorkerValue = nullptr;
+    float BestMineralWorkerDistanceSquaredValue = std::numeric_limits<float>::max();
+
+    for (const Unit* WorkerUnitValue : AgentStateValue.UnitContainer.ControlledUnits)
+    {
+        if (WorkerUnitValue == nullptr || WorkerUnitValue->unit_type.ToType() != UNIT_TYPEID::TERRAN_SCV ||
+            WorkerUnitValue->build_progress < 1.0f ||
+            ReservedWorkerTagsValue.find(WorkerUnitValue->tag) != ReservedWorkerTagsValue.end() ||
+            IntentBufferValue.HasIntentForActor(WorkerUnitValue->tag) ||
+            HasActiveSchedulerOrderForActorTag(CommandAuthoritySchedulingStateValue, WorkerUnitValue->tag) ||
+            IsWorkerCommittedToConstruction(*WorkerUnitValue) ||
+            IsWorkerCommittedToRefinery(ObservationValue, *WorkerUnitValue))
+        {
+            continue;
+        }
+
+        const float WorkerDistanceSquaredValue =
+            DistanceSquared2D(Point2D(WorkerUnitValue->pos), Point2D(RefineryUnitValue.pos));
+        if (WorkerUnitValue->orders.empty())
+        {
+            if (BestIdleWorkerValue == nullptr ||
+                WorkerDistanceSquaredValue < BestIdleWorkerDistanceSquaredValue)
+            {
+                BestIdleWorkerValue = WorkerUnitValue;
+                BestIdleWorkerDistanceSquaredValue = WorkerDistanceSquaredValue;
+            }
+            continue;
+        }
+
+        if (!IsWorkerCommittedToMinerals(ObservationValue, *WorkerUnitValue))
+        {
+            continue;
+        }
+
+        if (BestMineralWorkerValue == nullptr ||
+            WorkerDistanceSquaredValue < BestMineralWorkerDistanceSquaredValue)
+        {
+            BestMineralWorkerValue = WorkerUnitValue;
+            BestMineralWorkerDistanceSquaredValue = WorkerDistanceSquaredValue;
+        }
+    }
+
+    return BestIdleWorkerValue != nullptr ? BestIdleWorkerValue : BestMineralWorkerValue;
+}
+
 }  // namespace
 
 void TerranAgent::OnGameStart()
@@ -202,6 +392,7 @@ void TerranAgent::OnStep()
     IntentBuffer.Reset();
     ProduceSchedulerOpeningIntents(Frame);
     ProduceWallGateIntents(Frame);
+    ProduceWorkerHarvestIntents(Frame);
     ProduceRecoveryIntents(Frame);
     ProduceArmyIntents(Frame);
     UpdateExecutionTelemetry(Frame);
@@ -688,6 +879,46 @@ void TerranAgent::ProduceWallGateIntents(const FFrameContext& Frame)
     }
 
     CurrentWallGateState = DesiredWallGateStateValue;
+}
+
+void TerranAgent::ProduceWorkerHarvestIntents(const FFrameContext& Frame)
+{
+    if (Frame.Observation == nullptr)
+    {
+        return;
+    }
+
+    const Units RefineryUnitsValue =
+        Frame.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_REFINERY));
+    std::unordered_set<Tag> ReservedWorkerTagsValue;
+
+    for (const Unit* RefineryUnitValue : RefineryUnitsValue)
+    {
+        if (RefineryUnitValue == nullptr || RefineryUnitValue->build_progress < 1.0f ||
+            RefineryUnitValue->ideal_harvesters <= 0 || RefineryUnitValue->vespene_contents <= 0)
+        {
+            continue;
+        }
+
+        const int MissingHarvesterCountValue =
+            std::max(0, RefineryUnitValue->ideal_harvesters - RefineryUnitValue->assigned_harvesters);
+        for (int MissingHarvesterIndexValue = 0; MissingHarvesterIndexValue < MissingHarvesterCountValue;
+             ++MissingHarvesterIndexValue)
+        {
+            const Unit* WorkerUnitValue = SelectWorkerForRefinery(
+                *Frame.Observation, AgentState, GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,
+                *RefineryUnitValue, ReservedWorkerTagsValue);
+            if (WorkerUnitValue == nullptr)
+            {
+                break;
+            }
+
+            IntentBuffer.Add(FUnitIntent::CreateUnitTarget(WorkerUnitValue->tag, ABILITY_ID::HARVEST_GATHER,
+                                                           RefineryUnitValue->tag, GasHarvestIntentPriorityValue,
+                                                           EIntentDomain::Recovery));
+            ReservedWorkerTagsValue.insert(WorkerUnitValue->tag);
+        }
+    }
 }
 
 void TerranAgent::ProduceProductionRallyIntents()
