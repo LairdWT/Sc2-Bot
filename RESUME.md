@@ -3,10 +3,10 @@
 You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building placement effort.
 
 ## Immediate User Requests
-- Push the current progress to git.
+- Preserve the current placement success in git before further changes.
 - Keep `RESUME.md` current.
-- Pause after the push and await further instructions.
 - Preserve the user-approved live launch path: only `cmd /c LaunchTerranEasyComputerMatch.bat`.
+- Investigate and fix the natural expansion regression after the placement snapshot is saved.
 
 ## Mandatory Local Standards
 - Read `L:\Sc2_Bot\CodingStandards.md` before making code changes.
@@ -20,9 +20,12 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 
 ## Current Worktree State Before The Next Commit
 Modified:
+- `LaunchTerranEasyComputerMatch.bat`
+- `examples/common/build_orders/FOpeningPlanRegistry.cc`
 - `examples/common/services/FTerranBuildPlacementService.cc`
 - `examples/common/services/FTerranMainBaseLayoutRegistry.cc`
 - `tests/test_terran_build_placement_service.cc`
+- `tests/test_terran_opening_plan_scheduler.cc`
 - `tests/test_terran_economy_production_order_expander.cc`
 - `RESUME.md`
 
@@ -137,7 +140,7 @@ This is necessary to determine whether the runtime actually resolved determinist
 
 ### What Is Working
 - The first depot, opening barracks, and second depot on the main ramp were reported by the user as being placed perfectly in a recent live run.
-- The second barracks was later reported to be in a good main-base position.
+- The latest confirmed live run also placed the first factory, first starport, and second barracks in the correct main-base locations.
 - The scheduler stale wall-child recovery fix is in place and covered by unit tests.
 - The shared `MainProductionWithAddon` rail is now threaded through the main-base layout descriptor, opening-plan metadata, scheduler persistence, economy expansion, and live debug output.
 - The curated Bel'Shir main production rail now builds from the live ramp wall frame instead of the earlier bad absolute coordinates.
@@ -153,39 +156,51 @@ This is necessary to determine whether the runtime actually resolved determinist
   - keep scheduler behavior exact-slot and non-drifting
 - Focused placement, scheduler, and economy tests pass after the factory-pivot chain change.
 - The stock visible launch path is now frozen again to `cmd /c LaunchTerranEasyComputerMatch.bat`, and a normal visible launch succeeded without any detached or bounded-run workaround.
+- `LaunchTerranEasyComputerMatch.bat` now cleans stale `SC2_x64.exe` before launch and again after exit to avoid leftover websocket sessions after interrupted runs.
 
 ### What Is Still Broken
-- Factory and starport still failed to build in the last confirmed live run.
-- Live validation has not yet been rerun after the new synthesized shared-rail fallback was added.
-- The user previously observed gas oversaturation in the main. Gas assignment logic has been updated, but it still needs live validation once launch is healthy.
+- The current live regression is that the natural expansion command center was never built, even though the main-base production layout was correct.
+- The user previously observed gas oversaturation in the main. Gas assignment logic has been updated, but it still needs live validation in a full opening-to-natural run.
 
 ### Most Important Current Diagnosis
-The last confirmed live failure exposed the exact production-rail problem:
-- the main layout printed `ProductionRail None` in the most recent observed live debug output before the newest fallback code
-- earlier successful visible launches also showed partial rail states such as ordinals `0` only, or `0` and `2` without ordinal `1`
-- step `9` of the opening is bound to exact slot id `MainProductionWithAddon:1`
-- because that exact slot id did not exist at runtime, the scheduler kept deferring the factory step as `ReservedSlotInvalidated`
-- the same missing-slot condition prevented the starport from ever reaching a valid opening slot
+The last confirmed live run changed the diagnosis:
+- the production layout itself is now good enough for the opening
+- the ramp wall, factory, starport, and second barracks all landed where the user wanted them
+- the remaining opening regression moved to the natural expansion command center
 
-This is the key difference between the successful ramp wall and the failing main production rail:
-- the ramp wall is discovered as one coherent exact descriptor at game start
-- the wall slots only publish when the depot-barracks-depot pattern is resolved as a complete group
-- the previous main production rail resolver still allowed the opening line to collapse before all ordinals were available
+The command-center path still differs from the now-working exact-slot structure path:
+- command center placement still uses the generic expansion-location selector instead of a slot descriptor
+- after the expansion location is chosen, the code performs a second worker-specific `BUILD_COMMANDCENTER` placement query before it creates the SCV child order
+- the stock Terran example path in `examples/common/bot_examples.cc` chooses the expansion point with a global placement query and then issues the worker command without that second worker-specific confirmation
 
-The current implementation addresses that specific weakness by changing the rail resolver itself:
-- the opening rail no longer resolves as three rigid independently-snapped pads
-- the resolver now uses the authored factory slot as the pivot candidate
-- once the factory resolves, the barracks rail pad resolves backward from the factory and the starport resolves forward from the factory
-- hard-block fallback still uses alternate candidate translations and mirrored orientation
-- soft-block behavior still comes from the scheduler holding exact slot ids and retrying the same slot instead of drifting
-- if the authored rail still does not resolve, the service now attempts a derived rail from the first valid main barracks fallback slot:
-  - the first factory is derived from the first barracks
-  - the first starport is derived from the resolved first factory
-  - this directly matches the user's preferred reference-chain model
+The immediate next question is therefore command-center specific:
+- is the natural step being deferred because the worker-specific placement confirmation rejects an otherwise valid expansion point
+- or is the command-center order entering `AwaitingObservedCompletion` and never recovering from a stale expansion child
 
-The immediate next question is now live-only:
-- does the authored or synthesized rail now publish ordinals `0`, `1`, and `2` together on the live map
-- and, if it does, do the factory and starport finally build on that line in a normal visible match
+## Latest Confirmed Live Behavior
+- Live launch used only `cmd /c LaunchTerranEasyComputerMatch.bat`.
+- The user confirmed:
+  - the ramp wall placement was correct
+  - the factory position was correct
+  - the starport position was correct
+  - the second barracks position was correct
+- The same live run also exposed the next regression:
+  - no natural expansion command center was ever built
+
+## Working Main-Base Placement Strategy
+- The ramp wall remains a discovered exact descriptor:
+  - left depot exact slot
+  - wall barracks exact slot
+  - right depot exact slot
+- The main-base opening production line now uses a reference chain anchored from the resolved wall barracks:
+  - first factory = wall barracks build point plus the spawn-specific vertical step
+  - first starport = first factory build point plus the same spawn-specific vertical step
+  - second barracks = wall barracks build point plus the spawn-specific horizontal step
+- Later shared rail pads extend from the second barracks side pad along the same horizontal step.
+- For the currently supported Bel'Shir upper-left and lower-right starts:
+  - vertical step is `{0, 4}` for upper-left and `{0, -4}` for lower-right
+  - horizontal step is `{-6, 0}` for upper-left and `{6, 0}` for lower-right
+- This layout keeps the opening factory and starport on the same north-south addon lane and the second barracks on the adjacent horizontal rail closer to the command center.
 
 ## Verified Builds And Tests
 The following succeeded before this resume snapshot:
@@ -372,13 +387,14 @@ Goal of that review:
 - adapt those ideas into this codebase's descriptor and scheduler model rather than copying framework-specific behavior
 
 ## Recommended Next Steps
-1. Replace the current per-slot authored production rail resolution with an all-or-nothing grouped exact descriptor.
-2. Keep the stock `LaunchTerranEasyComputerMatch.bat` path frozen and use it to verify that the live main layout now prints ordinals `0`, `1`, and `2`.
-3. If the grouped exact descriptor still fails on this map side, move from projected offsets to fully curated world-space opening pads for that spawn, just as the ramp wall effectively does for its discovered frame.
-4. After the rail is correct on Bel'Shir, broaden the same per-map/per-start-side base-layout model to additional bases and defensive slot families.
+1. Commit and push the current placement snapshot before changing expansion behavior.
+2. Add a focused regression test for the natural command-center opening step.
+3. Patch the command-center path to stop rejecting a valid expansion point because of a worker-specific placement query or a stale expansion child.
+4. Rebuild, rerun the focused economy and scheduler tests, then verify the fix through `cmd /c LaunchTerranEasyComputerMatch.bat`.
+5. After the natural is stable again, broaden the same per-map/per-start-side base-layout model to additional bases and defensive slot families.
 
 ## Notes
-- `notes/MainBaseLayoutNotes.md` exists but needs to be updated once the next architectural step is in place.
+- `notes/MainBaseLayoutNotes.md` exists and should be updated together with any new placement report.
 - A previous live run emitted civetweb port bind noise on `8080`. That looked environmental rather than placement-specific.
 - `examples/tutorial.cc` now supports a bounded live-run override through the `SC2_TUTORIAL_MAX_GAME_LOOP` environment variable.
 - Do not forget to commit the restored `RESUME.md` itself.

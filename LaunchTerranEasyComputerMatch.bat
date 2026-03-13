@@ -89,11 +89,18 @@ if not exist "%TutorialExecutablePath%" (
     exit /b 1
 )
 
+echo Cleaning up stale StarCraft II processes before launch...
+taskkill /IM SC2_x64.exe /T /F >nul 2>&1
+timeout /t 1 /nobreak >nul
+
 echo Launching visible Terran match versus Easy computer from: "%TutorialExecutablePath%"
 pushd "%TutorialExecutableDirectory%" >nul
 "%TutorialExecutablePath%"
 set "ExitCode=%ERRORLEVEL%"
 popd >nul
+
+echo Cleaning up StarCraft II processes after launch...
+taskkill /IM SC2_x64.exe /T /F >nul 2>&1
 
 echo Exit code: %ExitCode%
 exit /b %ExitCode%

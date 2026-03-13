@@ -138,6 +138,42 @@ Point2D MirrorPointAcrossPlayableBounds(const Point2D& PointValue, const Point2D
                    PlayableMinValue.y + PlayableMaxValue.y - PointValue.y);
 }
 
+Point2D GetSpawnVerticalMainBaseStep(const EStartLocationBucket StartLocationBucketValue)
+{
+    switch (StartLocationBucketValue)
+    {
+        case EStartLocationBucket::UpperLeft:
+            return Point2D(0.0f, 4.0f);
+        case EStartLocationBucket::LowerRight:
+            return Point2D(0.0f, -4.0f);
+        case EStartLocationBucket::UpperRight:
+            return Point2D(0.0f, 4.0f);
+        case EStartLocationBucket::LowerLeft:
+            return Point2D(0.0f, -4.0f);
+        case EStartLocationBucket::Unknown:
+        default:
+            return Point2D(0.0f, 0.0f);
+    }
+}
+
+Point2D GetSpawnHorizontalMainBaseStep(const EStartLocationBucket StartLocationBucketValue)
+{
+    switch (StartLocationBucketValue)
+    {
+        case EStartLocationBucket::UpperLeft:
+            return Point2D(-6.0f, 0.0f);
+        case EStartLocationBucket::LowerRight:
+            return Point2D(6.0f, 0.0f);
+        case EStartLocationBucket::UpperRight:
+            return Point2D(6.0f, 0.0f);
+        case EStartLocationBucket::LowerLeft:
+            return Point2D(-6.0f, 0.0f);
+        case EStartLocationBucket::Unknown:
+        default:
+            return Point2D(0.0f, 0.0f);
+    }
+}
+
 }  // namespace
 
 bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
@@ -184,17 +220,20 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
     const Point2D WallBarracksBuildPointValue =
         BuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint;
 
-    static const Point2D RailBarracksOffsetFromWallBarracksValue(8.0f, 10.0f);
-    static const Point2D RailStepOffsetValue(4.0f, 8.0f);
+    const Point2D VerticalMainBaseStepValue =
+        GetSpawnVerticalMainBaseStep(StartLocationBucketValue);
+    const Point2D HorizontalMainBaseStepValue =
+        GetSpawnHorizontalMainBaseStep(StartLocationBucketValue);
     const Point2D ProductionRailBarracksBuildPointValue =
-        ProjectPlacementOffset(WallBarracksBuildPointValue, MainBaseDepthDirectionValue,
-                               MainBaseLateralDirectionValue, RailBarracksOffsetFromWallBarracksValue);
+        WallBarracksBuildPointValue + HorizontalMainBaseStepValue;
     const Point2D ProductionRailFactoryBuildPointValue =
-        ProjectPlacementOffset(ProductionRailBarracksBuildPointValue, MainBaseDepthDirectionValue,
-                               MainBaseLateralDirectionValue, RailStepOffsetValue);
+        ProductionRailBarracksBuildPointValue + HorizontalMainBaseStepValue;
     const Point2D ProductionRailStarportBuildPointValue =
-        ProjectPlacementOffset(ProductionRailFactoryBuildPointValue, MainBaseDepthDirectionValue,
-                               MainBaseLateralDirectionValue, RailStepOffsetValue);
+        ProductionRailFactoryBuildPointValue + HorizontalMainBaseStepValue;
+    const Point2D OpeningFactoryBuildPointValue =
+        WallBarracksBuildPointValue + VerticalMainBaseStepValue;
+    const Point2D OpeningStarportBuildPointValue =
+        OpeningFactoryBuildPointValue + VerticalMainBaseStepValue;
 
     OutMainBaseLayoutDescriptorValue.LayoutAnchorPoint = LayoutAnchorPointValue;
     OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
@@ -212,6 +251,21 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
         ProductionRailStarportBuildPointValue,
         2U));
+    OutMainBaseLayoutDescriptorValue.BarracksWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainBarracksWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        ProductionRailBarracksBuildPointValue,
+        0U));
+    OutMainBaseLayoutDescriptorValue.FactoryWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainFactoryWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        OpeningFactoryBuildPointValue,
+        0U));
+    OutMainBaseLayoutDescriptorValue.StarportWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainStarportWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        OpeningStarportBuildPointValue,
+        0U));
     OutMainBaseLayoutDescriptorValue.bIsValid = true;
     return true;
 }

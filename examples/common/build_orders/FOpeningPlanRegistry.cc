@@ -100,9 +100,9 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
                                                        0U, {}, EBuildPlacementSlotType::MainRampDepotRight));
             StepsValue.push_back(CreateOpeningPlanStep(9U, 2867U, 84, ABILITY_ID::BUILD_FACTORY,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_FACTORY, 1U, 22U,
-                                                       {3U}, EBuildPlacementSlotType::MainProductionWithAddon,
+                                                       {3U}, EBuildPlacementSlotType::MainFactoryWithAddon,
                                                        CreatePlacementSlotId(
-                                                           EBuildPlacementSlotType::MainProductionWithAddon, 1U)));
+                                                           EBuildPlacementSlotType::MainFactoryWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(10U, 3024U, 83, ABILITY_ID::BUILD_REFINERY,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_REFINERY, 2U,
                                                        22U, {6U}));
@@ -118,9 +118,9 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
             StepsValue.push_back(CreateOpeningPlanStep(14U, 3853U, 79, ABILITY_ID::BUILD_STARPORT,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_STARPORT, 1U,
                                                        29U, {9U},
-                                                       EBuildPlacementSlotType::MainProductionWithAddon,
+                                                       EBuildPlacementSlotType::MainStarportWithAddon,
                                                        CreatePlacementSlotId(
-                                                           EBuildPlacementSlotType::MainProductionWithAddon, 2U)));
+                                                           EBuildPlacementSlotType::MainStarportWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(15U, 3898U, 78, ABILITY_ID::TRAIN_HELLION,
                                                        UNIT_TYPEID::TERRAN_FACTORY, UNIT_TYPEID::TERRAN_HELLION, 1U,
                                                        29U, {9U}));
@@ -156,9 +156,9 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
                                                        0U, {}));
             StepsValue.push_back(CreateOpeningPlanStep(26U, 5264U, 67, ABILITY_ID::BUILD_BARRACKS,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_BARRACKS, 2U, 0U,
-                                                       {6U}, EBuildPlacementSlotType::MainProductionWithAddon,
+                                                       {6U}, EBuildPlacementSlotType::MainBarracksWithAddon,
                                                        CreatePlacementSlotId(
-                                                           EBuildPlacementSlotType::MainProductionWithAddon, 0U)));
+                                                           EBuildPlacementSlotType::MainBarracksWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(27U, 5398U, 66, ABILITY_ID::TRAIN_LIBERATOR,
                                                        UNIT_TYPEID::TERRAN_STARPORT, UNIT_TYPEID::TERRAN_LIBERATOR,
                                                        1U, 51U, {14U}));
