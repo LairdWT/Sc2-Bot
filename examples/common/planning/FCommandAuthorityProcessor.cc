@@ -15,11 +15,18 @@ EIntentDomain DetermineIntentDomain(const FCommandOrderRecord& CommandOrderRecor
     {
         case ABILITY_ID::TRAIN_SCV:
         case ABILITY_ID::TRAIN_MARINE:
+        case ABILITY_ID::TRAIN_MARAUDER:
         case ABILITY_ID::TRAIN_HELLION:
         case ABILITY_ID::TRAIN_CYCLONE:
         case ABILITY_ID::TRAIN_MEDIVAC:
         case ABILITY_ID::TRAIN_LIBERATOR:
         case ABILITY_ID::TRAIN_SIEGETANK:
+        case ABILITY_ID::TRAIN_WIDOWMINE:
+        case ABILITY_ID::TRAIN_VIKINGFIGHTER:
+        case ABILITY_ID::RESEARCH_STIMPACK:
+        case ABILITY_ID::RESEARCH_COMBATSHIELD:
+        case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
             return EIntentDomain::UnitProduction;
         default:
             return EIntentDomain::StructureBuild;
@@ -78,6 +85,15 @@ uint32_t GetUnitCount(const std::array<uint16_t, NUM_TERRAN_UNITS>& UnitCountsVa
                                                                   : 0U;
         }
     }
+}
+
+uint32_t GetUpgradeCount(const std::array<uint8_t, NUM_TERRAN_UPGRADES>& UpgradeCountsValue,
+                         const UpgradeID UpgradeIdValue)
+{
+    const size_t UpgradeTypeIndexValue = GetTerranUpgradeTypeIndex(UpgradeIdValue);
+    return IsTerranUpgradeTypeIndexValid(UpgradeTypeIndexValue)
+               ? static_cast<uint32_t>(UpgradeCountsValue[UpgradeTypeIndexValue])
+               : 0U;
 }
 
 bool IsRampWallSlotType(const EBuildPlacementSlotType PreferredPlacementSlotTypeValue)
@@ -189,6 +205,7 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
 
         FCommandOrderRecord CompletionProbeValue;
         CompletionProbeValue.ResultUnitTypeId = OpeningPlanStepValue.ResultUnitTypeId;
+        CompletionProbeValue.UpgradeId = OpeningPlanStepValue.UpgradeId;
         CompletionProbeValue.TargetCount = OpeningPlanStepValue.TargetCount;
         CompletionProbeValue.PreferredPlacementSlotType = OpeningPlanStepValue.PreferredPlacementSlotType;
         CompletionProbeValue.PreferredPlacementSlotId = OpeningPlanStepValue.PreferredPlacementSlotId;
@@ -284,6 +301,7 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(FGameStateDescriptor& 
             OpeningPlanStepValue.PriorityValue, EIntentDomain::StructureBuild, OpeningPlanStepValue.MinGameLoop);
         StrategicOrderValue.PlanStepId = OpeningPlanStepValue.StepId;
         StrategicOrderValue.TargetCount = OpeningPlanStepValue.TargetCount;
+        StrategicOrderValue.RequestedQueueCount = OpeningPlanStepValue.RequestedQueueCount;
         StrategicOrderValue.ProducerUnitTypeId = OpeningPlanStepValue.ProducerUnitTypeId;
         StrategicOrderValue.ResultUnitTypeId = OpeningPlanStepValue.ResultUnitTypeId;
         StrategicOrderValue.UpgradeId = OpeningPlanStepValue.UpgradeId;
@@ -361,6 +379,7 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
             GameStateDescriptorValue.CurrentGameLoop, 0U, StrategicOrderValue.OrderId);
         EconomyOrderValue.PlanStepId = StrategicOrderValue.PlanStepId;
         EconomyOrderValue.TargetCount = StrategicOrderValue.TargetCount;
+        EconomyOrderValue.RequestedQueueCount = StrategicOrderValue.RequestedQueueCount;
         EconomyOrderValue.ProducerUnitTypeId = StrategicOrderValue.ProducerUnitTypeId;
         EconomyOrderValue.ResultUnitTypeId = StrategicOrderValue.ResultUnitTypeId;
         EconomyOrderValue.UpgradeId = StrategicOrderValue.UpgradeId;
@@ -399,6 +418,11 @@ bool FCommandAuthorityProcessor::DoesOrderTargetMatchObservedState(
 uint32_t FCommandAuthorityProcessor::GetObservedCountForOrder(const FBuildPlanningState& BuildPlanningStateValue,
                                                               const FCommandOrderRecord& CommandOrderRecordValue) const
 {
+    if (CommandOrderRecordValue.UpgradeId.ToType() != UPGRADE_ID::INVALID)
+    {
+        return GetUpgradeCount(BuildPlanningStateValue.ObservedCompletedUpgradeCounts, CommandOrderRecordValue.UpgradeId);
+    }
+
     switch (CommandOrderRecordValue.ResultUnitTypeId)
     {
         case UNIT_TYPEID::TERRAN_COMMANDCENTER:

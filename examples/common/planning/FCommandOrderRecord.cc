@@ -32,6 +32,7 @@ void FCommandOrderRecord::Reset()
     RequiresPathingValidation = false;
     PlanStepId = 0U;
     TargetCount = 0U;
+    RequestedQueueCount = 1U;
     ProducerUnitTypeId = UNIT_TYPEID::INVALID;
     ResultUnitTypeId = UNIT_TYPEID::INVALID;
     UpgradeId = UpgradeID(UPGRADE_ID::INVALID);

@@ -446,6 +446,21 @@ inline bool IsTerranUpgradeTypeIndexValid(const size_t UpgradeTypeIndexValue) {
     return UpgradeTypeIndexValue < NUM_TERRAN_UPGRADES;
 }
 
+inline ABILITY_ID TerranUpgradeIdToResearchAbilityId(const UpgradeID UpgradeType) {
+    switch (UpgradeType.ToType()) {
+        case UPGRADE_ID::STIMPACK:
+            return ABILITY_ID::RESEARCH_STIMPACK;
+        case UPGRADE_ID::SHIELDWALL:
+            return ABILITY_ID::RESEARCH_COMBATSHIELD;
+        case UPGRADE_ID::PUNISHERGRENADES:
+            return ABILITY_ID::RESEARCH_CONCUSSIVESHELLS;
+        case UPGRADE_ID::TERRANINFANTRYWEAPONSLEVEL1:
+            return ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1;
+        default:
+            return ABILITY_ID::INVALID;
+    }
+}
+
 inline bool TryGetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType, size_t& UpgradeTypeIndexValue) {
     switch (UpgradeType) {
         case ABILITY_ID::RESEARCH_STIMPACK:
@@ -535,7 +550,25 @@ inline bool TryGetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType, size_t& U
     }
 }
 
+inline bool TryGetTerranUpgradeTypeIndex(const UpgradeID UpgradeType, size_t& UpgradeTypeIndexValue) {
+    const ABILITY_ID ResearchAbilityIdValue = TerranUpgradeIdToResearchAbilityId(UpgradeType);
+    if (ResearchAbilityIdValue == ABILITY_ID::INVALID)
+    {
+        UpgradeTypeIndexValue = INVALID_TERRAN_UPGRADE_TYPE_INDEX;
+        return false;
+    }
+
+    return TryGetTerranUpgradeTypeIndex(ResearchAbilityIdValue, UpgradeTypeIndexValue);
+}
+
 inline size_t GetTerranUpgradeTypeIndex(const ABILITY_ID UpgradeType) {
+    size_t UpgradeTypeIndexValue = INVALID_TERRAN_UPGRADE_TYPE_INDEX;
+    const bool FoundValue = TryGetTerranUpgradeTypeIndex(UpgradeType, UpgradeTypeIndexValue);
+    (void)FoundValue;
+    return UpgradeTypeIndexValue;
+}
+
+inline size_t GetTerranUpgradeTypeIndex(const UpgradeID UpgradeType) {
     size_t UpgradeTypeIndexValue = INVALID_TERRAN_UPGRADE_TYPE_INDEX;
     const bool FoundValue = TryGetTerranUpgradeTypeIndex(UpgradeType, UpgradeTypeIndexValue);
     (void)FoundValue;

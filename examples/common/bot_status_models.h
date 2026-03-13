@@ -669,6 +669,7 @@ struct FAgentState
     FAgentEconomy Economy;
     FAgentUnits Units;
     FAgentBuildings Buildings;
+    std::array<uint8_t, NUM_TERRAN_UPGRADES> CompletedUpgradeCounts;
     FAgentSpatialChannels SpatialChannels;
     FAgentSpatialMetrics SpatialMetrics;
 
@@ -679,9 +680,11 @@ struct FAgentState
           Economy(FAgentEconomy()),
           Units(FAgentUnits()),
           Buildings(FAgentBuildings()),
+          CompletedUpgradeCounts(),
           SpatialChannels(FAgentSpatialChannels()),
           SpatialMetrics(FAgentSpatialMetrics())
     {
+        CompletedUpgradeCounts.fill(0U);
     }
 
     FAgentState(EGameStateProgression InGameStateProgression, FAgentAssessments InAssessments,
@@ -692,9 +695,11 @@ struct FAgentState
           Economy(FAgentEconomy()),
           Units(FAgentUnits()),
           Buildings(FAgentBuildings()),
+          CompletedUpgradeCounts(),
           SpatialChannels(FAgentSpatialChannels()),
           SpatialMetrics(FAgentSpatialMetrics())
     {
+        CompletedUpgradeCounts.fill(0U);
     }
 
     void PrintStatus() const
@@ -775,6 +780,7 @@ struct FAgentState
         Economy.SupplyCap = static_cast<uint8_t>(Frame.Observation->GetFoodCap());
         Economy.SupplyAvailable = static_cast<uint8_t>(Economy.SupplyCap - Economy.Supply);
 
+        UpdateCompletedUpgradeCounts(*Frame.Observation);
         SpatialChannels.Update(Frame);
         SpatialMetrics.Update(SpatialChannels);
 
@@ -798,6 +804,23 @@ struct FAgentState
         UpdateBuildingCounts();
         UpdateBuildingsInConstructionCounts();
         Units.Update();
+    }
+
+    void UpdateCompletedUpgradeCounts(const ObservationInterface& ObservationValue)
+    {
+        CompletedUpgradeCounts.fill(0U);
+
+        const std::vector<UpgradeID> CompletedUpgradesValue = ObservationValue.GetUpgrades();
+        for (const UpgradeID CompletedUpgradeValue : CompletedUpgradesValue)
+        {
+            const size_t UpgradeTypeIndexValue = GetTerranUpgradeTypeIndex(CompletedUpgradeValue);
+            if (!IsTerranUpgradeTypeIndexValid(UpgradeTypeIndexValue))
+            {
+                continue;
+            }
+
+            CompletedUpgradeCounts[UpgradeTypeIndexValue] = 1U;
+        }
     }
 
     void UpdateUnitCounts()

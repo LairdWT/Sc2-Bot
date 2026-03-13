@@ -499,6 +499,26 @@ void AppendUnitPointers(const std::vector<Unit>& UnitStorageValue, Units& OutUni
     }
 }
 
+uint32_t CountActiveChildOrders(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                const uint32_t ParentOrderIdValue, const ECommandAuthorityLayer SourceLayerValue)
+{
+    uint32_t ActiveChildOrderCountValue = 0U;
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ParentOrderIds[OrderIndexValue] != ParentOrderIdValue ||
+            CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] != SourceLayerValue ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        ++ActiveChildOrderCountValue;
+    }
+
+    return ActiveChildOrderCountValue;
+}
+
 }  // namespace
 
 bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
@@ -575,6 +595,42 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
           "The created child order should preserve the producer unit type.");
     Check(MarineChildOrderValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_MARINE, SuccessValue,
           "The created child order should preserve the result unit type.");
+
+    FGameStateDescriptor ReactorQueueGameStateDescriptorValue;
+    ReactorQueueGameStateDescriptorValue.CurrentStep = 2U;
+    ReactorQueueGameStateDescriptorValue.CurrentGameLoop = 2U;
+    ReactorQueueGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    ReactorQueueGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    ReactorQueueGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+
+    FCommandAuthoritySchedulingState& ReactorQueueSchedulingStateValue =
+        ReactorQueueGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord ReactorQueueEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::TRAIN_MARINE, 150,
+        EIntentDomain::UnitProduction, 2U);
+    ReactorQueueEconomyOrderValue.TargetCount = 10U;
+    ReactorQueueEconomyOrderValue.RequestedQueueCount = 2U;
+    ReactorQueueEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    ReactorQueueEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_MARINE;
+    const uint32_t ReactorQueueEconomyOrderIdValue =
+        ReactorQueueSchedulingStateValue.EnqueueOrder(ReactorQueueEconomyOrderValue);
+
+    FCommandOrderRecord ExistingReactorQueueChildOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::UnitExecution, 101U, ABILITY_ID::TRAIN_MARINE, 150,
+        EIntentDomain::UnitProduction, 2U, 0U, ReactorQueueEconomyOrderIdValue);
+    ExistingReactorQueueChildOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    ExistingReactorQueueChildOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_MARINE;
+    ReactorQueueSchedulingStateValue.EnqueueOrder(ExistingReactorQueueChildOrderValue);
+
+    FIntentBuffer ReactorQueueIntentBufferValue;
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        FrameValue, AgentStateValue, ReactorQueueGameStateDescriptorValue, ReactorQueueIntentBufferValue,
+        BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    Check(CountActiveChildOrders(ReactorQueueSchedulingStateValue, ReactorQueueEconomyOrderIdValue,
+                                 ECommandAuthorityLayer::UnitExecution) == 2U,
+          SuccessValue,
+          "A unit-production economy order with requested queue count two should keep filling a reactor-backed queue.");
 
     std::vector<Unit> WallBarracksUnitStorageValue;
     WallBarracksUnitStorageValue.push_back(

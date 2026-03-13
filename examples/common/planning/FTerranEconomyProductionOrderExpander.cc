@@ -135,9 +135,22 @@ uint32_t GetObservedUnitCount(const FBuildPlanningState& BuildPlanningStateValue
     }
 }
 
+uint32_t GetObservedUpgradeCount(const FBuildPlanningState& BuildPlanningStateValue, const UpgradeID UpgradeIdValue)
+{
+    const size_t UpgradeTypeIndexValue = GetTerranUpgradeTypeIndex(UpgradeIdValue);
+    return IsTerranUpgradeTypeIndexValid(UpgradeTypeIndexValue)
+               ? static_cast<uint32_t>(BuildPlanningStateValue.ObservedCompletedUpgradeCounts[UpgradeTypeIndexValue])
+               : 0U;
+}
+
 uint32_t GetObservedCountForOrder(const FBuildPlanningState& BuildPlanningStateValue,
                                   const FCommandOrderRecord& CommandOrderRecordValue)
 {
+    if (CommandOrderRecordValue.UpgradeId.ToType() != UPGRADE_ID::INVALID)
+    {
+        return GetObservedUpgradeCount(BuildPlanningStateValue, CommandOrderRecordValue.UpgradeId);
+    }
+
     if (IsTerranBuilding(CommandOrderRecordValue.ResultUnitTypeId) ||
         CommandOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_COMMANDCENTER)
     {
@@ -150,6 +163,11 @@ uint32_t GetObservedCountForOrder(const FBuildPlanningState& BuildPlanningStateV
 uint32_t GetObservedInConstructionCountForOrder(const FBuildPlanningState& BuildPlanningStateValue,
                                                 const FCommandOrderRecord& CommandOrderRecordValue)
 {
+    if (CommandOrderRecordValue.UpgradeId.ToType() != UPGRADE_ID::INVALID)
+    {
+        return 0U;
+    }
+
     if (CommandOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_COMMANDCENTER)
     {
         return static_cast<uint32_t>(BuildPlanningStateValue.ObservedBuildingsInConstruction[GetTerranBuildingTypeIndex(
@@ -329,6 +347,26 @@ bool HasActiveUnitExecutionChild(const FCommandAuthoritySchedulingState& Command
     return false;
 }
 
+uint32_t CountActiveUnitExecutionChildrenForParent(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const uint32_t ParentOrderIdValue)
+{
+    uint32_t ActiveChildCountValue = 0U;
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ParentOrderIds[OrderIndexValue] != ParentOrderIdValue ||
+            CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution ||
+            IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        ++ActiveChildCountValue;
+    }
+
+    return ActiveChildCountValue;
+}
+
 bool TryGetLatestUnitExecutionChildDispatchGameLoop(
     const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const uint32_t ParentOrderIdValue,
     uint64_t& OutLatestDispatchGameLoopValue)
@@ -369,6 +407,32 @@ bool IsStructureBuildAbility(const ABILITY_ID AbilityIdValue)
         case ABILITY_ID::BUILD_STARPORT:
         case ABILITY_ID::BUILD_COMMANDCENTER:
         case ABILITY_ID::BUILD_REFINERY:
+        case ABILITY_ID::BUILD_BUNKER:
+        case ABILITY_ID::BUILD_ENGINEERINGBAY:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsUnitProductionAbility(const ABILITY_ID AbilityIdValue)
+{
+    switch (AbilityIdValue)
+    {
+        case ABILITY_ID::TRAIN_SCV:
+        case ABILITY_ID::TRAIN_MARINE:
+        case ABILITY_ID::TRAIN_MARAUDER:
+        case ABILITY_ID::TRAIN_HELLION:
+        case ABILITY_ID::TRAIN_CYCLONE:
+        case ABILITY_ID::TRAIN_MEDIVAC:
+        case ABILITY_ID::TRAIN_LIBERATOR:
+        case ABILITY_ID::TRAIN_SIEGETANK:
+        case ABILITY_ID::TRAIN_WIDOWMINE:
+        case ABILITY_ID::TRAIN_VIKINGFIGHTER:
+        case ABILITY_ID::RESEARCH_STIMPACK:
+        case ABILITY_ID::RESEARCH_COMBATSHIELD:
+        case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
             return true;
         default:
             return false;
@@ -993,6 +1057,13 @@ bool TryReserveUnitCost(FBuildPlanningState& BuildPlanningStateValue, const UNIT
                                UnitCostDataValue.CostData.Vespine, UnitCostDataValue.CostData.Supply);
 }
 
+bool TryReserveUpgradeCost(FBuildPlanningState& BuildPlanningStateValue, const ABILITY_ID UpgradeAbilityIdValue)
+{
+    const FUpgradeCostData& UpgradeCostDataValue = TERRAN_ECONOMIC_DATA.GetUpgradeCostData(UpgradeAbilityIdValue);
+    return TryReserveResources(BuildPlanningStateValue, UpgradeCostDataValue.CostData.Minerals,
+                               UpgradeCostDataValue.CostData.Vespine, 0U);
+}
+
 bool HasReactorAddon(const ObservationInterface& ObservationValue, const Unit& ProductionUnitValue)
 {
     if (ProductionUnitValue.add_on_tag == NullTag)
@@ -1224,7 +1295,13 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             continue;
         }
 
-        if (HasActiveUnitExecutionChild(CommandAuthoritySchedulingStateValue, EconomyOrderValue.OrderId))
+        const bool IsUnitProductionOrderValue = IsUnitProductionAbility(EconomyOrderValue.AbilityId);
+        const uint32_t ActiveUnitExecutionChildCountValue =
+            CountActiveUnitExecutionChildrenForParent(CommandAuthoritySchedulingStateValue, EconomyOrderValue.OrderId);
+        if ((!IsUnitProductionOrderValue &&
+             HasActiveUnitExecutionChild(CommandAuthoritySchedulingStateValue, EconomyOrderValue.OrderId)) ||
+            (IsUnitProductionOrderValue &&
+             ActiveUnitExecutionChildCountValue >= std::max(EconomyOrderValue.RequestedQueueCount, 1U)))
         {
             CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
                 EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion, CurrentStepValue,
@@ -1290,6 +1367,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             case ABILITY_ID::BUILD_BARRACKS:
             case ABILITY_ID::BUILD_FACTORY:
             case ABILITY_ID::BUILD_STARPORT:
+            case ABILITY_ID::BUILD_BUNKER:
+            case ABILITY_ID::BUILD_ENGINEERINGBAY:
             {
                 const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
                 const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
@@ -1542,8 +1621,14 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 break;
             }
             case ABILITY_ID::BUILD_REACTOR_BARRACKS:
+            case ABILITY_ID::BUILD_TECHLAB_BARRACKS:
             {
-                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, 50U, 50U, 0U))
+                const uint32_t MineralsCostValue =
+                    EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_BARRACKS ? 50U : 50U;
+                const uint32_t VespeneCostValue =
+                    EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_BARRACKS ? 50U : 25U;
+                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue, VespeneCostValue,
+                                         0U))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -1576,7 +1661,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 if (BarracksUnitValue == nullptr)
                 {
-                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, 50U, 50U, 0U);
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
+                                             VespeneCostValue, 0U);
                     DeferralReasonValue = HasBusyBarracksWithoutAddonValue ? ECommandOrderDeferralReason::ProducerBusy
                                                                            : ECommandOrderDeferralReason::NoProducer;
                     break;
@@ -1589,9 +1675,15 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 CreatedOrderValue = true;
                 break;
             }
+            case ABILITY_ID::BUILD_REACTOR_FACTORY:
             case ABILITY_ID::BUILD_TECHLAB_FACTORY:
             {
-                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, 50U, 25U, 0U))
+                const uint32_t MineralsCostValue =
+                    EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_FACTORY ? 50U : 50U;
+                const uint32_t VespeneCostValue =
+                    EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_FACTORY ? 50U : 25U;
+                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue, VespeneCostValue,
+                                         0U))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -1623,7 +1715,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 if (FactoryUnitValue == nullptr)
                 {
-                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, 50U, 25U, 0U);
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
+                                             VespeneCostValue, 0U);
                     DeferralReasonValue = HasBusyFactoryWithoutAddonValue ? ECommandOrderDeferralReason::ProducerBusy
                                                                           : ECommandOrderDeferralReason::NoProducer;
                     break;
@@ -1636,13 +1729,68 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 CreatedOrderValue = true;
                 break;
             }
+            case ABILITY_ID::BUILD_REACTOR_STARPORT:
+            {
+                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, 50U, 50U, 0U))
+                {
+                    DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
+                    break;
+                }
+
+                const Units StarportUnitsValue =
+                    FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_STARPORT));
+                const Unit* StarportUnitValue = nullptr;
+                bool HasBusyStarportWithoutAddonValue = false;
+                for (const Unit* CandidateStarportUnitValue : StarportUnitsValue)
+                {
+                    if (CandidateStarportUnitValue == nullptr || CandidateStarportUnitValue->add_on_tag != NullTag)
+                    {
+                        continue;
+                    }
+
+                    if (CandidateStarportUnitValue->build_progress < 1.0f ||
+                        !CandidateStarportUnitValue->orders.empty() ||
+                        IntentBufferValue.HasIntentForActor(CandidateStarportUnitValue->tag) ||
+                        HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue,
+                                                        CandidateStarportUnitValue->tag))
+                    {
+                        HasBusyStarportWithoutAddonValue = true;
+                        continue;
+                    }
+
+                    StarportUnitValue = CandidateStarportUnitValue;
+                    break;
+                }
+
+                if (StarportUnitValue == nullptr)
+                {
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, 50U, 50U, 0U);
+                    DeferralReasonValue = HasBusyStarportWithoutAddonValue ? ECommandOrderDeferralReason::ProducerBusy
+                                                                           : ECommandOrderDeferralReason::NoProducer;
+                    break;
+                }
+
+                UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
+                    ECommandAuthorityLayer::UnitExecution, StarportUnitValue->tag, EconomyOrderValue.AbilityId,
+                    EconomyOrderValue.PriorityValue, EIntentDomain::StructureBuild,
+                    GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                CreatedOrderValue = true;
+                break;
+            }
             case ABILITY_ID::TRAIN_SCV:
             case ABILITY_ID::TRAIN_MARINE:
+            case ABILITY_ID::TRAIN_MARAUDER:
             case ABILITY_ID::TRAIN_HELLION:
             case ABILITY_ID::TRAIN_CYCLONE:
             case ABILITY_ID::TRAIN_MEDIVAC:
             case ABILITY_ID::TRAIN_LIBERATOR:
             case ABILITY_ID::TRAIN_SIEGETANK:
+            case ABILITY_ID::TRAIN_WIDOWMINE:
+            case ABILITY_ID::TRAIN_VIKINGFIGHTER:
+            case ABILITY_ID::RESEARCH_STIMPACK:
+            case ABILITY_ID::RESEARCH_COMBATSHIELD:
+            case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
+            case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
             {
                 if (EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SCV &&
                     GameStateDescriptorValue.BuildPlanning.AvailableSupply <= 1U &&
@@ -1673,7 +1821,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         continue;
                     }
 
-                    if ((EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_CYCLONE ||
+                    if ((EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_MARAUDER ||
+                         EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_CYCLONE ||
                          EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SIEGETANK) &&
                         !HasTechLabAddon(*FrameValue.Observation, *ProducerUnitValue))
                     {
@@ -1687,7 +1836,13 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         continue;
                     }
 
-                    if (!TryReserveUnitCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.ResultUnitTypeId))
+                    const bool IsResearchUpgradeValue = EconomyOrderValue.UpgradeId.ToType() != UPGRADE_ID::INVALID;
+                    const bool ReservedCostValue =
+                        IsResearchUpgradeValue
+                            ? TryReserveUpgradeCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.AbilityId)
+                            : TryReserveUnitCost(GameStateDescriptorValue.BuildPlanning,
+                                                 EconomyOrderValue.ResultUnitTypeId);
+                    if (!ReservedCostValue)
                     {
                         DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                         break;
@@ -1727,6 +1882,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
         UnitExecutionOrderValue.LifecycleState = EOrderLifecycleState::Ready;
         UnitExecutionOrderValue.PlanStepId = EconomyOrderValue.PlanStepId;
         UnitExecutionOrderValue.TargetCount = EconomyOrderValue.TargetCount;
+        UnitExecutionOrderValue.RequestedQueueCount = EconomyOrderValue.RequestedQueueCount;
         UnitExecutionOrderValue.ProducerUnitTypeId = EconomyOrderValue.ProducerUnitTypeId;
         UnitExecutionOrderValue.ResultUnitTypeId = EconomyOrderValue.ResultUnitTypeId;
         UnitExecutionOrderValue.UpgradeId = EconomyOrderValue.UpgradeId;

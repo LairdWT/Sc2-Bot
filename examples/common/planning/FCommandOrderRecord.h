@@ -67,6 +67,7 @@ public:
     bool RequiresPathingValidation;
     uint32_t PlanStepId;
     uint32_t TargetCount;
+    uint32_t RequestedQueueCount;
     UNIT_TYPEID ProducerUnitTypeId;
     UNIT_TYPEID ResultUnitTypeId;
     UpgradeID UpgradeId;

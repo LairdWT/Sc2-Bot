@@ -26,6 +26,7 @@ public:
     UNIT_TYPEID ResultUnitTypeId;
     UpgradeID UpgradeId;
     uint32_t TargetCount;
+    uint32_t RequestedQueueCount;
     uint32_t ParallelGroupId;
     EBuildPlacementSlotType PreferredPlacementSlotType;
     FBuildPlacementSlotId PreferredPlacementSlotId;

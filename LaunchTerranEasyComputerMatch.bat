@@ -93,7 +93,7 @@ echo Cleaning up stale StarCraft II processes before launch...
 taskkill /IM SC2_x64.exe /T /F >nul 2>&1
 timeout /t 1 /nobreak >nul
 
-echo Launching visible Terran match versus Easy computer from: "%TutorialExecutablePath%"
+echo Launching visible Terran match versus Medium computer from: "%TutorialExecutablePath%"
 pushd "%TutorialExecutableDirectory%" >nul
 "%TutorialExecutablePath%"
 set "ExitCode=%ERRORLEVEL%"

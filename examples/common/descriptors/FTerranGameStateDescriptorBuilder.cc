@@ -120,6 +120,7 @@ void FTerranGameStateDescriptorBuilder::RebuildBuildPlanningState(
     BuildPlanningStateValue.ObservedUnitsInConstruction = AgentStateValue.Units.UnitsInConstruction;
     BuildPlanningStateValue.ObservedBuildingCounts = AgentStateValue.Buildings.BuildingCounts;
     BuildPlanningStateValue.ObservedBuildingsInConstruction = AgentStateValue.Buildings.CurrentlyInConstruction;
+    BuildPlanningStateValue.ObservedCompletedUpgradeCounts = AgentStateValue.CompletedUpgradeCounts;
 }
 
 EMacroPhase FTerranGameStateDescriptorBuilder::DetermineMacroPhase(

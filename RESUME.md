@@ -6,7 +6,9 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 - Preserve the current placement and natural-expansion success in git before further changes.
 - Keep `RESUME.md` current.
 - Preserve the user-approved live launch path: only `cmd /c LaunchTerranEasyComputerMatch.bat`.
-- Expand the Terran opening plan to the full build order that was previously provided once that reference is identified.
+- The Terran opening plan must not remain a time-gated special case; it should seed the command scheduler and then hand off to normal scheduler-driven follow-up packages and triggers.
+- Use a Medium opponent for live validation so stalled combat logic does not leave near-endless visible test runs.
+- Create a standardized scheduler task descriptor so the opener and future runtime-triggered packages share one authored task shape.
 
 ## Mandatory Local Standards
 - Read `L:\Sc2_Bot\CodingStandards.md` before making code changes.
@@ -20,10 +22,23 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 
 ## Current Worktree State Before The Next Commit
 Modified:
+- `LaunchTerranEasyComputerMatch.bat`
+- `examples/common/bot_status_models.h`
+- `examples/common/build_orders/FOpeningPlanRegistry.cc`
+- `examples/common/build_orders/FOpeningPlanStep.cc`
+- `examples/common/build_orders/FOpeningPlanStep.h`
+- `examples/common/descriptors/FTerranGameStateDescriptorBuilder.cc`
+- `examples/common/planning/FCommandAuthorityProcessor.cc`
+- `examples/common/planning/FCommandAuthoritySchedulingState.cc`
+- `examples/common/planning/FCommandAuthoritySchedulingState.h`
+- `examples/common/planning/FCommandOrderRecord.cc`
+- `examples/common/planning/FCommandOrderRecord.h`
 - `examples/common/planning/FTerranEconomyProductionOrderExpander.cc`
-- `examples/common/services/FTerranMainBaseLayoutRegistry.cc`
-- `tests/test_terran_build_placement_service.cc`
+- `examples/common/terran_models.h`
+- `examples/tutorial.cc`
+- `tests/test_command_authority_scheduling.cc`
 - `tests/test_terran_economy_production_order_expander.cc`
+- `tests/test_terran_opening_plan_scheduler.cc`
 - `RESUME.md`
 
 Untracked:
@@ -115,6 +130,18 @@ Exact preferred slot ids are intentionally non-drifting:
 - if the named slot is present but unusable, the order defers as `ReservedSlotOccupied`
 - the order does not silently switch to a different rail pad
 
+### 4A. Opening Plan Queue Depth
+The opening-plan and scheduler pipeline now carries authored queue depth through:
+- `FOpeningPlanStep::RequestedQueueCount`
+- `FCommandOrderRecord::RequestedQueueCount`
+- `FCommandAuthoritySchedulingState::RequestedQueueCounts`
+
+Current authored queue-depth behavior:
+- default requested queue count is `1`
+- reactor marine steps now preserve the authored `2`-deep queue intent from the JSON asset
+- `FTerranEconomyProductionOrderExpander` now allows a unit-production economy order to keep spawning unit-execution children until the active child count for that same parent reaches the authored requested queue count
+- this is limited to unit-production orders and does not change the single-child structure-build behavior
+
 ### 5. Gas Saturation Fixes
 In `examples/terran/terran.cc`:
 - Added refinery commitment tracking helpers.
@@ -140,6 +167,8 @@ This is necessary to determine whether the runtime actually resolved determinist
 - The latest confirmed live run also placed the first factory, first starport, and second barracks in the correct main-base locations.
 - The natural expansion command center now builds again after removing the extra worker-specific `BUILD_COMMANDCENTER` placement gate.
 - The latest live adjustment moved the opening factory and starport one cell closer to the starting command center, and the user confirmed that looked good.
+- The authored JSON file `examples/common/build_orders/Terran.TwoBaseMMM.FrameOpening.json` was audited against the compiled registry and it is the same full 32-step opener already in code.
+- The opening-plan scheduler test now validates the full 32-step sequence and goals so the compiled registry cannot silently drift from that authored JSON package.
 - The scheduler stale wall-child recovery fix is in place and covered by unit tests.
 - The shared `MainProductionWithAddon` rail is now threaded through the main-base layout descriptor, opening-plan metadata, scheduler persistence, economy expansion, and live debug output.
 - The curated Bel'Shir main production rail now builds from the live ramp wall frame instead of the earlier bad absolute coordinates.
@@ -156,10 +185,31 @@ This is necessary to determine whether the runtime actually resolved determinist
 - Focused placement, scheduler, and economy tests pass after the factory-pivot chain change.
 - The stock visible launch path is now frozen again to `cmd /c LaunchTerranEasyComputerMatch.bat`, and a normal visible launch succeeded without any detached or bounded-run workaround.
 - `LaunchTerranEasyComputerMatch.bat` now cleans stale `SC2_x64.exe` before launch and again after exit to avoid leftover websocket sessions after interrupted runs.
+- The converted `Terran.TwoBaseMMM.EightMinutePressure` build order is now wired into the compiled opening registry through `08:17`.
+- Scheduler execution now supports the additional opener abilities needed by that deeper package:
+  - marauders
+  - widow mines
+  - vikings
+  - barracks tech labs
+  - factory reactors
+  - starport reactors
+  - stimpack
+  - combat shield
+  - concussive shells
+  - infantry weapons level 1
+- Completed Terran upgrades are now observed in `FAgentState`, threaded into `FBuildPlanningState`, and used by opening-plan completion checks so research steps do not remain permanently active.
+- The live test opponent in `examples/tutorial.cc` is now `sc2::Difficulty::Medium`, while the canonical launch path remains `cmd /c LaunchTerranEasyComputerMatch.bat`.
 
 ### What Is Still Broken
-- The next requested task is extending the Terran opening plan to the full build order that was previously provided.
-- That fuller build-order reference is not present in the current repo snapshot or this resume file yet, so it needs to be identified before editing the opening registry.
+- The opening is still duplicated as a time-gated special case in `FTerranTimingAttackBuildPlanner`; live debug output is still showing that planner’s `Desired*Count` progression instead of treating the authored opener purely as scheduler seeding.
+- Army behavior still does not close games reliably, so even with Medium difficulty the bot can stall into long cleanup matches if the opponent cannot break the bot economically.
+- The scheduler still has no generalized authored task descriptor. Opening-plan steps and planner desired-counts are separate surfaces, which blocks clean runtime package triggers for expansion, supply, upgrades, and defensive responses.
+- The next requested architecture slice is package seeding into the command scheduler:
+  - expansion packages
+  - upgrade-building packages
+  - mineral-line safety turret packages
+  - supply-cap response packages
+  - high-income production scaling packages
 - The user previously observed gas oversaturation in the main. Gas assignment logic has been updated, but it still needs live validation in a longer run after the build-order extension work.
 
 ### Most Important Current Diagnosis
@@ -177,6 +227,18 @@ The current placement tuning is:
 - opening factory and starport are both pulled one cell toward the start location while preserving their shared addon lane
 - this is implemented in the authored Bel'Shir main-base layout descriptor by applying the same one-cell start-location pull step to the opening factory and starport chain
 
+The current build-order diagnosis is:
+- `Terran.TwoBaseMMM.FrameOpening.json` contains 32 steps, not a longer hidden package
+- the compiled `TerranTwoBaseMMMFrameOpening` registry already matches that 32-step sequence
+- the latest code change for build-order work was therefore a parity safeguard, not a behavioral extension:
+  - explicit zero-valued goal fields now mirror the JSON production goals
+  - the scheduler test now checks all 32 steps, their frame triggers, priorities, abilities, targets, parallel groups, and prerequisites
+- the current follow-up change now carries the JSON `QueueCount` semantics into the scheduler model:
+  - the compiled registry summary string now exactly matches the JSON asset summary
+  - steps `11`, `12`, and `24` now preserve their authored requested queue count of `2`
+  - scheduler persistence now preserves requested queue count on strategic, economy, and unit-execution orders
+  - the economy expander can keep filling a reactor-backed queue for the same parent order instead of stopping at one active child
+
 ## Latest Confirmed Live Behavior
 - Live launch used only `cmd /c LaunchTerranEasyComputerMatch.bat`.
 - The user confirmed:
@@ -186,6 +248,16 @@ The current placement tuning is:
   - the second barracks position was correct
 - A later live run after the command-center fix confirmed the natural expansion built again.
 - The latest live run after the one-cell pull adjustment was accepted by the user as looking good.
+- A later visible run with the deeper `08:17` opening wired in completed successfully through the stock script.
+- That run confirmed the next architectural problem:
+  - the bot can survive without actually finishing the opponent
+  - the live test should therefore use Medium instead of Easy
+  - the opening still needs to stop being mirrored by the special-case timing-attack build planner
+- A later visible run after the Medium difficulty bump also completed successfully through the same stock script.
+- That Medium run confirmed:
+  - the launcher path is still stable when invoked only as `cmd /c LaunchTerranEasyComputerMatch.bat`
+  - the difficulty bump itself is working
+  - the bot is still driven mostly by the seeded opener plus planner desired-counts rather than standardized runtime task packages
 
 ## Working Main-Base Placement Strategy
 - The ramp wall remains a discovered exact descriptor:
@@ -234,6 +306,19 @@ The following validations also succeeded after the synthesized shared-rail fallb
 - `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 120`
 - `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestCommandAuthorityScheduling' --timeout 120`
 - `cmd /c Build.bat --target tutorial`
+
+The following validations succeeded after the requested-queue-count opening-plan change:
+- `cmd /c BuildAllTests.bat`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestCommandAuthorityScheduling' --timeout 120`
+- `cmd /c Build.bat --target tutorial`
+
+Current unrelated regression still present on this branch:
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranBuildPlacementService' --timeout 120`
+  - failing authored-rail placement expectations in `tests/test_terran_build_placement_service.cc`
+  - this slice did not modify `FTerranBuildPlacementService` or that test file
+  - treat it as an existing placement-test mismatch to address separately from the queue-depth work
 
 The following live commands were attempted and did not reach gameplay:
 - `cmd /c LaunchTerranEasyComputerMatch.bat --skip-build`
@@ -387,11 +472,11 @@ Goal of that review:
 - adapt those ideas into this codebase's descriptor and scheduler model rather than copying framework-specific behavior
 
 ## Recommended Next Steps
-1. Commit and push the current placement and natural-expansion fixes.
-2. Identify the exact “full build order” reference the user wants encoded beyond the current 32-step `TerranTwoBaseMMMFrameOpening`.
-3. Extend `FOpeningPlanRegistry` and related tests from that concrete build-order reference instead of extrapolating from memory.
-4. Rebuild, rerun the focused opening and economy tests, then verify the expanded order through `cmd /c LaunchTerranEasyComputerMatch.bat`.
-5. After the build order is extended, broaden the same per-map/per-start-side base-layout model to additional bases and defensive slot families.
+1. Commit and push the current Medium-opponent and deeper-opener baseline before further scheduler refactoring.
+2. Add a standardized authored scheduler task descriptor that captures package kind, need kind, trigger, action, and completion metadata in one reusable C++ type.
+3. Make the opening-plan registry populate that standardized task descriptor so opener seeding stops depending on a bespoke `FOpeningPlanStep` field surface.
+4. Use that same standardized task descriptor as the insertion point for runtime-triggered scheduler packages such as expansion, supply, upgrades, and defensive turrets.
+5. After the descriptor exists, start removing the special-case time-gated opener mirror from `FTerranTimingAttackBuildPlanner`.
 
 ## Notes
 - `notes/MainBaseLayoutNotes.md` exists and should be updated together with any new placement report.

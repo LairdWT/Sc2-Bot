@@ -121,6 +121,8 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Existing orders without an opening-plan source should default the plan step identifier to zero.");
     Check(FirstUnitOrderRecordValue.TargetCount == 0U, SuccessValue,
           "Existing orders without an authored target count should default that count to zero.");
+    Check(FirstUnitOrderRecordValue.RequestedQueueCount == 1U, SuccessValue,
+          "Existing orders without authored queue metadata should default requested queue count to one.");
     Check(FirstUnitOrderRecordValue.ProducerUnitTypeId == UNIT_TYPEID::INVALID, SuccessValue,
           "Existing orders without a producer type should default the producer type to invalid.");
     Check(FirstUnitOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::INVALID, SuccessValue,
@@ -234,6 +236,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         EIntentDomain::StructureBuild, 20U, 0U, 0U, -1, -1, false);
     OpeningPlanOrderValue.PlanStepId = 19U;
     OpeningPlanOrderValue.TargetCount = 1U;
+    OpeningPlanOrderValue.RequestedQueueCount = 2U;
     OpeningPlanOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
     OpeningPlanOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
     OpeningPlanOrderValue.UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
@@ -252,6 +255,8 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Scheduling state should reconstruct the authored opening-plan step identifier.");
     Check(OpeningPlanOrderRecordValue.TargetCount == 1U, SuccessValue,
           "Scheduling state should reconstruct the authored opening-plan target count.");
+    Check(OpeningPlanOrderRecordValue.RequestedQueueCount == 2U, SuccessValue,
+          "Scheduling state should reconstruct the authored requested queue count.");
     Check(OpeningPlanOrderRecordValue.ProducerUnitTypeId == UNIT_TYPEID::TERRAN_SCV, SuccessValue,
           "Scheduling state should reconstruct the authored producer unit type.");
     Check(OpeningPlanOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_FACTORY, SuccessValue,
@@ -269,6 +274,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         EIntentDomain::StructureBuild, 21U, 0U, OpeningPlanOrderIdValue, -1, -1, false);
     EconomyChildOrderValue.PlanStepId = 19U;
     EconomyChildOrderValue.TargetCount = 1U;
+    EconomyChildOrderValue.RequestedQueueCount = 2U;
     EconomyChildOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
     EconomyChildOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
     EconomyChildOrderValue.PreferredPlacementSlotType = EBuildPlacementSlotType::MainProductionWithAddon;
@@ -294,6 +300,8 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
                   EBuildPlacementSlotType::MainProductionWithAddon &&
               ActiveEconomyChildOrderValue.PreferredPlacementSlotId.Ordinal == 2U,
           SuccessValue, "Scheduling state should reconstruct authored exact preferred placement-slot ids.");
+    Check(ActiveEconomyChildOrderValue.RequestedQueueCount == 2U, SuccessValue,
+          "Scheduling state should reconstruct authored requested queue-count metadata.");
     Check(ActiveEconomyChildOrderValue.ReservedPlacementSlotId.SlotType ==
                   EBuildPlacementSlotType::MainProductionWithAddon &&
               ActiveEconomyChildOrderValue.ReservedPlacementSlotId.Ordinal == 2U,

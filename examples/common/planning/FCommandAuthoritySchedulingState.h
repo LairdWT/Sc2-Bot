@@ -74,6 +74,7 @@ public:
     std::vector<bool> RequiresPathingValidationValues;
     std::vector<uint32_t> PlanStepIds;
     std::vector<uint32_t> TargetCounts;
+    std::vector<uint32_t> RequestedQueueCounts;
     std::vector<UNIT_TYPEID> ProducerUnitTypeIds;
     std::vector<UNIT_TYPEID> ResultUnitTypeIds;
     std::vector<UpgradeID> UpgradeIds;

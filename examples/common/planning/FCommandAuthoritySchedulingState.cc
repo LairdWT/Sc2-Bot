@@ -40,6 +40,7 @@ void FCommandAuthoritySchedulingState::Reset()
     RequiresPathingValidationValues.clear();
     PlanStepIds.clear();
     TargetCounts.clear();
+    RequestedQueueCounts.clear();
     ProducerUnitTypeIds.clear();
     ResultUnitTypeIds.clear();
     UpgradeIds.clear();
@@ -88,6 +89,7 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     RequiresPathingValidationValues.reserve(OrderCapacityValue);
     PlanStepIds.reserve(OrderCapacityValue);
     TargetCounts.reserve(OrderCapacityValue);
+    RequestedQueueCounts.reserve(OrderCapacityValue);
     ProducerUnitTypeIds.reserve(OrderCapacityValue);
     ResultUnitTypeIds.reserve(OrderCapacityValue);
     UpgradeIds.reserve(OrderCapacityValue);
@@ -140,6 +142,7 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     RequiresPathingValidationValues.push_back(StoredOrderValue.RequiresPathingValidation);
     PlanStepIds.push_back(StoredOrderValue.PlanStepId);
     TargetCounts.push_back(StoredOrderValue.TargetCount);
+    RequestedQueueCounts.push_back(StoredOrderValue.RequestedQueueCount);
     ProducerUnitTypeIds.push_back(StoredOrderValue.ProducerUnitTypeId);
     ResultUnitTypeIds.push_back(StoredOrderValue.ResultUnitTypeId);
     UpgradeIds.push_back(StoredOrderValue.UpgradeId);
@@ -248,6 +251,7 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.RequiresPathingValidation = RequiresPathingValidationValues[OrderIndexValue];
     CommandOrderRecordValue.PlanStepId = PlanStepIds[OrderIndexValue];
     CommandOrderRecordValue.TargetCount = TargetCounts[OrderIndexValue];
+    CommandOrderRecordValue.RequestedQueueCount = RequestedQueueCounts[OrderIndexValue];
     CommandOrderRecordValue.ProducerUnitTypeId = ProducerUnitTypeIds[OrderIndexValue];
     CommandOrderRecordValue.ResultUnitTypeId = ResultUnitTypeIds[OrderIndexValue];
     CommandOrderRecordValue.UpgradeId = UpgradeIds[OrderIndexValue];
