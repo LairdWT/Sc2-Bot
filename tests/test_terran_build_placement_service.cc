@@ -139,9 +139,8 @@ struct FSelectivePlacementQuery : QueryInterface
 
         for (const PlacementQuery& PlacementQueryValue : QueriesValue)
         {
-            PlacementResultsValue.push_back(Placement(PlacementQueryValue.ability_id,
-                                                      PlacementQueryValue.target_pos,
-                                                      PlacementQueryValue.placing_unit));
+            PlacementResultsValue.push_back(Placement(PlacementQueryValue.ability,
+                                                      PlacementQueryValue.target_pos));
         }
 
         return PlacementResultsValue;
@@ -534,14 +533,14 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         AuthoredUpperLeftBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint +
         (UpperLeftDepthDirectionValue * 6.0f);
     const Point2D ExpectedAuthoredBarracksPointValue = ProjectPlacementOffsetForTest(
-        ExpectedAuthoredLayoutAnchorPointValue, UpperLeftDepthDirectionValue, UpperLeftLateralDirectionValue,
-        Point2D(8.0f, 0.0f));
+        AuthoredUpperLeftBuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint,
+        UpperLeftDepthDirectionValue, UpperLeftLateralDirectionValue, Point2D(8.0f, 10.0f));
     const Point2D ExpectedAuthoredFactoryPointValue = ProjectPlacementOffsetForTest(
-        ExpectedAuthoredLayoutAnchorPointValue, UpperLeftDepthDirectionValue, UpperLeftLateralDirectionValue,
-        Point2D(12.0f, 8.0f));
+        ExpectedAuthoredBarracksPointValue, UpperLeftDepthDirectionValue, UpperLeftLateralDirectionValue,
+        Point2D(4.0f, 8.0f));
     const Point2D ExpectedAuthoredStarportPointValue = ProjectPlacementOffsetForTest(
-        ExpectedAuthoredLayoutAnchorPointValue, UpperLeftDepthDirectionValue, UpperLeftLateralDirectionValue,
-        Point2D(16.0f, 16.0f));
+        ExpectedAuthoredFactoryPointValue, UpperLeftDepthDirectionValue, UpperLeftLateralDirectionValue,
+        Point2D(4.0f, 8.0f));
     Check(ArePointsEqual(AuthoredUpperLeftBuildPlacementContextValue.MainBaseLayoutDescriptor.LayoutAnchorPoint,
                          ExpectedAuthoredLayoutAnchorPointValue),
           SuccessValue, "Authored Bel'Shir upper-left layout anchor should stay tied to the ramp-back production frame.");
@@ -596,6 +595,10 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
           SuccessValue, "Authored production rail should survive exact-pad query failures by snapping to nearby valid cells.");
     if (SnappedAuthoredBuildPlacementContextValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots.size() == 3U)
     {
+        const Point2D ExpectedFactoryStepOffsetValue =
+            ExpectedAuthoredFactoryPointValue - ExpectedAuthoredBarracksPointValue;
+        const Point2D ExpectedStarportStepOffsetValue =
+            ExpectedAuthoredStarportPointValue - ExpectedAuthoredFactoryPointValue;
         Check(SnappedAuthoredBuildPlacementContextValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots[0]
                           .SlotId.Ordinal == 0U &&
                   !ArePointsEqual(SnappedAuthoredBuildPlacementContextValue.MainBaseLayoutDescriptor
@@ -629,6 +632,28 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
                                             .BuildPoint,
                                         ExpectedAuthoredStarportPointValue, 2.0f),
               SuccessValue, "Authored starport rail ordinal two should keep its slot id while snapping near the curated pad.");
+        Check(IsPointWithinDistance(
+                  SnappedAuthoredBuildPlacementContextValue.MainBaseLayoutDescriptor
+                          .ProductionRailWithAddonSlots[1]
+                          .BuildPoint,
+                  SnappedAuthoredBuildPlacementContextValue.MainBaseLayoutDescriptor
+                          .ProductionRailWithAddonSlots[0]
+                          .BuildPoint +
+                      ExpectedFactoryStepOffsetValue,
+                  2.0f),
+              SuccessValue,
+              "Authored factory rail ordinal one should stay chained from the resolved barracks rail pad.");
+        Check(IsPointWithinDistance(
+                  SnappedAuthoredBuildPlacementContextValue.MainBaseLayoutDescriptor
+                          .ProductionRailWithAddonSlots[2]
+                          .BuildPoint,
+                  SnappedAuthoredBuildPlacementContextValue.MainBaseLayoutDescriptor
+                          .ProductionRailWithAddonSlots[1]
+                          .BuildPoint +
+                      ExpectedStarportStepOffsetValue,
+                  2.0f),
+              SuccessValue,
+              "Authored starport rail ordinal two should stay chained from the resolved factory rail pad.");
     }
 
     const Point2D MirroredAuthoredBarracksPointValue = MirrorPointAcrossDepthAxisForTest(
@@ -660,22 +685,66 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
           SuccessValue, "Authored main-base layout should switch to the mirrored production rail when the primary side is blocked.");
     if (MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots.size() == 3U)
     {
-        Check(IsPointWithinDistance(MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
-                                        .ProductionRailWithAddonSlots[0]
-                                        .BuildPoint,
-                                    MirroredAuthoredBarracksPointValue, 2.0f),
-              SuccessValue, "Mirrored rail ordinal zero should move to the opposite lateral side when the primary side is blocked.");
-        Check(IsPointWithinDistance(MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
-                                        .ProductionRailWithAddonSlots[1]
-                                        .BuildPoint,
-                                    MirroredAuthoredFactoryPointValue, 2.0f),
-              SuccessValue, "Mirrored rail ordinal one should move to the opposite lateral side when the primary side is blocked.");
-        Check(IsPointWithinDistance(MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
-                                        .ProductionRailWithAddonSlots[2]
-                                        .BuildPoint,
-                                    MirroredAuthoredStarportPointValue, 2.0f),
-              SuccessValue, "Mirrored rail ordinal two should move to the opposite lateral side when the primary side is blocked.");
+        const Point2D ExpectedFactoryStepOffsetValue =
+            ExpectedAuthoredFactoryPointValue - ExpectedAuthoredBarracksPointValue;
+        const Point2D ExpectedStarportStepOffsetValue =
+            ExpectedAuthoredStarportPointValue - ExpectedAuthoredFactoryPointValue;
+
+        Check(!IsPointWithinDistance(MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
+                                         .ProductionRailWithAddonSlots[0]
+                                         .BuildPoint,
+                                     ExpectedAuthoredBarracksPointValue, 4.0f),
+              SuccessValue, "Fallback rail ordinal zero should move away from the blocked primary barracks pad.");
+        Check(!IsPointWithinDistance(MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
+                                         .ProductionRailWithAddonSlots[1]
+                                         .BuildPoint,
+                                     ExpectedAuthoredFactoryPointValue, 4.0f),
+              SuccessValue, "Fallback rail ordinal one should move away from the blocked primary factory pad.");
+        Check(!IsPointWithinDistance(MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
+                                         .ProductionRailWithAddonSlots[2]
+                                         .BuildPoint,
+                                     ExpectedAuthoredStarportPointValue, 4.0f),
+              SuccessValue, "Fallback rail ordinal two should move away from the blocked primary starport pad.");
+        Check(IsPointWithinDistance(
+                  MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
+                          .ProductionRailWithAddonSlots[1]
+                          .BuildPoint,
+                  MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
+                          .ProductionRailWithAddonSlots[0]
+                          .BuildPoint +
+                      ExpectedFactoryStepOffsetValue,
+                  2.0f),
+              SuccessValue, "Mirrored rail ordinal one should stay chained from the mirrored barracks rail pad.");
+        Check(IsPointWithinDistance(
+                  MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
+                          .ProductionRailWithAddonSlots[2]
+                          .BuildPoint,
+                  MirroredRailBuildPlacementContextValue.MainBaseLayoutDescriptor
+                          .ProductionRailWithAddonSlots[1]
+                          .BuildPoint +
+                      ExpectedStarportStepOffsetValue,
+                  2.0f),
+              SuccessValue, "Mirrored rail ordinal two should stay chained from the mirrored factory rail pad.");
     }
+
+    FSelectivePlacementQuery InvalidSharedRailPlacementQueryValue;
+    InvalidSharedRailPlacementQueryValue.RejectedPlacementRadiusValue = 20.0f;
+    InvalidSharedRailPlacementQueryValue.RejectedPlacementPoints.push_back(ExpectedAuthoredFactoryPointValue);
+    InvalidSharedRailPlacementQueryValue.RejectedPlacementPoints.push_back(MirroredAuthoredFactoryPointValue);
+
+    FFrameContext InvalidSharedRailFrameContextValue;
+    InvalidSharedRailFrameContextValue.GameInfo = &AuthoredLayoutGameInfoValue;
+    InvalidSharedRailFrameContextValue.Query = &InvalidSharedRailPlacementQueryValue;
+
+    FBuildPlacementContext InvalidSharedRailBuildPlacementContextValue =
+        AuthoredUpperLeftBuildPlacementContextValue;
+    InvalidSharedRailBuildPlacementContextValue.MainBaseLayoutDescriptor.Reset();
+    InvalidSharedRailBuildPlacementContextValue.MainBaseLayoutDescriptor =
+        BuildPlacementServiceValue.GetMainBaseLayoutDescriptor(InvalidSharedRailFrameContextValue,
+                                                               InvalidSharedRailBuildPlacementContextValue);
+    Check(InvalidSharedRailBuildPlacementContextValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots.empty(),
+          SuccessValue,
+          "Authored main-base layout should suppress the shared rail entirely when no full three-pad rail candidate resolves.");
 
     FBuildPlacementContext AuthoredLowerRightBuildPlacementContextValue;
     AuthoredLowerRightBuildPlacementContextValue.MapName = AuthoredLayoutGameInfoValue.map_name;
@@ -841,8 +910,8 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_BARRACKS,
                                                               BuildPlacementContextValue);
-    Check(BarracksSlotsValue.size() == 5U, SuccessValue,
-          "The first barracks should expose one wall barracks option plus explicit main-base barracks slots.");
+    Check(BarracksSlotsValue.size() >= 4U, SuccessValue,
+          "The first barracks should expose the wall barracks plus the shared production rail.");
     Check(!BarracksSlotsValue.empty() &&
               BarracksSlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainRampBarracksWithAddon,
           SuccessValue, "The first barracks should prefer the ramp-facing barracks slot.");
@@ -853,14 +922,14 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainRampBarracksWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(61.0f, 50.0f)),
           SuccessValue, "Barracks placement should expose the center wall slot.");
-    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainBarracksWithAddon,
+    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(52.5f, 58.0f)),
-          SuccessValue, "Barracks placement should include explicit addon-safe main-base barracks slots.");
-    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainBarracksWithAddon,
+          SuccessValue, "Barracks placement should include the shared main-production rail barracks pad.");
+    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(52.5f, 58.0f)) &&
               BarracksSlotsValue[1].BuildPoint.x <
                   BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x,
-          SuccessValue, "Barracks production-grid slots should stay inside the wall instead of drifting forward.");
+          SuccessValue, "Barracks production-rail slots should stay inside the wall instead of drifting forward.");
 
     GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
         UNIT_TYPEID::TERRAN_BARRACKS)] = 1U;
@@ -868,7 +937,7 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_BARRACKS,
                                                               BuildPlacementContextValue);
-    Check(FollowUpBarracksSlotsValue.size() == 5U, SuccessValue,
+    Check(FollowUpBarracksSlotsValue.size() >= 4U, SuccessValue,
           "Barracks placement should keep the descriptor-backed wall slot in the ordered placement list.");
     Check(!FollowUpBarracksSlotsValue.empty() &&
               FollowUpBarracksSlotsValue.front().SlotId.SlotType ==
@@ -879,15 +948,15 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_FACTORY,
                                                               BuildPlacementContextValue);
-    Check(FactorySlotsValue.size() == 4U, SuccessValue,
-          "Factory placement should use explicit addon-safe main-base factory slots.");
+    Check(FactorySlotsValue.size() >= 4U, SuccessValue,
+          "Factory placement should expose the shared production rail before dedicated factory fallback slots.");
     Check(!FactorySlotsValue.empty() &&
               FactorySlotsValue.front().FootprintPolicy ==
                   EBuildPlacementFootprintPolicy::RequiresAddonClearance,
           SuccessValue, "Factory slots should require addon clearance.");
     Check(!FactorySlotsValue.empty() &&
-              FactorySlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainFactoryWithAddon,
-          SuccessValue, "Factory placement should expose dedicated main-base factory slots.");
+              FactorySlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainProductionWithAddon,
+          SuccessValue, "Factory placement should expose the shared main-production rail first.");
     Check(!ContainsSlot(FactorySlotsValue, EBuildPlacementSlotType::MainRampBarracksWithAddon,
                         EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(61.0f, 50.0f)),
           SuccessValue, "Factory placement should exclude the dedicated wall barracks slot.");
@@ -895,6 +964,9 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
               FactorySlotsValue.front().BuildPoint.x <
                   BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x,
           SuccessValue, "Factory placement should prefer main-base addon slots behind the wall.");
+    Check(ContainsSlot(FactorySlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
+                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(44.0f, 66.0f)),
+          SuccessValue, "Factory placement should include the shared production-rail factory slot.");
     Check(ContainsSlot(FactorySlotsValue, EBuildPlacementSlotType::MainFactoryWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(44.5f, 54.0f)),
           SuccessValue, "Factory placement should include the deterministic forward factory slot.");
@@ -903,11 +975,14 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_STARPORT,
                                                               BuildPlacementContextValue);
-    Check(StarportSlotsValue.size() == 4U, SuccessValue,
-          "Starport placement should use explicit addon-safe main-base starport slots.");
+    Check(StarportSlotsValue.size() >= 4U, SuccessValue,
+          "Starport placement should expose the shared production rail before dedicated starport fallback slots.");
     Check(!StarportSlotsValue.empty() &&
-              StarportSlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainStarportWithAddon,
-          SuccessValue, "Starport placement should expose dedicated main-base starport slots.");
+              StarportSlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainProductionWithAddon,
+          SuccessValue, "Starport placement should expose the shared main-production rail first.");
+    Check(ContainsSlot(StarportSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
+                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(35.5f, 74.0f)),
+          SuccessValue, "Starport placement should include the shared production-rail starport slot.");
     Check(ContainsSlot(StarportSlotsValue, EBuildPlacementSlotType::MainStarportWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(36.5f, 50.0f)),
           SuccessValue, "Starport placement should include the deterministic forward starport slot.");

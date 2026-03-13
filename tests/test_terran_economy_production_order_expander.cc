@@ -757,6 +757,8 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     std::vector<Unit> ProductionRailUnitStorageValue;
     ProductionRailUnitStorageValue.push_back(
         MakeUnit(701U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(12.0f, 10.0f), false));
+    ProductionRailUnitStorageValue.push_back(
+        MakeUnit(702U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(14.0f, 10.0f), false));
 
     Units ProductionRailUnitPointersValue;
     AppendUnitPointers(ProductionRailUnitStorageValue, ProductionRailUnitPointersValue);
@@ -774,7 +776,7 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     ProductionRailGameStateDescriptorValue.CurrentStep = 5U;
     ProductionRailGameStateDescriptorValue.CurrentGameLoop = 5U;
     ProductionRailGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
-    ProductionRailGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    ProductionRailGameStateDescriptorValue.BuildPlanning.AvailableVespene = 100U;
     ProductionRailGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
     ProductionRailGameStateDescriptorValue.MainBaseLayoutDescriptor.bIsValid = true;
 
@@ -848,7 +850,7 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     OccupiedRailGameStateDescriptorValue.CurrentStep = 6U;
     OccupiedRailGameStateDescriptorValue.CurrentGameLoop = 6U;
     OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
-    OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableVespene = 100U;
     OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
 
     FCommandAuthoritySchedulingState& OccupiedRailSchedulingStateValue =

@@ -3,10 +3,10 @@
 You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building placement effort.
 
 ## Immediate User Requests
-- Push the current progress to git before continuing.
+- Push the current progress to git.
 - Keep `RESUME.md` current.
-- Continue the deterministic placement work.
-- Examine how other C++ and Python StarCraft II bots handle walling and deterministic placement, then adapt the useful parts to this codebase's standards and architecture.
+- Pause after the push and await further instructions.
+- Preserve the user-approved live launch path: only `cmd /c LaunchTerranEasyComputerMatch.bat`.
 
 ## Mandatory Local Standards
 - Read `L:\Sc2_Bot\CodingStandards.md` before making code changes.
@@ -20,34 +20,14 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 
 ## Current Worktree State Before The Next Commit
 Modified:
-- `examples/common/CMakeLists.txt`
-- `examples/common/build_orders/FOpeningPlanStep.cc`
-- `examples/common/build_orders/FOpeningPlanStep.h`
-- `examples/common/build_orders/FOpeningPlanRegistry.cc`
-- `examples/common/planning/FCommandAuthorityProcessor.cc`
-- `examples/common/planning/FCommandAuthoritySchedulingState.cc`
-- `examples/common/planning/FCommandAuthoritySchedulingState.h`
-- `examples/common/planning/FCommandOrderRecord.cc`
-- `examples/common/planning/FCommandOrderRecord.h`
-- `examples/common/planning/FTerranEconomyProductionOrderExpander.cc`
-- `examples/common/services/FBuildPlacementContext.cc`
-- `examples/common/services/FBuildPlacementContext.h`
-- `examples/common/services/FMainBaseLayoutDescriptor.cc`
-- `examples/common/services/FMainBaseLayoutDescriptor.h`
 - `examples/common/services/FTerranBuildPlacementService.cc`
-- `examples/tutorial.cc`
-- `examples/terran/terran.cc`
-- `notes/MainBaseLayoutNotes.md`
-- `src/sc2utils/sc2_manage_process.cc`
-- `tests/test_command_authority_scheduling.cc`
+- `examples/common/services/FTerranMainBaseLayoutRegistry.cc`
 - `tests/test_terran_build_placement_service.cc`
 - `tests/test_terran_economy_production_order_expander.cc`
-- `tests/test_terran_opening_plan_scheduler.cc`
+- `RESUME.md`
 
 Untracked:
 - `.codex/` (do not commit)
-- `examples/common/services/FTerranMainBaseLayoutRegistry.cc`
-- `examples/common/services/FTerranMainBaseLayoutRegistry.h`
 
 ## What Has Already Been Implemented
 
@@ -92,14 +72,24 @@ These offsets are expressed in main-base layout depth/lateral space, not fixed m
 
 ### 3A. Shared Bel'Shir Main Production Rail
 `FTerranMainBaseLayoutRegistry` now provides a curated shared production rail for `Bel'Shir Vestige` keyed by start-location bucket:
-- rail ordinal `0` is the barracks pad at local offset `{8, 0}`
-- rail ordinal `1` is the factory pad at local offset `{12, 8}`
-- rail ordinal `2` is the starport pad at local offset `{16, 16}`
+- rail ordinal `0` is authored from the wall barracks with offset `{8, 10}`
+- rail ordinal `1` is authored from that barracks rail pad with step offset `{4, 8}`
+- rail ordinal `2` is authored from the resolved factory rail pad with the same `{4, 8}` step
 
 Important detail:
 - the registry now authors those early pads as `MainProductionWithAddon` slots instead of separate first barracks, factory, and starport families
 - `FTerranBuildPlacementService` exposes the shared rail before the later family-specific fallback slots
 - later `MainBarracksWithAddon`, `MainFactoryWithAddon`, and `MainStarportWithAddon` slots still exist for capacity after the opening rail
+- the shared rail resolver is now chained instead of rigid:
+  - resolve the factory pivot first
+  - resolve the rail barracks backward from the resolved factory
+  - resolve the rail starport forward from the resolved factory
+  - reject the authored rail entirely if all opening ordinals do not resolve together
+- there is now a second fallback rail path for non-authored cases:
+  - use the first valid main barracks slot as the seed
+  - derive the factory from that barracks using the wall-barracks-to-main-barracks delta
+  - derive the starport from the resolved factory using that same step
+  - remove the source barracks fallback slot once it becomes shared rail ordinal `0`
 
 ### 4. Opening Plan Bindings
 `FOpeningPlanRegistry` currently binds:
@@ -151,36 +141,51 @@ This is necessary to determine whether the runtime actually resolved determinist
 - The scheduler stale wall-child recovery fix is in place and covered by unit tests.
 - The shared `MainProductionWithAddon` rail is now threaded through the main-base layout descriptor, opening-plan metadata, scheduler persistence, economy expansion, and live debug output.
 - The curated Bel'Shir main production rail now builds from the live ramp wall frame instead of the earlier bad absolute coordinates.
-- Focused placement, scheduler, and economy tests pass after the shared-rail change.
+- The production rail now resolves as a chained exact descriptor with the factory as the pivot:
+  - the factory slot resolves first from the authored ramp-back candidate
+  - the barracks rail pad resolves backward from that factory point
+  - the starport rail pad resolves forward from that factory point
+  - the whole rail still publishes only when all required ordinals resolve together
+- There is now a synthesized fallback shared rail for cases where the authored rail still does not resolve:
+  - choose a resolved main barracks fallback slot as the barracks seed
+  - derive factory ordinal `1` from that barracks seed
+  - derive starport ordinal `2` from the resolved factory
+  - keep scheduler behavior exact-slot and non-drifting
+- Focused placement, scheduler, and economy tests pass after the factory-pivot chain change.
 - The stock visible launch path is now frozen again to `cmd /c LaunchTerranEasyComputerMatch.bat`, and a normal visible launch succeeded without any detached or bounded-run workaround.
 
 ### What Is Still Broken
-- Factory and starport still do not build in live play.
-- The live main-base descriptor is only resolving a partial shared production rail instead of all three opening ordinals.
+- Factory and starport still failed to build in the last confirmed live run.
+- Live validation has not yet been rerun after the new synthesized shared-rail fallback was added.
 - The user previously observed gas oversaturation in the main. Gas assignment logic has been updated, but it still needs live validation once launch is healthy.
 
 ### Most Important Current Diagnosis
-The live run exposed the exact failure mode:
-- the main layout printed `ProductionRail 0` and `2`, but ordinal `1` was missing entirely
+The last confirmed live failure exposed the exact production-rail problem:
+- the main layout printed `ProductionRail None` in the most recent observed live debug output before the newest fallback code
+- earlier successful visible launches also showed partial rail states such as ordinals `0` only, or `0` and `2` without ordinal `1`
 - step `9` of the opening is bound to exact slot id `MainProductionWithAddon:1`
-- because that exact slot id does not exist at runtime, the scheduler keeps deferring the factory step as `ReservedSlotInvalidated`
-- the same partial-rail problem then prevents the starport from ever reaching a valid opening slot
+- because that exact slot id did not exist at runtime, the scheduler kept deferring the factory step as `ReservedSlotInvalidated`
+- the same missing-slot condition prevented the starport from ever reaching a valid opening slot
 
 This is the key difference between the successful ramp wall and the failing main production rail:
 - the ramp wall is discovered as one coherent exact descriptor at game start
 - the wall slots only publish when the depot-barracks-depot pattern is resolved as a complete group
-- the current main production rail still resolves authored slots one-by-one, so a partial rail can survive
+- the previous main production rail resolver still allowed the opening line to collapse before all ordinals were available
 
-The most recent code change improved authored-slot snapping and mirrored side selection, but that still is not enough:
-- exact authored pads now do a bounded local snap search instead of disappearing on the first invalid query
-- the authored main layout now evaluates both lateral rail orientations and keeps the stronger one
-- live play still produced only ordinals `0` and `2`, which proves partial per-slot resolution is still the wrong model for opening-critical production
+The current implementation addresses that specific weakness by changing the rail resolver itself:
+- the opening rail no longer resolves as three rigid independently-snapped pads
+- the resolver now uses the authored factory slot as the pivot candidate
+- once the factory resolves, the barracks rail pad resolves backward from the factory and the starport resolves forward from the factory
+- hard-block fallback still uses alternate candidate translations and mirrored orientation
+- soft-block behavior still comes from the scheduler holding exact slot ids and retrying the same slot instead of drifting
+- if the authored rail still does not resolve, the service now attempts a derived rail from the first valid main barracks fallback slot:
+  - the first factory is derived from the first barracks
+  - the first starport is derived from the resolved first factory
+  - this directly matches the user's preferred reference-chain model
 
-The correct next direction is now clear:
-- move main production onto the same exact-group model as the ramp wall
-- resolve candidate main-production layouts as complete descriptors instead of independent slots
-- only publish the opening production rail when all required ordinals `0`, `1`, and `2` resolve together
-- if a candidate group does not fully resolve, reject that whole group and try the alternate candidate instead of leaking a partial rail into runtime
+The immediate next question is now live-only:
+- does the authored or synthesized rail now publish ordinals `0`, `1`, and `2` together on the live map
+- and, if it does, do the factory and starport finally build on that line in a normal visible match
 
 ## Verified Builds And Tests
 The following succeeded before this resume snapshot:
@@ -197,6 +202,22 @@ The following additional focused validations succeeded after the latest mirrored
 - `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranBuildPlacementService' --timeout 120`
 - `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 120`
 - `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 120`
+- `cmd /c Build.bat --target tutorial`
+
+The following focused validations succeeded after the factory-pivot chain change:
+- `cmd /c BuildAllTests.bat`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranBuildPlacementService' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestCommandAuthorityScheduling' --timeout 120`
+- `cmd /c Build.bat --target tutorial`
+
+The following validations also succeeded after the synthesized shared-rail fallback was added:
+- `cmd /c BuildAllTests.bat`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranBuildPlacementService' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestCommandAuthorityScheduling' --timeout 120`
 - `cmd /c Build.bat --target tutorial`
 
 The following live commands were attempted and did not reach gameplay:
@@ -217,6 +238,7 @@ Live observations from the successful visible launches:
 - the most telling runtime states were:
   - first successful visible launch: `ProductionRail 0` only
   - later visible launch after mirrored side selection: `ProductionRail 0` and `2`, but still no ordinal `1`
+- the last confirmed live run before the newest fallback code showed `ProductionRail None`
 - the scheduler repeatedly logged `PlanStep 9 Ability 328 Reason ReservedSlotInvalidated`, confirming the factory step lost its exact slot id at runtime
 
 ## Architectural Direction Agreed With The User
@@ -239,6 +261,11 @@ The production-specific refinement that now looks preferable is:
 - replace the current per-slot shared authored production rail with a grouped exact main-production descriptor
 - let opening steps bind early factory and starport construction to exact authored rail ordinals only after the full opening line resolves together
 - use later authored family-specific or utility slots only where the building truly needs a distinct purpose
+- preserve the user's preferred reference chain for the opening line:
+  - first factory uses the resolved first barracks as its reference
+  - first starport uses the resolved first factory as its reference
+  - hard blocks choose another candidate chain
+  - soft blocks keep the same exact slot id and retry
 
 ## Active Implementation Plan
 
@@ -283,6 +310,12 @@ The production-specific refinement that now looks preferable is:
   - evaluate each candidate orientation as one exact descriptor
   - reject any candidate that does not resolve all required opening ordinals together
   - never publish a partial opening rail into runtime state
+- Resolve the opening production rail as a chained exact group instead of a rigid snapped group:
+  - use the authored factory slot as the candidate pivot
+  - resolve the barracks rail pad backward from the resolved factory point
+  - resolve the starport pad forward from the resolved factory point
+  - keep alternate candidate translations and mirrored orientation for hard-block fallback
+  - keep exact-slot scheduler retries for soft blocks
 
 ### Test Plan
 - Placement tests:

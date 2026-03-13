@@ -181,29 +181,36 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
     const Point2D MainBaseLateralDirectionValue = GetClockwiseLateralDirection(MainBaseDepthDirectionValue);
     const Point2D LayoutAnchorPointValue =
         BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint + (MainBaseDepthDirectionValue * 6.0f);
+    const Point2D WallBarracksBuildPointValue =
+        BuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint;
 
-    static const Point2D BarracksOffsetValue(8.0f, 0.0f);
-    static const Point2D FactoryOffsetValue(12.0f, 8.0f);
-    static const Point2D StarportOffsetValue(16.0f, 16.0f);
+    static const Point2D RailBarracksOffsetFromWallBarracksValue(8.0f, 10.0f);
+    static const Point2D RailStepOffsetValue(4.0f, 8.0f);
+    const Point2D ProductionRailBarracksBuildPointValue =
+        ProjectPlacementOffset(WallBarracksBuildPointValue, MainBaseDepthDirectionValue,
+                               MainBaseLateralDirectionValue, RailBarracksOffsetFromWallBarracksValue);
+    const Point2D ProductionRailFactoryBuildPointValue =
+        ProjectPlacementOffset(ProductionRailBarracksBuildPointValue, MainBaseDepthDirectionValue,
+                               MainBaseLateralDirectionValue, RailStepOffsetValue);
+    const Point2D ProductionRailStarportBuildPointValue =
+        ProjectPlacementOffset(ProductionRailFactoryBuildPointValue, MainBaseDepthDirectionValue,
+                               MainBaseLateralDirectionValue, RailStepOffsetValue);
 
     OutMainBaseLayoutDescriptorValue.LayoutAnchorPoint = LayoutAnchorPointValue;
     OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainProductionWithAddon,
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        ProjectPlacementOffset(LayoutAnchorPointValue, MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
-                               BarracksOffsetValue),
+        ProductionRailBarracksBuildPointValue,
         0U));
     OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainProductionWithAddon,
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        ProjectPlacementOffset(LayoutAnchorPointValue, MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
-                               FactoryOffsetValue),
+        ProductionRailFactoryBuildPointValue,
         1U));
     OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainProductionWithAddon,
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        ProjectPlacementOffset(LayoutAnchorPointValue, MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
-                               StarportOffsetValue),
+        ProductionRailStarportBuildPointValue,
         2U));
     OutMainBaseLayoutDescriptorValue.bIsValid = true;
     return true;
