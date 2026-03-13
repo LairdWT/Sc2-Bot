@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/services/FMainBaseLayoutDescriptor.h"
 #include "common/services/FRampWallDescriptor.h"
 #include "sc2api/sc2_common.h"
 
@@ -18,6 +19,7 @@ public:
     Point2D BaseLocation;
     Point2D NaturalLocation;
     FRampWallDescriptor RampWallDescriptor;
+    FMainBaseLayoutDescriptor MainBaseLayoutDescriptor;
 };
 
 }  // namespace sc2

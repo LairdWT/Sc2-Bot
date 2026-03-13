@@ -8,6 +8,7 @@
 #include "common/descriptors/FObservedRampWallState.h"
 #include "common/descriptors/FMacroStateDescriptor.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
+#include "common/services/FMainBaseLayoutDescriptor.h"
 #include "common/services/FRampWallDescriptor.h"
 #include "common/spatial/FSpatialFieldSet.h"
 
@@ -25,6 +26,7 @@ struct FGameStateDescriptor
     FCommandAuthoritySchedulingState CommandAuthoritySchedulingState;
     FSpatialFieldSet SpatialFields;
     FRampWallDescriptor RampWallDescriptor;
+    FMainBaseLayoutDescriptor MainBaseLayoutDescriptor;
     FObservedRampWallState ObservedRampWallState;
 
     FGameStateDescriptor();

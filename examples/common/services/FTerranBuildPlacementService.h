@@ -12,6 +12,8 @@ class FTerranBuildPlacementService : public IBuildPlacementService
 public:
     FRampWallDescriptor GetRampWallDescriptor(const FFrameContext& FrameValue,
                                               const FBuildPlacementContext& BuildPlacementContextValue) const final;
+    FMainBaseLayoutDescriptor GetMainBaseLayoutDescriptor(
+        const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue) const final;
     Point2D GetPrimaryStructureAnchor(const FGameStateDescriptor& GameStateDescriptorValue,
                                       const FBuildPlacementContext& BuildPlacementContextValue) const final;
     Point2D GetArmyAssemblyPoint(const FGameStateDescriptor& GameStateDescriptorValue,

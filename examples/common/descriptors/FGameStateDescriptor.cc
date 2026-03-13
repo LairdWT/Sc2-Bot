@@ -19,6 +19,7 @@ void FGameStateDescriptor::Reset()
     CommandAuthoritySchedulingState.Reset();
     SpatialFields.Reset();
     RampWallDescriptor.Reset();
+    MainBaseLayoutDescriptor.Reset();
     ObservedRampWallState.Reset();
 }
 

@@ -17,6 +17,14 @@ const char* ToString(const EBuildPlacementSlotType BuildPlacementSlotTypeValue)
             return "MainRampDepotRight";
         case EBuildPlacementSlotType::NaturalApproachDepot:
             return "NaturalApproachDepot";
+        case EBuildPlacementSlotType::MainSupportDepot:
+            return "MainSupportDepot";
+        case EBuildPlacementSlotType::MainBarracksWithAddon:
+            return "MainBarracksWithAddon";
+        case EBuildPlacementSlotType::MainFactoryWithAddon:
+            return "MainFactoryWithAddon";
+        case EBuildPlacementSlotType::MainStarportWithAddon:
+            return "MainStarportWithAddon";
         case EBuildPlacementSlotType::MainProductionWithAddon:
             return "MainProductionWithAddon";
         case EBuildPlacementSlotType::MainSupportStructure:

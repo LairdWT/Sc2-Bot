@@ -16,6 +16,7 @@ void FBuildPlacementContext::Reset()
     BaseLocation = Point2D();
     NaturalLocation = Point2D(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
     RampWallDescriptor.Reset();
+    MainBaseLayoutDescriptor.Reset();
 }
 
 bool FBuildPlacementContext::HasNaturalLocation() const

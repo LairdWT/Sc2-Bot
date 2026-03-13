@@ -17,6 +17,8 @@ public:
 
     virtual FRampWallDescriptor GetRampWallDescriptor(const FFrameContext& FrameValue,
                                                       const FBuildPlacementContext& BuildPlacementContextValue) const = 0;
+    virtual FMainBaseLayoutDescriptor GetMainBaseLayoutDescriptor(
+        const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue) const = 0;
     virtual Point2D GetPrimaryStructureAnchor(const FGameStateDescriptor& GameStateDescriptorValue,
                                               const FBuildPlacementContext& BuildPlacementContextValue) const = 0;
     virtual Point2D GetArmyAssemblyPoint(const FGameStateDescriptor& GameStateDescriptorValue,

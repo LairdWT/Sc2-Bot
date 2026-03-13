@@ -6,6 +6,7 @@
 #include <limits>
 
 #include "common/terran_models.h"
+#include "sc2api/sc2_unit_filters.h"
 
 namespace sc2
 {
@@ -17,6 +18,18 @@ struct FPlacementOffsetDescriptor
     float LateralOffset;
     float ForwardOffset;
 };
+
+struct FResolvedLayoutPlacementSlot
+{
+    FBuildPlacementSlot BuildPlacementSlot;
+    ABILITY_ID StructureAbilityId;
+};
+
+bool DoesStructureAbilityRequireAddonClearance(const ABILITY_ID StructureAbilityIdValue);
+Point2D GetAddonFootprintCenter(const Point2D& StructureBuildPointValue);
+bool IsPlacementCandidateValid(const FFrameContext& FrameValue, const ABILITY_ID StructureAbilityIdValue,
+                               const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
+                               const Point2D& CandidatePointValue);
 
 Point2D GetNormalizedDirection(const Point2D& DirectionValue)
 {
@@ -45,6 +58,11 @@ Point2D GetForwardDirection(const FBuildPlacementContext& BuildPlacementContextV
 Point2D GetLateralDirection(const Point2D& ForwardDirectionValue)
 {
     return Point2D(-ForwardDirectionValue.y, ForwardDirectionValue.x);
+}
+
+Point2D GetClockwiseLateralDirection(const Point2D& ForwardDirectionValue)
+{
+    return Point2D(ForwardDirectionValue.y, -ForwardDirectionValue.x);
 }
 
 Point2D ProjectOffsetToWorld(const Point2D& AnchorValue, const Point2D& ForwardDirectionValue,
@@ -105,6 +123,562 @@ void AppendPlacementSlots(const Point2D& AnchorValue, const Point2D& ForwardDire
         OutPlacementSlotsValue.push_back(CreatePlacementSlot(BuildPlacementSlotTypeValue,
                                                              BuildPlacementFootprintPolicyValue, BuildPointValue,
                                                              SlotOrdinalValue));
+    }
+}
+
+Point2D GetStructureFootprintHalfExtentsForAbility(const ABILITY_ID StructureAbilityIdValue)
+{
+    switch (StructureAbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_SUPPLYDEPOT:
+            return Point2D(1.0f, 1.0f);
+        case ABILITY_ID::BUILD_COMMANDCENTER:
+            return Point2D(2.5f, 2.5f);
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+        case ABILITY_ID::BUILD_REFINERY:
+        default:
+            return Point2D(1.5f, 1.5f);
+    }
+}
+
+bool DoAxisAlignedFootprintsOverlap(const Point2D& CenterPointOneValue, const Point2D& HalfExtentsOneValue,
+                                    const Point2D& CenterPointTwoValue, const Point2D& HalfExtentsTwoValue)
+{
+    constexpr float FootprintTouchToleranceValue = 0.05f;
+    return std::fabs(CenterPointOneValue.x - CenterPointTwoValue.x) <
+               ((HalfExtentsOneValue.x + HalfExtentsTwoValue.x) - FootprintTouchToleranceValue) &&
+           std::fabs(CenterPointOneValue.y - CenterPointTwoValue.y) <
+               ((HalfExtentsOneValue.y + HalfExtentsTwoValue.y) - FootprintTouchToleranceValue);
+}
+
+bool IsPointOnMainBaseSideOfWall(const FRampWallDescriptor& RampWallDescriptorValue, const Point2D& CandidatePointValue)
+{
+    if (!RampWallDescriptorValue.bIsValid)
+    {
+        return true;
+    }
+
+    const Point2D InsideDirectionValue =
+        GetNormalizedDirection(RampWallDescriptorValue.InsideStagingPoint - RampWallDescriptorValue.WallCenterPoint);
+    return Dot2D(CandidatePointValue - RampWallDescriptorValue.WallCenterPoint, InsideDirectionValue) >= 1.0f;
+}
+
+bool DoesCandidateRespectBaseClearance(const FBuildPlacementContext& BuildPlacementContextValue,
+                                       const ABILITY_ID StructureAbilityIdValue,
+                                       const Point2D& CandidatePointValue)
+{
+    switch (StructureAbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+        {
+            constexpr float MinimumBaseClearanceDistanceSquaredValue = 36.0f;
+            return DistanceSquared2D(BuildPlacementContextValue.BaseLocation, CandidatePointValue) >=
+                   MinimumBaseClearanceDistanceSquaredValue;
+        }
+        default:
+            return true;
+    }
+}
+
+bool IsProductionLayoutStructureAbility(const ABILITY_ID StructureAbilityIdValue)
+{
+    switch (StructureAbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsNeutralMainBaseResourceUnit(const FBuildPlacementContext& BuildPlacementContextValue,
+                                   const Unit& NeutralUnitValue)
+{
+    static const IsMineralPatch MineralPatchFilterValue;
+    static const IsGeyser GeyserFilterValue;
+
+    if (!MineralPatchFilterValue(NeutralUnitValue) && !GeyserFilterValue(NeutralUnitValue))
+    {
+        return false;
+    }
+
+    constexpr float MaximumMainBaseResourceDistanceSquaredValue = 196.0f;
+    const Point2D ResourcePointValue(NeutralUnitValue.pos);
+    const float DistanceToBaseSquaredValue =
+        DistanceSquared2D(BuildPlacementContextValue.BaseLocation, ResourcePointValue);
+    if (DistanceToBaseSquaredValue > MaximumMainBaseResourceDistanceSquaredValue)
+    {
+        return false;
+    }
+
+    if (!BuildPlacementContextValue.HasNaturalLocation())
+    {
+        return true;
+    }
+
+    const float DistanceToNaturalSquaredValue =
+        DistanceSquared2D(BuildPlacementContextValue.NaturalLocation, ResourcePointValue);
+    return DistanceToBaseSquaredValue < DistanceToNaturalSquaredValue;
+}
+
+bool TryGetMainBaseMineralCentroid(const FFrameContext& FrameValue,
+                                   const FBuildPlacementContext& BuildPlacementContextValue,
+                                   Point2D& OutMineralCentroidValue)
+{
+    if (FrameValue.Observation == nullptr)
+    {
+        return false;
+    }
+
+    static const IsMineralPatch MineralPatchFilterValue;
+    float SumXValue = 0.0f;
+    float SumYValue = 0.0f;
+    uint32_t MineralCountValue = 0U;
+
+    const Units NeutralUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Neutral);
+    for (const Unit* NeutralUnitValue : NeutralUnitsValue)
+    {
+        if (NeutralUnitValue == nullptr || !MineralPatchFilterValue(*NeutralUnitValue) ||
+            !IsNeutralMainBaseResourceUnit(BuildPlacementContextValue, *NeutralUnitValue))
+        {
+            continue;
+        }
+
+        SumXValue += NeutralUnitValue->pos.x;
+        SumYValue += NeutralUnitValue->pos.y;
+        ++MineralCountValue;
+    }
+
+    if (MineralCountValue == 0U)
+    {
+        return false;
+    }
+
+    OutMineralCentroidValue = Point2D(SumXValue / static_cast<float>(MineralCountValue),
+                                      SumYValue / static_cast<float>(MineralCountValue));
+    return true;
+}
+
+Point2D GetMainBaseDepthDirection(const FBuildPlacementContext& BuildPlacementContextValue)
+{
+    if (BuildPlacementContextValue.RampWallDescriptor.bIsValid)
+    {
+        return GetNormalizedDirection(BuildPlacementContextValue.RampWallDescriptor.InsideStagingPoint -
+                                      BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint);
+    }
+
+    return GetNormalizedDirection(BuildPlacementContextValue.BaseLocation -
+                                  (BuildPlacementContextValue.HasNaturalLocation()
+                                       ? BuildPlacementContextValue.NaturalLocation
+                                       : BuildPlacementContextValue.BaseLocation + Point2D(1.0f, 0.0f)));
+}
+
+Point2D GetMainBaseLateralDirection(const FFrameContext& FrameValue,
+                                    const FBuildPlacementContext& BuildPlacementContextValue,
+                                    const Point2D& MainBaseDepthDirectionValue)
+{
+    Point2D LateralDirectionValue = GetClockwiseLateralDirection(MainBaseDepthDirectionValue);
+
+    Point2D MainBaseMineralCentroidValue;
+    if (!TryGetMainBaseMineralCentroid(FrameValue, BuildPlacementContextValue, MainBaseMineralCentroidValue))
+    {
+        return LateralDirectionValue;
+    }
+
+    const float MineralLateralAlignmentValue =
+        Dot2D(MainBaseMineralCentroidValue - BuildPlacementContextValue.BaseLocation, LateralDirectionValue);
+    if (MineralLateralAlignmentValue <= 0.0f)
+    {
+        return LateralDirectionValue;
+    }
+
+    return Point2D(-LateralDirectionValue.x, -LateralDirectionValue.y);
+}
+
+bool DoesCandidateRespectResourceClearance(const FFrameContext& FrameValue,
+                                           const FBuildPlacementContext& BuildPlacementContextValue,
+                                           const ABILITY_ID StructureAbilityIdValue,
+                                           const Point2D& CandidatePointValue)
+{
+    if (FrameValue.Observation == nullptr || !IsProductionLayoutStructureAbility(StructureAbilityIdValue))
+    {
+        return true;
+    }
+
+    constexpr float MinimumStructureResourceClearanceDistanceSquaredValue = 25.0f;
+    constexpr float MinimumAddonResourceClearanceDistanceSquaredValue = 20.25f;
+    const bool RequiresAddonClearanceValue = DoesStructureAbilityRequireAddonClearance(StructureAbilityIdValue);
+    const Point2D AddonFootprintCenterValue = RequiresAddonClearanceValue
+                                                  ? GetAddonFootprintCenter(CandidatePointValue)
+                                                  : Point2D();
+
+    const Units NeutralUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Neutral);
+    for (const Unit* NeutralUnitValue : NeutralUnitsValue)
+    {
+        if (NeutralUnitValue == nullptr ||
+            !IsNeutralMainBaseResourceUnit(BuildPlacementContextValue, *NeutralUnitValue))
+        {
+            continue;
+        }
+
+        const Point2D ResourcePointValue(NeutralUnitValue->pos);
+        if (DistanceSquared2D(CandidatePointValue, ResourcePointValue) <
+            MinimumStructureResourceClearanceDistanceSquaredValue)
+        {
+            return false;
+        }
+
+        if (RequiresAddonClearanceValue &&
+            DistanceSquared2D(AddonFootprintCenterValue, ResourcePointValue) <
+                MinimumAddonResourceClearanceDistanceSquaredValue)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool DoesCandidateRespectMainBaseClearance(const FFrameContext& FrameValue,
+                                           const FBuildPlacementContext& BuildPlacementContextValue,
+                                           const ABILITY_ID StructureAbilityIdValue,
+                                           const Point2D& CandidatePointValue)
+{
+    return DoesCandidateRespectBaseClearance(BuildPlacementContextValue, StructureAbilityIdValue,
+                                             CandidatePointValue) &&
+           DoesCandidateRespectResourceClearance(FrameValue, BuildPlacementContextValue,
+                                                StructureAbilityIdValue, CandidatePointValue);
+}
+
+bool DoesCandidateAddonFootprintOverlapSlot(const Point2D& CandidateBuildPointValue,
+                                            const FResolvedLayoutPlacementSlot& ResolvedLayoutPlacementSlotValue)
+{
+    const Point2D CandidateAddonCenterValue = GetAddonFootprintCenter(CandidateBuildPointValue);
+    const Point2D ExistingAddonCenterValue =
+        GetAddonFootprintCenter(ResolvedLayoutPlacementSlotValue.BuildPlacementSlot.BuildPoint);
+    const Point2D AddonHalfExtentsValue(1.0f, 1.0f);
+    const Point2D ExistingStructureHalfExtentsValue =
+        GetStructureFootprintHalfExtentsForAbility(ResolvedLayoutPlacementSlotValue.StructureAbilityId);
+
+    return DoAxisAlignedFootprintsOverlap(CandidateAddonCenterValue, AddonHalfExtentsValue,
+                                          ResolvedLayoutPlacementSlotValue.BuildPlacementSlot.BuildPoint,
+                                          ExistingStructureHalfExtentsValue) ||
+           DoAxisAlignedFootprintsOverlap(CandidateAddonCenterValue, AddonHalfExtentsValue,
+                                          ExistingAddonCenterValue, AddonHalfExtentsValue);
+}
+
+bool DoesCandidatePlacementSlotConflictWithResolvedLayout(
+    const FBuildPlacementSlot& CandidateBuildPlacementSlotValue, const ABILITY_ID StructureAbilityIdValue,
+    const std::vector<FResolvedLayoutPlacementSlot>& ResolvedLayoutPlacementSlotsValue)
+{
+    const Point2D CandidateStructureHalfExtentsValue =
+        GetStructureFootprintHalfExtentsForAbility(StructureAbilityIdValue);
+    const bool RequiresAddonClearanceValue = DoesStructureAbilityRequireAddonClearance(StructureAbilityIdValue);
+
+    for (const FResolvedLayoutPlacementSlot& ResolvedLayoutPlacementSlotValue : ResolvedLayoutPlacementSlotsValue)
+    {
+        const Point2D ExistingStructureHalfExtentsValue =
+            GetStructureFootprintHalfExtentsForAbility(ResolvedLayoutPlacementSlotValue.StructureAbilityId);
+        if (DoAxisAlignedFootprintsOverlap(CandidateBuildPlacementSlotValue.BuildPoint, CandidateStructureHalfExtentsValue,
+                                           ResolvedLayoutPlacementSlotValue.BuildPlacementSlot.BuildPoint,
+                                           ExistingStructureHalfExtentsValue))
+        {
+            return true;
+        }
+
+        if (!RequiresAddonClearanceValue)
+        {
+            continue;
+        }
+
+        if (DoesCandidateAddonFootprintOverlapSlot(CandidateBuildPlacementSlotValue.BuildPoint,
+                                                   ResolvedLayoutPlacementSlotValue))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+const std::array<Point2DI, 25>& GetTemplateSearchOffsets()
+{
+    static const std::array<Point2DI, 25> TemplateSearchOffsetsValue =
+    {{
+        Point2DI(0, 0),
+        Point2DI(0, 1),
+        Point2DI(0, -1),
+        Point2DI(1, 0),
+        Point2DI(-1, 0),
+        Point2DI(1, 1),
+        Point2DI(1, -1),
+        Point2DI(-1, 1),
+        Point2DI(-1, -1),
+        Point2DI(0, 2),
+        Point2DI(0, -2),
+        Point2DI(2, 0),
+        Point2DI(-2, 0),
+        Point2DI(2, 1),
+        Point2DI(2, -1),
+        Point2DI(-2, 1),
+        Point2DI(-2, -1),
+        Point2DI(1, 2),
+        Point2DI(1, -2),
+        Point2DI(-1, 2),
+        Point2DI(-1, -2),
+        Point2DI(2, 2),
+        Point2DI(2, -2),
+        Point2DI(-2, 2),
+        Point2DI(-2, -2),
+    }};
+
+    return TemplateSearchOffsetsValue;
+}
+
+const std::vector<Point2DI>& GetLayoutAnchorSearchOffsets()
+{
+    static const std::vector<Point2DI> LayoutAnchorSearchOffsetsValue =
+        []()
+        {
+            std::vector<Point2DI> SearchOffsetsValue;
+            constexpr int MaximumSearchRadiusValue = 12;
+            SearchOffsetsValue.reserve(static_cast<size_t>(((MaximumSearchRadiusValue * 2) + 1) *
+                                                           ((MaximumSearchRadiusValue * 2) + 1)));
+            SearchOffsetsValue.push_back(Point2DI(0, 0));
+
+            for (int SearchRadiusValue = 1; SearchRadiusValue <= MaximumSearchRadiusValue; ++SearchRadiusValue)
+            {
+                for (int YOffsetValue = -SearchRadiusValue; YOffsetValue <= SearchRadiusValue; ++YOffsetValue)
+                {
+                    for (int XOffsetValue = -SearchRadiusValue; XOffsetValue <= SearchRadiusValue; ++XOffsetValue)
+                    {
+                        if (std::max(std::abs(XOffsetValue), std::abs(YOffsetValue)) != SearchRadiusValue)
+                        {
+                            continue;
+                        }
+
+                        SearchOffsetsValue.push_back(Point2DI(XOffsetValue, YOffsetValue));
+                    }
+                }
+            }
+
+            return SearchOffsetsValue;
+        }();
+
+    return LayoutAnchorSearchOffsetsValue;
+}
+
+Point2D GetMainBaseLayoutAnchorPoint(const FBuildPlacementContext& BuildPlacementContextValue,
+                                     const Point2D& MainBaseDepthDirectionValue)
+{
+    if (BuildPlacementContextValue.RampWallDescriptor.bIsValid)
+    {
+        return BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint +
+               (MainBaseDepthDirectionValue * 6.0f);
+    }
+
+    const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
+    return BuildPlacementContextValue.BaseLocation + (ForwardDirectionValue * 6.0f) +
+           (MainBaseDepthDirectionValue * 2.0f);
+}
+
+bool TryResolveExactPlacementSlot(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const FBuildPlacementSlot& TemplateBuildPlacementSlotValue, const ABILITY_ID StructureAbilityIdValue,
+    const std::vector<FResolvedLayoutPlacementSlot>& ResolvedLayoutPlacementSlotsValue,
+    FBuildPlacementSlot& OutResolvedBuildPlacementSlotValue)
+{
+    const Point2D CandidatePointValue =
+        FrameValue.GameInfo != nullptr
+            ? ClampToPlayable(*FrameValue.GameInfo, TemplateBuildPlacementSlotValue.BuildPoint)
+            : TemplateBuildPlacementSlotValue.BuildPoint;
+    if (!IsPointOnMainBaseSideOfWall(BuildPlacementContextValue.RampWallDescriptor, CandidatePointValue) ||
+        !DoesCandidateRespectMainBaseClearance(FrameValue, BuildPlacementContextValue, StructureAbilityIdValue,
+                                               CandidatePointValue))
+    {
+        return false;
+    }
+
+    FBuildPlacementSlot CandidateBuildPlacementSlotValue = TemplateBuildPlacementSlotValue;
+    CandidateBuildPlacementSlotValue.BuildPoint = CandidatePointValue;
+
+    if (FrameValue.GameInfo != nullptr &&
+        !IsPlacementCandidateValid(FrameValue, StructureAbilityIdValue,
+                                   CandidateBuildPlacementSlotValue.FootprintPolicy, CandidatePointValue))
+    {
+        return false;
+    }
+
+    if (DoesCandidatePlacementSlotConflictWithResolvedLayout(CandidateBuildPlacementSlotValue,
+                                                             StructureAbilityIdValue,
+                                                             ResolvedLayoutPlacementSlotsValue))
+    {
+        return false;
+    }
+
+    OutResolvedBuildPlacementSlotValue = CandidateBuildPlacementSlotValue;
+    return true;
+}
+
+bool TryResolveTemplatePlacementSlot(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const FBuildPlacementSlot& TemplateBuildPlacementSlotValue, const ABILITY_ID StructureAbilityIdValue,
+    const std::vector<FResolvedLayoutPlacementSlot>& ResolvedLayoutPlacementSlotsValue,
+    const bool AllowTemplateSearchValue, FBuildPlacementSlot& OutResolvedBuildPlacementSlotValue)
+{
+    if (TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue, TemplateBuildPlacementSlotValue,
+                                     StructureAbilityIdValue, ResolvedLayoutPlacementSlotsValue,
+                                     OutResolvedBuildPlacementSlotValue))
+    {
+        return true;
+    }
+
+    if (!AllowTemplateSearchValue || FrameValue.GameInfo == nullptr)
+    {
+        return false;
+    }
+
+    const std::array<Point2DI, 25>& SearchOffsetsValue = GetTemplateSearchOffsets();
+    for (size_t SearchOffsetIndexValue = 1U; SearchOffsetIndexValue < SearchOffsetsValue.size();
+         ++SearchOffsetIndexValue)
+    {
+        const Point2DI& SearchOffsetValue = SearchOffsetsValue[SearchOffsetIndexValue];
+        FBuildPlacementSlot CandidateBuildPlacementSlotValue = TemplateBuildPlacementSlotValue;
+        CandidateBuildPlacementSlotValue.BuildPoint =
+            Point2D(TemplateBuildPlacementSlotValue.BuildPoint.x + static_cast<float>(SearchOffsetValue.x),
+                    TemplateBuildPlacementSlotValue.BuildPoint.y + static_cast<float>(SearchOffsetValue.y));
+        if (TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue, CandidateBuildPlacementSlotValue,
+                                         StructureAbilityIdValue, ResolvedLayoutPlacementSlotsValue,
+                                         OutResolvedBuildPlacementSlotValue))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TryResolveProductionLayoutAnchorPoint(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const Point2D& RequestedLayoutAnchorPointValue, const Point2D& MainBaseDepthDirectionValue,
+    const Point2D& MainBaseLateralDirectionValue,
+    const std::vector<FResolvedLayoutPlacementSlot>& SeedResolvedLayoutPlacementSlotsValue,
+    Point2D& OutResolvedLayoutAnchorPointValue)
+{
+    if (FrameValue.GameInfo == nullptr)
+    {
+        OutResolvedLayoutAnchorPointValue = RequestedLayoutAnchorPointValue;
+        return true;
+    }
+
+    const std::vector<Point2DI>& SearchOffsetsValue = GetLayoutAnchorSearchOffsets();
+    for (const Point2DI& SearchOffsetValue : SearchOffsetsValue)
+    {
+        const Point2D CandidateLayoutAnchorPointValue(
+            RequestedLayoutAnchorPointValue.x + static_cast<float>(SearchOffsetValue.x),
+            RequestedLayoutAnchorPointValue.y + static_cast<float>(SearchOffsetValue.y));
+        std::vector<FResolvedLayoutPlacementSlot> CandidateResolvedLayoutPlacementSlotsValue =
+            SeedResolvedLayoutPlacementSlotsValue;
+
+        const FBuildPlacementSlot MainBarracksPlacementSlotValue = CreatePlacementSlot(
+            EBuildPlacementSlotType::MainBarracksWithAddon,
+            EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+            ProjectOffsetToWorld(CandidateLayoutAnchorPointValue, MainBaseDepthDirectionValue,
+                                 MainBaseLateralDirectionValue, {8.0f, 0.0f}),
+            0U);
+        FBuildPlacementSlot ResolvedMainBarracksPlacementSlotValue;
+        if (!TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue, MainBarracksPlacementSlotValue,
+                                          ABILITY_ID::BUILD_BARRACKS,
+                                          CandidateResolvedLayoutPlacementSlotsValue,
+                                          ResolvedMainBarracksPlacementSlotValue))
+        {
+            continue;
+        }
+
+        CandidateResolvedLayoutPlacementSlotsValue.push_back(
+            {ResolvedMainBarracksPlacementSlotValue, ABILITY_ID::BUILD_BARRACKS});
+
+        const FBuildPlacementSlot MainFactoryPlacementSlotValue = CreatePlacementSlot(
+            EBuildPlacementSlotType::MainFactoryWithAddon,
+            EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+            ProjectOffsetToWorld(CandidateLayoutAnchorPointValue, MainBaseDepthDirectionValue,
+                                 MainBaseLateralDirectionValue, {4.0f, 8.0f}),
+            0U);
+        FBuildPlacementSlot ResolvedMainFactoryPlacementSlotValue;
+        if (!TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue, MainFactoryPlacementSlotValue,
+                                          ABILITY_ID::BUILD_FACTORY,
+                                          CandidateResolvedLayoutPlacementSlotsValue,
+                                          ResolvedMainFactoryPlacementSlotValue))
+        {
+            continue;
+        }
+
+        CandidateResolvedLayoutPlacementSlotsValue.push_back(
+            {ResolvedMainFactoryPlacementSlotValue, ABILITY_ID::BUILD_FACTORY});
+
+        const FBuildPlacementSlot MainStarportPlacementSlotValue = CreatePlacementSlot(
+            EBuildPlacementSlotType::MainStarportWithAddon,
+            EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+            ProjectOffsetToWorld(CandidateLayoutAnchorPointValue, MainBaseDepthDirectionValue,
+                                 MainBaseLateralDirectionValue, {0.0f, 16.0f}),
+            0U);
+        FBuildPlacementSlot ResolvedMainStarportPlacementSlotValue;
+        if (!TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue, MainStarportPlacementSlotValue,
+                                          ABILITY_ID::BUILD_STARPORT,
+                                          CandidateResolvedLayoutPlacementSlotsValue,
+                                          ResolvedMainStarportPlacementSlotValue))
+        {
+            continue;
+        }
+
+        OutResolvedLayoutAnchorPointValue = CandidateLayoutAnchorPointValue;
+        return true;
+    }
+
+    return false;
+}
+
+void AppendTemplateSlotsToLayoutDescriptor(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const Point2D& LayoutAnchorPointValue, const Point2D& MainBaseDepthDirectionValue,
+    const Point2D& MainBaseLateralDirectionValue,
+    const std::vector<FPlacementOffsetDescriptor>& PlacementOffsetsValue,
+    const bool AllowTemplateSearchValue,
+    const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
+    const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
+    const ABILITY_ID StructureAbilityIdValue, std::vector<FBuildPlacementSlot>& OutPlacementSlotsValue,
+    std::vector<FResolvedLayoutPlacementSlot>& OutResolvedLayoutPlacementSlotsValue)
+{
+    for (const FPlacementOffsetDescriptor& PlacementOffsetValue : PlacementOffsetsValue)
+    {
+        const uint8_t SlotOrdinalValue = static_cast<uint8_t>(OutPlacementSlotsValue.size());
+        const FBuildPlacementSlot TemplateBuildPlacementSlotValue = CreatePlacementSlot(
+            BuildPlacementSlotTypeValue, BuildPlacementFootprintPolicyValue,
+            ProjectOffsetToWorld(LayoutAnchorPointValue, MainBaseDepthDirectionValue,
+                                 MainBaseLateralDirectionValue, PlacementOffsetValue),
+            SlotOrdinalValue);
+
+        FBuildPlacementSlot ResolvedBuildPlacementSlotValue;
+        if (!TryResolveTemplatePlacementSlot(FrameValue, BuildPlacementContextValue,
+                                             TemplateBuildPlacementSlotValue, StructureAbilityIdValue,
+                                             OutResolvedLayoutPlacementSlotsValue,
+                                             AllowTemplateSearchValue, ResolvedBuildPlacementSlotValue))
+        {
+            continue;
+        }
+
+        OutPlacementSlotsValue.push_back(ResolvedBuildPlacementSlotValue);
+
+        FResolvedLayoutPlacementSlot ResolvedLayoutPlacementSlotValue;
+        ResolvedLayoutPlacementSlotValue.BuildPlacementSlot = ResolvedBuildPlacementSlotValue;
+        ResolvedLayoutPlacementSlotValue.StructureAbilityId = StructureAbilityIdValue;
+        OutResolvedLayoutPlacementSlotsValue.push_back(ResolvedLayoutPlacementSlotValue);
     }
 }
 
@@ -825,6 +1399,164 @@ FRampWallDescriptor FTerranBuildPlacementService::GetRampWallDescriptor(
     return CreateDiscoveredRampWallDescriptor(FrameValue, BuildPlacementContextValue);
 }
 
+FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescriptor(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue) const
+{
+    FMainBaseLayoutDescriptor MainBaseLayoutDescriptorValue;
+    const Point2D MainBaseDepthDirectionValue = GetMainBaseDepthDirection(BuildPlacementContextValue);
+    Point2D MainBaseLateralDirectionValue =
+        GetMainBaseLateralDirection(FrameValue, BuildPlacementContextValue, MainBaseDepthDirectionValue);
+    const Point2D RequestedLayoutAnchorPointValue =
+        GetMainBaseLayoutAnchorPoint(BuildPlacementContextValue, MainBaseDepthDirectionValue);
+
+    const std::vector<FPlacementOffsetDescriptor> NaturalApproachDepotOffsetValues =
+    {
+        {12.0f, -4.0f},
+        {-12.0f, -4.0f},
+    };
+    const std::vector<FPlacementOffsetDescriptor> SupportDepotOffsetValues =
+    {
+        {20.0f, 0.0f},
+        {-20.0f, 0.0f},
+        {24.0f, 8.0f},
+        {-24.0f, 8.0f},
+        {18.0f, 16.0f},
+        {-18.0f, 16.0f},
+    };
+    const std::vector<FPlacementOffsetDescriptor> BarracksOffsetValues =
+    {
+        {8.0f, 0.0f},
+        {-8.0f, 0.0f},
+        {12.0f, 8.0f},
+        {-12.0f, 8.0f},
+    };
+    const std::vector<FPlacementOffsetDescriptor> FactoryOffsetValues =
+    {
+        {4.0f, 8.0f},
+        {-4.0f, 8.0f},
+        {8.0f, 16.0f},
+        {-8.0f, 16.0f},
+    };
+    const std::vector<FPlacementOffsetDescriptor> StarportOffsetValues =
+    {
+        {0.0f, 16.0f},
+        {12.0f, 16.0f},
+        {4.0f, 24.0f},
+        {-4.0f, 24.0f},
+    };
+
+    std::vector<FResolvedLayoutPlacementSlot> ResolvedLayoutPlacementSlotsValue;
+    if (BuildPlacementContextValue.RampWallDescriptor.bIsValid)
+    {
+        FResolvedLayoutPlacementSlot LeftWallPlacementSlotValue;
+        LeftWallPlacementSlotValue.BuildPlacementSlot = BuildPlacementContextValue.RampWallDescriptor.LeftDepotSlot;
+        LeftWallPlacementSlotValue.StructureAbilityId = ABILITY_ID::BUILD_SUPPLYDEPOT;
+        ResolvedLayoutPlacementSlotsValue.push_back(LeftWallPlacementSlotValue);
+
+        FResolvedLayoutPlacementSlot BarracksWallPlacementSlotValue;
+        BarracksWallPlacementSlotValue.BuildPlacementSlot = BuildPlacementContextValue.RampWallDescriptor.BarracksSlot;
+        BarracksWallPlacementSlotValue.StructureAbilityId = ABILITY_ID::BUILD_BARRACKS;
+        ResolvedLayoutPlacementSlotsValue.push_back(BarracksWallPlacementSlotValue);
+
+        FResolvedLayoutPlacementSlot RightWallPlacementSlotValue;
+        RightWallPlacementSlotValue.BuildPlacementSlot = BuildPlacementContextValue.RampWallDescriptor.RightDepotSlot;
+        RightWallPlacementSlotValue.StructureAbilityId = ABILITY_ID::BUILD_SUPPLYDEPOT;
+        ResolvedLayoutPlacementSlotsValue.push_back(RightWallPlacementSlotValue);
+    }
+
+    MainBaseLayoutDescriptorValue.LayoutAnchorPoint = RequestedLayoutAnchorPointValue;
+    Point2D ResolvedLayoutAnchorPointValue = RequestedLayoutAnchorPointValue;
+    bool HasResolvedProductionLayoutAnchorValue = TryResolveProductionLayoutAnchorPoint(
+        FrameValue, BuildPlacementContextValue, RequestedLayoutAnchorPointValue, MainBaseDepthDirectionValue,
+        MainBaseLateralDirectionValue, ResolvedLayoutPlacementSlotsValue, ResolvedLayoutAnchorPointValue);
+    if (!HasResolvedProductionLayoutAnchorValue)
+    {
+        const Point2D AlternateMainBaseLateralDirectionValue(-MainBaseLateralDirectionValue.x,
+                                                             -MainBaseLateralDirectionValue.y);
+        if (TryResolveProductionLayoutAnchorPoint(FrameValue, BuildPlacementContextValue,
+                                                  RequestedLayoutAnchorPointValue,
+                                                  MainBaseDepthDirectionValue,
+                                                  AlternateMainBaseLateralDirectionValue,
+                                                  ResolvedLayoutPlacementSlotsValue,
+                                                  ResolvedLayoutAnchorPointValue))
+        {
+            MainBaseLateralDirectionValue = AlternateMainBaseLateralDirectionValue;
+            HasResolvedProductionLayoutAnchorValue = true;
+        }
+    }
+
+    if (HasResolvedProductionLayoutAnchorValue)
+    {
+        MainBaseLayoutDescriptorValue.LayoutAnchorPoint = ResolvedLayoutAnchorPointValue;
+    }
+
+    const bool AllowProductionTemplateSearchValue = !HasResolvedProductionLayoutAnchorValue;
+
+    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                          MainBaseDepthDirectionValue,
+                                          MainBaseLateralDirectionValue,
+                                          NaturalApproachDepotOffsetValues,
+                                          true,
+                                          EBuildPlacementSlotType::NaturalApproachDepot,
+                                          EBuildPlacementFootprintPolicy::StructureOnly,
+                                          ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                          MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                          ResolvedLayoutPlacementSlotsValue);
+    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                          MainBaseDepthDirectionValue,
+                                          MainBaseLateralDirectionValue,
+                                          SupportDepotOffsetValues,
+                                          true,
+                                          EBuildPlacementSlotType::MainSupportDepot,
+                                          EBuildPlacementFootprintPolicy::StructureOnly,
+                                          ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                          MainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                          ResolvedLayoutPlacementSlotsValue);
+    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                          MainBaseDepthDirectionValue,
+                                          MainBaseLateralDirectionValue,
+                                          BarracksOffsetValues,
+                                          AllowProductionTemplateSearchValue,
+                                          EBuildPlacementSlotType::MainBarracksWithAddon,
+                                          EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+                                          ABILITY_ID::BUILD_BARRACKS,
+                                          MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                                          ResolvedLayoutPlacementSlotsValue);
+    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                          MainBaseDepthDirectionValue,
+                                          MainBaseLateralDirectionValue,
+                                          FactoryOffsetValues,
+                                          AllowProductionTemplateSearchValue,
+                                          EBuildPlacementSlotType::MainFactoryWithAddon,
+                                          EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+                                          ABILITY_ID::BUILD_FACTORY,
+                                          MainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                                          ResolvedLayoutPlacementSlotsValue);
+    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                          MainBaseDepthDirectionValue,
+                                          MainBaseLateralDirectionValue,
+                                          StarportOffsetValues,
+                                          AllowProductionTemplateSearchValue,
+                                          EBuildPlacementSlotType::MainStarportWithAddon,
+                                          EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+                                          ABILITY_ID::BUILD_STARPORT,
+                                          MainBaseLayoutDescriptorValue.StarportWithAddonSlots,
+                                          ResolvedLayoutPlacementSlotsValue);
+
+    MainBaseLayoutDescriptorValue.bIsValid =
+        !MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty() ||
+        !MainBaseLayoutDescriptorValue.SupportDepotSlots.empty() ||
+        !MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() ||
+        !MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.empty() ||
+        !MainBaseLayoutDescriptorValue.StarportWithAddonSlots.empty();
+    return MainBaseLayoutDescriptorValue;
+}
+
 Point2D FTerranBuildPlacementService::GetPrimaryStructureAnchor(
     const FGameStateDescriptor& GameStateDescriptorValue, const FBuildPlacementContext& BuildPlacementContextValue) const
 {
@@ -857,38 +1589,13 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
     const FBuildPlacementContext& BuildPlacementContextValue) const
 {
     const Point2D PrimaryAnchorValue = GetPrimaryStructureAnchor(GameStateDescriptorValue, BuildPlacementContextValue);
-    const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
-    const Point2D LateralDirectionValue = GetLateralDirection(ForwardDirectionValue);
-
-    static const std::array<FPlacementOffsetDescriptor, 2> NaturalApproachDepotOffsetValues =
-    {{
-        {6.0f, 6.0f},
-        {-6.0f, 6.0f},
-    }};
-
-    static const std::array<FPlacementOffsetDescriptor, 6> SupportDepotOffsetValues =
-    {{
-        {8.0f, 12.0f},
-        {-8.0f, 12.0f},
-        {8.0f, 20.0f},
-        {-8.0f, 20.0f},
-        {14.0f, 16.0f},
-        {-14.0f, 16.0f},
-    }};
-
-    static const std::array<FPlacementOffsetDescriptor, 6> ProductionWithAddonOffsetValues =
-    {{
-        {8.0f, 14.0f},
-        {-8.0f, 14.0f},
-        {8.0f, 22.0f},
-        {-8.0f, 22.0f},
-        {16.0f, 18.0f},
-        {-16.0f, 18.0f},
-    }};
-
     const FRampWallDescriptor RampWallDescriptorValue =
         BuildPlacementContextValue.RampWallDescriptor.bIsValid ? BuildPlacementContextValue.RampWallDescriptor
                                                                : FRampWallDescriptor();
+    const FMainBaseLayoutDescriptor MainBaseLayoutDescriptorValue =
+        BuildPlacementContextValue.MainBaseLayoutDescriptor.bIsValid
+            ? BuildPlacementContextValue.MainBaseLayoutDescriptor
+            : GetMainBaseLayoutDescriptor(FFrameContext(), BuildPlacementContextValue);
 
     std::vector<FBuildPlacementSlot> PlacementSlotsValue;
 
@@ -902,12 +1609,12 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
                 PlacementSlotsValue.push_back(RampWallDescriptorValue.RightDepotSlot);
             }
 
-            AppendPlacementSlots(PrimaryAnchorValue, ForwardDirectionValue, LateralDirectionValue,
-                                 NaturalApproachDepotOffsetValues, EBuildPlacementSlotType::NaturalApproachDepot,
-                                 EBuildPlacementFootprintPolicy::StructureOnly, PlacementSlotsValue);
-            AppendPlacementSlots(PrimaryAnchorValue, ForwardDirectionValue, LateralDirectionValue,
-                                 SupportDepotOffsetValues, EBuildPlacementSlotType::MainSupportStructure,
-                                 EBuildPlacementFootprintPolicy::StructureOnly, PlacementSlotsValue);
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.end());
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.SupportDepotSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.SupportDepotSlots.end());
             break;
         }
         case ABILITY_ID::BUILD_BARRACKS:
@@ -917,18 +1624,20 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
                 PlacementSlotsValue.push_back(RampWallDescriptorValue.BarracksSlot);
             }
 
-            AppendPlacementSlots(PrimaryAnchorValue, ForwardDirectionValue, LateralDirectionValue,
-                                 ProductionWithAddonOffsetValues,
-                                 EBuildPlacementSlotType::MainProductionWithAddon,
-                                 EBuildPlacementFootprintPolicy::RequiresAddonClearance, PlacementSlotsValue);
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.end());
             break;
         }
         case ABILITY_ID::BUILD_FACTORY:
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.end());
+            break;
         case ABILITY_ID::BUILD_STARPORT:
-            AppendPlacementSlots(PrimaryAnchorValue, ForwardDirectionValue, LateralDirectionValue,
-                                 ProductionWithAddonOffsetValues,
-                                 EBuildPlacementSlotType::MainProductionWithAddon,
-                                 EBuildPlacementFootprintPolicy::RequiresAddonClearance, PlacementSlotsValue);
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.StarportWithAddonSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.StarportWithAddonSlots.end());
             break;
         default:
         {

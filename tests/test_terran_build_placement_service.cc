@@ -237,6 +237,8 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     FTerranBuildPlacementService BuildPlacementServiceValue;
     BuildPlacementContextValue.RampWallDescriptor =
         BuildPlacementServiceValue.GetRampWallDescriptor(FFrameContext(), BuildPlacementContextValue);
+    BuildPlacementContextValue.MainBaseLayoutDescriptor =
+        BuildPlacementServiceValue.GetMainBaseLayoutDescriptor(FFrameContext(), BuildPlacementContextValue);
 
     const Point2D PrimaryAnchorValue =
         BuildPlacementServiceValue.GetPrimaryStructureAnchor(GameStateDescriptorValue, BuildPlacementContextValue);
@@ -244,6 +246,10 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
           "Primary structure anchor should bias forward toward the natural approach.");
     Check(BuildPlacementContextValue.RampWallDescriptor.bIsValid, SuccessValue,
           "Placement context should cache a valid ramp-wall descriptor when the natural direction is known.");
+    Check(BuildPlacementContextValue.MainBaseLayoutDescriptor.bIsValid, SuccessValue,
+          "Placement context should cache a valid main-base layout descriptor when the natural direction is known.");
+    Check(ArePointsEqual(BuildPlacementContextValue.MainBaseLayoutDescriptor.LayoutAnchorPoint, Point2D(52.5f, 50.0f)),
+          SuccessValue, "Main-base layout discovery should publish the deterministic layout anchor.");
     Check(ArePointsEqual(BuildPlacementContextValue.RampWallDescriptor.InsideStagingPoint, Point2D(54.5f, 50.0f)),
           SuccessValue, "Ramp-wall discovery should publish the inside staging point.");
     Check(ArePointsEqual(BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint, Point2D(64.5f, 50.0f)),
@@ -258,8 +264,12 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     DiagonalBuildPlacementContextValue.NaturalLocation = Point2D(64.0f, 64.0f);
     DiagonalBuildPlacementContextValue.RampWallDescriptor =
         BuildPlacementServiceValue.GetRampWallDescriptor(FFrameContext(), DiagonalBuildPlacementContextValue);
+    DiagonalBuildPlacementContextValue.MainBaseLayoutDescriptor =
+        BuildPlacementServiceValue.GetMainBaseLayoutDescriptor(FFrameContext(), DiagonalBuildPlacementContextValue);
     Check(DiagonalBuildPlacementContextValue.RampWallDescriptor.bIsValid, SuccessValue,
           "Ramp-wall descriptor should remain valid for diagonal natural directions.");
+    Check(DiagonalBuildPlacementContextValue.MainBaseLayoutDescriptor.bIsValid, SuccessValue,
+          "Main-base layout descriptor should remain valid for diagonal natural directions.");
     const Point2D DiagonalForwardDirectionValue =
         Point2D(std::sqrt(0.5f), std::sqrt(0.5f));
     const Point2D DiagonalWallToBarracksValue =
@@ -295,6 +305,9 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     SyntheticBuildPlacementContextValue.RampWallDescriptor =
         BuildPlacementServiceValue.GetRampWallDescriptor(SyntheticFrameContextValue,
                                                          SyntheticBuildPlacementContextValue);
+    SyntheticBuildPlacementContextValue.MainBaseLayoutDescriptor =
+        BuildPlacementServiceValue.GetMainBaseLayoutDescriptor(SyntheticFrameContextValue,
+                                                               SyntheticBuildPlacementContextValue);
 
     Check(SyntheticBuildPlacementContextValue.RampWallDescriptor.bIsValid, SuccessValue,
           "Ramp-wall discovery should produce a valid descriptor from a synthetic ramp grid.");
@@ -316,6 +329,10 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     Check(SyntheticBuildPlacementContextValue.RampWallDescriptor.BarracksSlot.BuildPoint.x <
               SyntheticBuildPlacementContextValue.RampWallDescriptor.LeftDepotSlot.BuildPoint.x,
           SuccessValue, "Synthetic ramp barracks should sit on the main-base side of the depot pair.");
+    Check(!SyntheticBuildPlacementContextValue.MainBaseLayoutDescriptor.BarracksWithAddonSlots.empty() &&
+              SyntheticBuildPlacementContextValue.MainBaseLayoutDescriptor.BarracksWithAddonSlots.front().BuildPoint.x <
+                  SyntheticBuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x,
+          SuccessValue, "Synthetic main-base barracks slots should stay on the main-base side of the wall.");
 
     const std::vector<FBuildPlacementSlot> SupplyDepotSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
@@ -336,7 +353,7 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
                        EBuildPlacementFootprintPolicy::StructureOnly, Point2D(57.0f, 47.0f)),
           SuccessValue, "Supply depot placement should expose the opposite ramp depot slot for the wall.");
     Check(ContainsSlot(SupplyDepotSlotsValue, EBuildPlacementSlotType::NaturalApproachDepot,
-                       EBuildPlacementFootprintPolicy::StructureOnly, Point2D(62.0f, 56.0f)),
+                       EBuildPlacementFootprintPolicy::StructureOnly, Point2D(56.5f, 62.0f)),
           SuccessValue, "Supply depot placement should include a natural-approach depot slot.");
 
     GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
@@ -358,8 +375,8 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_BARRACKS,
                                                               BuildPlacementContextValue);
-    Check(BarracksSlotsValue.size() == 7U, SuccessValue,
-          "The first barracks should expose one wall barracks option plus addon-safe production slots.");
+    Check(BarracksSlotsValue.size() == 5U, SuccessValue,
+          "The first barracks should expose one wall barracks option plus explicit main-base barracks slots.");
     Check(!BarracksSlotsValue.empty() &&
               BarracksSlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainRampBarracksWithAddon,
           SuccessValue, "The first barracks should prefer the ramp-facing barracks slot.");
@@ -370,9 +387,14 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainRampBarracksWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(61.0f, 50.0f)),
           SuccessValue, "Barracks placement should expose the center wall slot.");
-    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
-                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(70.0f, 58.0f)),
-          SuccessValue, "Barracks placement should include addon-safe interior production slots.");
+    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainBarracksWithAddon,
+                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(52.5f, 58.0f)),
+          SuccessValue, "Barracks placement should include explicit addon-safe main-base barracks slots.");
+    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainBarracksWithAddon,
+                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(52.5f, 58.0f)) &&
+              BarracksSlotsValue[1].BuildPoint.x <
+                  BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x,
+          SuccessValue, "Barracks production-grid slots should stay inside the wall instead of drifting forward.");
 
     GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
         UNIT_TYPEID::TERRAN_BARRACKS)] = 1U;
@@ -380,7 +402,7 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_BARRACKS,
                                                               BuildPlacementContextValue);
-    Check(FollowUpBarracksSlotsValue.size() == 7U, SuccessValue,
+    Check(FollowUpBarracksSlotsValue.size() == 5U, SuccessValue,
           "Barracks placement should keep the descriptor-backed wall slot in the ordered placement list.");
     Check(!FollowUpBarracksSlotsValue.empty() &&
               FollowUpBarracksSlotsValue.front().SlotId.SlotType ==
@@ -391,15 +413,38 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_FACTORY,
                                                               BuildPlacementContextValue);
-    Check(FactorySlotsValue.size() == 6U, SuccessValue,
-          "Factory placement should use the addon-safe production grid.");
+    Check(FactorySlotsValue.size() == 4U, SuccessValue,
+          "Factory placement should use explicit addon-safe main-base factory slots.");
     Check(!FactorySlotsValue.empty() &&
               FactorySlotsValue.front().FootprintPolicy ==
                   EBuildPlacementFootprintPolicy::RequiresAddonClearance,
           SuccessValue, "Factory slots should require addon clearance.");
+    Check(!FactorySlotsValue.empty() &&
+              FactorySlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainFactoryWithAddon,
+          SuccessValue, "Factory placement should expose dedicated main-base factory slots.");
     Check(!ContainsSlot(FactorySlotsValue, EBuildPlacementSlotType::MainRampBarracksWithAddon,
                         EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(61.0f, 50.0f)),
           SuccessValue, "Factory placement should exclude the dedicated wall barracks slot.");
+    Check(!FactorySlotsValue.empty() &&
+              FactorySlotsValue.front().BuildPoint.x <
+                  BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x,
+          SuccessValue, "Factory placement should prefer main-base addon slots behind the wall.");
+    Check(ContainsSlot(FactorySlotsValue, EBuildPlacementSlotType::MainFactoryWithAddon,
+                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(44.5f, 54.0f)),
+          SuccessValue, "Factory placement should include the deterministic forward factory slot.");
+
+    const std::vector<FBuildPlacementSlot> StarportSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
+                                                              ABILITY_ID::BUILD_STARPORT,
+                                                              BuildPlacementContextValue);
+    Check(StarportSlotsValue.size() == 4U, SuccessValue,
+          "Starport placement should use explicit addon-safe main-base starport slots.");
+    Check(!StarportSlotsValue.empty() &&
+              StarportSlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainStarportWithAddon,
+          SuccessValue, "Starport placement should expose dedicated main-base starport slots.");
+    Check(ContainsSlot(StarportSlotsValue, EBuildPlacementSlotType::MainStarportWithAddon,
+                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(36.5f, 50.0f)),
+          SuccessValue, "Starport placement should include the deterministic forward starport slot.");
 
     const std::vector<FBuildPlacementSlot> FallbackSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,

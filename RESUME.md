@@ -1,110 +1,192 @@
-# Resume Prompt
+# Resume Context
 
-You are resuming work in `L:\Sc2_Bot` on Friday, March 13, 2026.
+You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building placement effort.
 
-Read and follow:
-- `L:\Sc2_Bot\AGENTS.md`
-- `L:\Sc2_Bot\CodingStandards.md`
+## Immediate User Requests
+- Push the current progress to git before continuing.
+- Keep `RESUME.md` current.
+- Continue the deterministic placement work.
+- Examine how other C++ and Python StarCraft II bots handle walling and deterministic placement, then adapt the useful parts to this codebase's standards and architecture.
 
-Key project constraints:
+## Mandatory Local Standards
+- Read `L:\Sc2_Bot\CodingStandards.md` before making code changes.
 - Use `apply_patch` for file edits.
+- Use PascalCase names unless the project has a stricter established convention.
 - Do not use single-letter variable names.
-- Prefer PascalCase and explicit types.
-- Prefer `const` and references when reasonable.
+- Use explicit types, prefer `const`, references, and `const` member functions when reasonable.
+- Prefer interfaces and composition over inheritance.
+- Comments must be objective and informative.
 - Do not revert unrelated user changes.
-- Keep working until the issue is actually verified.
 
-Current user-reported problems:
-- The first depot slots at the top of the ramp are now correct in at least one live match.
-- The wall barracks then fails to build at all.
-- The first refinery can be built at the natural instead of the main, which is incorrect.
-- The user asked to create this `RESUME.md`, then continue the previous work.
+## Current Worktree State Before The Next Commit
+Modified:
+- `examples/common/CMakeLists.txt`
+- `examples/common/descriptors/FGameStateDescriptor.cc`
+- `examples/common/descriptors/FGameStateDescriptor.h`
+- `examples/common/planning/FTerranEconomyProductionOrderExpander.cc`
+- `examples/common/services/EBuildPlacementSlotType.cc`
+- `examples/common/services/EBuildPlacementSlotType.h`
+- `examples/common/services/FBuildPlacementContext.cc`
+- `examples/common/services/FBuildPlacementContext.h`
+- `examples/common/services/FTerranBuildPlacementService.cc`
+- `examples/common/services/FTerranBuildPlacementService.h`
+- `examples/common/services/IBuildPlacementService.h`
+- `examples/terran/terran.cc`
+- `examples/terran/terran.h`
+- `tests/test_terran_build_placement_service.cc`
+- `tests/test_terran_economy_production_order_expander.cc`
+- `tests/test_terran_opening_plan_scheduler.cc`
 
-What was already fixed before this resume:
-- Marine production concurrency was improved in `examples/common/planning/FTerranEconomyProductionOrderExpander.cc` so multiple barracks and reactor capacity are not blocked by unrelated scheduler orders.
-- Gas harvesting was added in `examples/terran/terran.cc` and `examples/terran/terran.h` so completed refineries get worker harvest intents.
-- Ramp-wall discovery in `examples/common/services/FTerranBuildPlacementService.cc` was rewritten from a guessed corridor heuristic to a python-sc2-style ramp-tile model:
-  - discover ramp tiles from `pathable && !placeable && mixed terrain height`
-  - flood-fill ramp groups
-  - choose the main ramp group near the start and natural direction
-  - derive wall geometry from upper and lower ramp tiles using circle intersections
-  - validate exact left depot, barracks, and right depot slots
-- `tests/test_terran_build_placement_service.cc` now includes a synthetic discovered-ramp test in addition to the deterministic fallback checks.
+Untracked:
+- `examples/common/services/FMainBaseLayoutDescriptor.cc`
+- `examples/common/services/FMainBaseLayoutDescriptor.h`
+- `notes/MainBaseLayoutNotes.md`
+- `.codex/` (do not commit)
 
-Recent live test result before this resume:
-- Command used: `cmd /c LaunchTerranEasyComputerMatch.bat`
-- Outcome:
-  - the top-of-ramp depot placement was correct
-  - the barracks never got built
-  - the bot later collapsed into recovery
-- The most likely remaining barracks blocker is in economy placement validation, not in ramp discovery.
+## What Has Already Been Implemented
 
-Strong current hypotheses:
-- `examples/common/planning/FTerranEconomyProductionOrderExpander.cc` had an overly broad addon-clearance blocker:
-  - `DoesAddonFootprintAvoidObservedStructures(...)` used a simple radius check around the addon center
-  - this can falsely reject a valid wall barracks after the first depot exists nearby
-- The same file also had overly coarse slot-occupancy detection:
-  - `FindObservedStructureOccupyingPlacementSlot(...)` originally used a center-radius test
-  - for tight wall layouts, footprint overlap is the correct check
-- Refinery selection currently iterates completed town halls in observation order and can therefore choose natural gas first if the order is delayed.
-  - It should prefer the town hall nearest the start location, then geysers nearest that town hall.
+### 1. Main-Base Layout Descriptor Plumbing
+New type:
+- `FMainBaseLayoutDescriptor`
 
-Edits already in progress when this file was created:
-- In `examples/common/planning/FTerranEconomyProductionOrderExpander.cc`:
-  - added footprint helpers:
-    - `GetStructureFootprintHalfExtentsForUnitType(...)`
-    - `GetStructureFootprintHalfExtentsForAbility(...)`
-    - `DoAxisAlignedFootprintsOverlap(...)`
-  - changed `FindObservedStructureOccupyingPlacementSlot(...)` to use footprint overlap and to take `ABILITY_ID`
-  - updated slot-selection call sites to pass the structure ability into occupancy checks
-  - changed `DoesAddonFootprintAvoidObservedStructures(...)` to use addon-rectangle overlap instead of the old radius test
-  - changed refinery selection to:
-    - sort completed town halls by distance to the start location
-    - sort nearby geysers by distance to the selected town hall
-- In `tests/test_terran_economy_production_order_expander.cc`:
-  - `FakeObservation` was updated to initialize simple pathing, placement, and terrain grids
-  - a new scenario was added to verify that a wall barracks order still creates a child order after the first wall depot is already present
-  - a new scenario was added to verify that the first refinery targets a main-base geyser before natural gas
+Threaded through:
+- `FBuildPlacementContext`
+- `FGameStateDescriptor`
+- `IBuildPlacementService`
+- `FTerranBuildPlacementService`
+- `TerranAgent`
+- `FTerranEconomyProductionOrderExpander`
+- common CMake sources
 
-Important status note:
-- After those edits, `cmake --build 'L:\Sc2_Bot\out\build\codex-x64-Debug-20260311' --config Debug --target all_tests` succeeded.
-- The new tests were added but had not yet been rerun at the moment this file was written.
+### 2. New Placement Slot Families
+Added in `EBuildPlacementSlotType`:
+- `MainSupportDepot`
+- `MainBarracksWithAddon`
+- `MainFactoryWithAddon`
+- `MainStarportWithAddon`
 
-Likely next commands:
-- `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 120`
-- `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranBuildPlacementService' --timeout 120`
+### 3. Placement Service Changes
+In `FTerranBuildPlacementService`:
+- Main-base layout is now resolved relative to ramp depth and lateral directions instead of pure world-axis guesses.
+- The lateral direction uses the main mineral centroid when available and flips away from the mineral line if needed.
+- Resource-line clearance checks reject production placements too close to minerals or gas.
+- Added exact-slot resolution helpers.
+- Added template-slot resolution that validates the exact point first, then optionally does a constrained local search fallback.
+- Added production layout anchor discovery.
+- Added wider anchor search offsets.
+- Added mirrored diagonal fallback if the first diagonal does not resolve.
+- If anchor discovery fails, production slots fall back to slot-local search rather than disappearing completely.
+
+Current production template offsets:
+- Barracks: `{8,0}`, `{-8,0}`, `{12,8}`, `{-12,8}`
+- Factory: `{4,8}`, `{-4,8}`, `{8,16}`, `{-8,16}`
+- Starport: `{0,16}`, `{12,16}`, `{4,24}`, `{-4,24}`
+
+These offsets are expressed in main-base layout depth/lateral space, not fixed map axes.
+
+### 4. Opening Plan Bindings
+`FOpeningPlanRegistry` currently binds:
+- Step 1 depot -> `MainRampDepotLeft`
+- Step 2 barracks -> `MainRampBarracksWithAddon`
+- Step 8 depot -> `MainRampDepotRight`
+- Step 9 factory -> `MainFactoryWithAddon`
+- Step 14 starport -> `MainStarportWithAddon`
+- Step 26 second barracks -> `MainBarracksWithAddon`
+
+### 5. Gas Saturation Fixes
+In `examples/terran/terran.cc`:
+- Added refinery commitment tracking helpers.
+- Gas assignment now accounts for already-committed workers before assigning more.
+- Gas relief now actively reassigns oversaturated refinery workers back to minerals.
+- Relief selection now targets workers assigned to the specific oversaturated refinery.
+
+### 6. Debug Output
+`PrintAgentState()` now prints:
+- `Main Layout: Valid/Invalid`
+- anchor location
+- first main barracks slot
+- first factory slot
+- first starport slot
+
+This is necessary to determine whether the runtime actually resolved deterministic production slots.
+
+## Current Runtime Status
+
+### What Is Working
+- The first depot, opening barracks, and second depot on the main ramp were reported by the user as being placed perfectly in a recent live run.
+- The main layout descriptor can now resolve production anchor points and at least some production slots on the live map.
+
+### What Is Still Broken
+- Factory, starport, and second barracks placement remains unreliable or stalls entirely.
+- Earlier live logs repeatedly showed `NoValidPlacement` on:
+  - opening factory step
+  - second barracks step
+- Some runs eventually resolved main production slots, but the scheduler still did not consistently build those structures.
+- The user previously observed gas oversaturation in the main. Gas assignment logic has been updated, but it still needs live validation.
+
+### Most Important Current Diagnosis
+The project appears to have moved past pure slot-discovery failure. The next likely failure surface is one or more of:
+- exact-slot runtime validation still rejecting otherwise good slots
+- scheduler claim or occupancy state not matching the new layout slots correctly
+- fallback search or occupancy checks interfering with reserved deterministic slots
+- anchor-derived production formation still not being curated enough for the live map
+
+## Verified Builds And Tests
+The following succeeded before this resume snapshot:
+- `cmake --build 'L:\Sc2_Bot\out\build\codex-x64-Debug-20260311' --config Debug --target all_tests`
 - `cmd /c Build.bat --target tutorial`
-- `cmd /c LaunchTerranEasyComputerMatch.bat`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranBuildPlacementService' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 120`
+- `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 120`
+- Earlier in the same effort: `sc2::TestTerranDescriptorPipeline`
 
-Relevant files:
-- `L:\Sc2_Bot\examples/common/services/FTerranBuildPlacementService.cc`
-- `L:\Sc2_Bot\examples/common/planning/FTerranEconomyProductionOrderExpander.cc`
-- `L:\Sc2_Bot\examples/terran/terran.cc`
-- `L:\Sc2_Bot\examples/terran/terran.h`
-- `L:\Sc2_Bot\tests/test_terran_build_placement_service.cc`
-- `L:\Sc2_Bot\tests/test_terran_economy_production_order_expander.cc`
+## Architectural Direction Agreed With The User
+The heuristic approach is still too brittle. The next major step should be a curated per-map, per-start-side, per-base layout registry.
 
-Relevant web research already performed:
-- python-sc2 ramp handling:
-  - `upper`, `lower`, `upper2_for_ramp_wall`
-  - `depot_in_middle`, `corner_depots`, `barracks_correct_placement`
-- This informed the current ramp-tile rewrite in the C++ placement service.
+The target model should look like:
+- `FMapLayoutKey`: map name plus start-location or spawn bucket
+- `EBaseLayoutRole`: `Main`, `Natural`, `Third`, and later additional owned bases if needed
+- `FBaseLayoutDescriptor`: typed slot arrays for wall, production, defense, utility, tech, and special-purpose anchors
+- `FLayoutSlotDescriptor`: slot id, purpose, exact build point, addon policy, and optional tactical metadata such as rally or siege anchors
+- Runtime overlay state layered on top: empty, reserved, occupied, safe, contested, invalid
 
-Git status note:
-- The worktree is dirty with intentional in-progress changes.
-- Do not revert user changes.
-- Existing modified files before this resume include:
-  - `examples/common/planning/FTerranEconomyProductionOrderExpander.cc`
-  - `examples/common/services/FTerranBuildPlacementService.cc`
-  - `examples/terran/terran.cc`
-  - `examples/terran/terran.h`
-  - `tests/CMakeLists.txt`
-  - `tests/all_tests.cc`
-  - `tests/test_terran_build_placement_service.cc`
-  - `tests/test_terran_economy_production_order_expander.cc`
-  - `tests/test_terran_economy_production_order_expander.h`
+Desired outcome:
+- placement becomes curated-slot lookup first
+- scheduler reserves exact slot identifiers
+- runtime logic decides whether a slot is currently usable, not where it should be
 
-Immediate objective:
-- Finish validating the barracks occupancy and refinery selection fixes.
-- Rebuild, run focused tests, then rerun the live Easy AI match.
-- If the barracks still fails live, print or inspect the live wall slot coordinates next and trace the exact deferral reason for the wall barracks economy order.
+This system should later support:
+- turret slots
+- sensor tower slots
+- tank defensive anchors
+- upgrade-building slots
+- safe versus contested evaluation per slot
+
+## External References To Review Next
+Use browsing because the user explicitly asked for cross-bot comparison.
+
+Primary references already identified:
+- Python SC2 ramp and wall placement docs:
+  - `https://burnysc2.github.io/python-sc2/text_files/introduction.html?highlight=ramp#ramp-and-wall-placement`
+- Python SC2 ramp and wall wiki material:
+  - look for `barracks_correct_placement`, `corner_depots`, and `depot_in_middle`
+- Ares SC2 building placement documentation:
+  - `https://aressc2.github.io/ares-sc2/tutorials/building_placements.html`
+  - related placement manager API docs
+
+Goal of that review:
+- confirm how curated building placements are keyed and stored
+- confirm how ramp wall slots differ from general production slots
+- adapt those ideas into this codebase's descriptor and scheduler model rather than copying framework-specific behavior
+
+## Recommended Next Steps
+1. Commit and push the current worktree, excluding `.codex/`.
+2. Review the external references above and summarize the transferable model.
+3. Start the curated map-layout registry with the current live map and both spawn positions if data is available.
+4. Move main-base production slots for the opening barracks, first factory, first starport, and second barracks onto curated exact-slot data.
+5. Re-run focused placement tests, then a live Terran versus Easy AI match.
+
+## Notes
+- `notes/MainBaseLayoutNotes.md` exists but needs to be updated once the next architectural step is in place.
+- A previous live run emitted civetweb port bind noise on `8080`. That looked environmental rather than placement-specific.
+- Do not forget to commit the restored `RESUME.md` itself.

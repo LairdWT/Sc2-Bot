@@ -12,6 +12,10 @@ enum class EBuildPlacementSlotType : uint8_t
     MainRampBarracksWithAddon,
     MainRampDepotRight,
     NaturalApproachDepot,
+    MainSupportDepot,
+    MainBarracksWithAddon,
+    MainFactoryWithAddon,
+    MainStarportWithAddon,
     MainProductionWithAddon,
     MainSupportStructure,
 };

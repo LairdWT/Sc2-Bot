@@ -380,11 +380,13 @@ int GetEffectiveEconomyOrderPriority(const FCommandOrderRecord& EconomyOrderValu
 
 FBuildPlacementContext CreateBuildPlacementContext(const Point2D& BaseLocationValue,
                                                    const std::vector<Point2D>& ExpansionLocationsValue,
-                                                   const FRampWallDescriptor& RampWallDescriptorValue)
+                                                   const FRampWallDescriptor& RampWallDescriptorValue,
+                                                   const FMainBaseLayoutDescriptor& MainBaseLayoutDescriptorValue)
 {
     FBuildPlacementContext BuildPlacementContextValue;
     BuildPlacementContextValue.BaseLocation = BaseLocationValue;
     BuildPlacementContextValue.RampWallDescriptor = RampWallDescriptorValue;
+    BuildPlacementContextValue.MainBaseLayoutDescriptor = MainBaseLayoutDescriptorValue;
 
     float BestDistanceSquaredValue = std::numeric_limits<float>::max();
     for (const Point2D& ExpansionLocationValue : ExpansionLocationsValue)
@@ -428,6 +430,10 @@ float GetPlacementSlotOccupancyRadiusSquared(const FBuildPlacementSlot& BuildPla
         case EBuildPlacementSlotType::MainRampBarracksWithAddon:
         case EBuildPlacementSlotType::MainRampDepotRight:
         case EBuildPlacementSlotType::NaturalApproachDepot:
+        case EBuildPlacementSlotType::MainSupportDepot:
+        case EBuildPlacementSlotType::MainBarracksWithAddon:
+        case EBuildPlacementSlotType::MainFactoryWithAddon:
+        case EBuildPlacementSlotType::MainStarportWithAddon:
         case EBuildPlacementSlotType::MainProductionWithAddon:
         case EBuildPlacementSlotType::MainSupportStructure:
         case EBuildPlacementSlotType::Unknown:
@@ -651,7 +657,8 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
 
     const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
     const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
-        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor);
+        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor,
+        GameStateDescriptorValue.MainBaseLayoutDescriptor);
     const std::vector<FBuildPlacementSlot> BuildPlacementSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, EconomyOrderValue.AbilityId,
                                                               BuildPlacementContextValue);
@@ -737,7 +744,8 @@ EReservedPlacementSlotState GetAwaitingReservedPlacementSlotState(
 
     const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
     const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
-        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor);
+        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor,
+        GameStateDescriptorValue.MainBaseLayoutDescriptor);
     const std::vector<FBuildPlacementSlot> BuildPlacementSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, EconomyOrderValue.AbilityId,
                                                               BuildPlacementContextValue);
@@ -1010,7 +1018,8 @@ bool TryGetStructureBuildPoint(const FFrameContext& FrameValue, const FGameState
 
     const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
     const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
-        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor);
+        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor,
+        GameStateDescriptorValue.MainBaseLayoutDescriptor);
     const std::vector<FBuildPlacementSlot> BuildPlacementSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, StructureAbilityIdValue,
                                                               BuildPlacementContextValue);
@@ -1202,7 +1211,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             {
                 const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
                 const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
-                    BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor);
+                    BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor,
+                    GameStateDescriptorValue.MainBaseLayoutDescriptor);
                 const Point2D BuildAnchorValue = BuildPlacementServiceValue.GetPrimaryStructureAnchor(
                     GameStateDescriptorValue, BuildPlacementContextValue);
                 const Unit* WorkerUnitValue = SelectBuildWorker(AgentStateValue, IntentBufferValue,

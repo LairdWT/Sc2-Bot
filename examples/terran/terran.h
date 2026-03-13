@@ -49,6 +49,7 @@ public:
 
     void UpdateAgentState(const FFrameContext& Frame);
     void InitializeRampWallDescriptor(const FFrameContext& Frame);
+    void InitializeMainBaseLayoutDescriptor(const FFrameContext& Frame);
     void RebuildGameStateDescriptor(const FFrameContext& Frame);
     void UpdateRallyAnchor();
     void PrintAgentState();

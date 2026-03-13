@@ -80,6 +80,14 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
           SuccessValue, "The first barracks step should bind to the ramp barracks slot.");
     Check(OpeningPlanDescriptorValue.Steps[7].PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotRight,
           SuccessValue, "The second wall depot step should bind to the right ramp depot slot.");
+    Check(OpeningPlanDescriptorValue.Steps[8].PreferredPlacementSlotType == EBuildPlacementSlotType::MainFactoryWithAddon,
+          SuccessValue, "The first factory step should bind to the first main-base factory slot family.");
+    Check(OpeningPlanDescriptorValue.Steps[13].PreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainStarportWithAddon,
+          SuccessValue, "The first starport step should bind to the first main-base starport slot family.");
+    Check(OpeningPlanDescriptorValue.Steps[25].PreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainBarracksWithAddon,
+          SuccessValue, "The second barracks step should bind to the main-base barracks slot family.");
 
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;

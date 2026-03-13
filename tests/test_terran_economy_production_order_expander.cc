@@ -711,7 +711,7 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     {
         const FCommandOrderRecord RefineryChildOrderValue =
             RefinerySchedulingStateValue.GetOrderRecord(RefineryChildOrderIndexValue);
-        Check(RefineryChildOrderValue.TargetTag == 501U || RefineryChildOrderValue.TargetTag == 502U,
+        Check(RefineryChildOrderValue.TargetUnitTag == 501U || RefineryChildOrderValue.TargetUnitTag == 502U,
               SuccessValue, "The first refinery should target one of the main-base geysers before the natural.");
     }
 

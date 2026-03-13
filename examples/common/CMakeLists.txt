@@ -50,6 +50,7 @@ set(sc2_terran_bot_common_sources
     services/EBuildPlacementFootprintPolicy.cc
     services/EBuildPlacementSlotType.cc
     services/FBuildPlacementContext.cc
+    services/FMainBaseLayoutDescriptor.cc
     services/FBuildPlacementSlot.cc
     services/FBuildPlacementSlotId.cc
     services/FRampWallDescriptor.cc
