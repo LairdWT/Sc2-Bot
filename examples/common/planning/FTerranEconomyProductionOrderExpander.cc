@@ -1,5 +1,6 @@
 #include "common/planning/FTerranEconomyProductionOrderExpander.h"
 
+#include <algorithm>
 #include <limits>
 
 #include "common/bot_status_models.h"
@@ -51,6 +52,11 @@ bool IsOrderTerminal(const EOrderLifecycleState LifecycleStateValue)
         default:
             return false;
     }
+}
+
+bool IsSupplyDepotResultUnitType(const UNIT_TYPEID ResultUnitTypeIdValue)
+{
+    return ResultUnitTypeIdValue == UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
 }
 
 uint32_t GetObservedBuildingCount(const FBuildPlanningState& BuildPlanningStateValue, const UNIT_TYPEID BuildingTypeIdValue)
@@ -216,6 +222,12 @@ uint32_t CountPendingIntentsForAbility(const FIntentBuffer& IntentBufferValue, c
     return IntentCountValue;
 }
 
+ECommandOrderDeferralReason GetWorkerAvailabilityDeferralReason(const FAgentState& AgentStateValue)
+{
+    return AgentStateValue.Units.GetWorkerCount() == 0U ? ECommandOrderDeferralReason::NoProducer
+                                                        : ECommandOrderDeferralReason::ProducerBusy;
+}
+
 bool HasActiveSchedulerOrderForActor(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                      const Tag ActorTagValue)
 {
@@ -266,6 +278,55 @@ bool HasActiveUnitExecutionChild(const FCommandAuthoritySchedulingState& Command
     }
 
     return false;
+}
+
+bool HasOutstandingSupplyDepotDemand(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                     const FBuildPlanningState& BuildPlanningStateValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        if (!IsSupplyDepotResultUnitType(CommandAuthoritySchedulingStateValue.ResultUnitTypeIds[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        FCommandOrderRecord SupplyDepotOrderValue =
+            CommandAuthoritySchedulingStateValue.GetOrderRecord(OrderIndexValue);
+        if (GetObservedCountForOrder(BuildPlanningStateValue, SupplyDepotOrderValue) <
+            SupplyDepotOrderValue.TargetCount)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+int GetEffectiveEconomyOrderPriority(const FCommandOrderRecord& EconomyOrderValue,
+                                     const FBuildPlanningState& BuildPlanningStateValue,
+                                     const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue)
+{
+    int EffectivePriorityValue = EconomyOrderValue.PriorityValue;
+    if (BuildPlanningStateValue.AvailableSupply <= 1U)
+    {
+        if (IsSupplyDepotResultUnitType(EconomyOrderValue.ResultUnitTypeId))
+        {
+            EffectivePriorityValue += 1000;
+        }
+        else if (EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SCV &&
+                 HasOutstandingSupplyDepotDemand(CommandAuthoritySchedulingStateValue, BuildPlanningStateValue))
+        {
+            EffectivePriorityValue -= 1000;
+        }
+    }
+
+    return EffectivePriorityValue;
 }
 
 FBuildPlacementContext CreateBuildPlacementContext(const Point2D& BaseLocationValue,
@@ -617,7 +678,22 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptorValue.CommandAuthoritySchedulingState;
-    const std::vector<size_t> PlanningOrderIndicesValue = CommandAuthoritySchedulingStateValue.PlanningProcessIndices;
+    std::vector<size_t> PlanningOrderIndicesValue = CommandAuthoritySchedulingStateValue.PlanningProcessIndices;
+    std::stable_sort(PlanningOrderIndicesValue.begin(), PlanningOrderIndicesValue.end(),
+                     [&GameStateDescriptorValue, &CommandAuthoritySchedulingStateValue](
+                         const size_t LeftOrderIndexValue, const size_t RightOrderIndexValue)
+                     {
+                         const FCommandOrderRecord LeftOrderValue =
+                             CommandAuthoritySchedulingStateValue.GetOrderRecord(LeftOrderIndexValue);
+                         const FCommandOrderRecord RightOrderValue =
+                             CommandAuthoritySchedulingStateValue.GetOrderRecord(RightOrderIndexValue);
+                         return GetEffectiveEconomyOrderPriority(LeftOrderValue, GameStateDescriptorValue.BuildPlanning,
+                                                                 CommandAuthoritySchedulingStateValue) >
+                                GetEffectiveEconomyOrderPriority(RightOrderValue, GameStateDescriptorValue.BuildPlanning,
+                                                                 CommandAuthoritySchedulingStateValue);
+                     });
+    const uint64_t CurrentStepValue = GameStateDescriptorValue.CurrentStep;
+    const uint64_t CurrentGameLoopValue = GameStateDescriptorValue.CurrentGameLoop;
 
     for (const size_t PlanningOrderIndexValue : PlanningOrderIndicesValue)
     {
@@ -633,6 +709,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue);
         if (ObservedCountValue >= EconomyOrderValue.TargetCount)
         {
+            CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+                EconomyOrderValue.OrderId, ECommandOrderDeferralReason::TargetAlreadySatisfied, CurrentStepValue,
+                CurrentGameLoopValue);
             CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(EconomyOrderValue.OrderId,
                                                                        EOrderLifecycleState::Completed);
             continue;
@@ -640,6 +719,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
         if (HasActiveUnitExecutionChild(CommandAuthoritySchedulingStateValue, EconomyOrderValue.OrderId))
         {
+            CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+                EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion, CurrentStepValue,
+                CurrentGameLoopValue);
             continue;
         }
 
@@ -653,11 +735,15 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             PendingOrderCountValue;
         if (ProjectedCountValue >= EconomyOrderValue.TargetCount)
         {
+            CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+                EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion, CurrentStepValue,
+                CurrentGameLoopValue);
             continue;
         }
 
         FCommandOrderRecord UnitExecutionOrderValue;
         bool CreatedOrderValue = false;
+        ECommandOrderDeferralReason DeferralReasonValue = ECommandOrderDeferralReason::None;
 
         switch (EconomyOrderValue.AbilityId.ToType())
         {
@@ -676,6 +762,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                                                                 UNIT_TYPEID::TERRAN_SCV, BuildAnchorValue);
                 if (WorkerUnitValue == nullptr)
                 {
+                    DeferralReasonValue = GetWorkerAvailabilityDeferralReason(AgentStateValue);
                     break;
                 }
 
@@ -684,11 +771,13 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                                                ExpansionLocationsValue, EconomyOrderValue.AbilityId, *WorkerUnitValue,
                                                BuildPointValue))
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
                     break;
                 }
 
                 if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.ResultUnitTypeId))
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
                 }
 
@@ -702,14 +791,23 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             }
             case ABILITY_ID::BUILD_REFINERY:
             {
-                if (FrameValue.Query == nullptr ||
-                    !TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, UNIT_TYPEID::TERRAN_REFINERY))
+                if (FrameValue.Query == nullptr)
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
+                    break;
+                }
+
+                if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, UNIT_TYPEID::TERRAN_REFINERY))
+                {
+                    DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
                 }
 
                 const Units TownHallUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsTownHall());
                 const Units GeyserUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Neutral, IsGeyser());
+                bool HasCompletedTownHallValue = false;
+                bool HasValidGeyserPlacementValue = false;
+                bool HasWorkerAvailabilityFailureValue = false;
 
                 for (const Unit* TownHallUnitValue : TownHallUnitsValue)
                 {
@@ -718,19 +816,26 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         continue;
                     }
 
+                    HasCompletedTownHallValue = true;
                     for (const Unit* GeyserUnitValue : GeyserUnitsValue)
                     {
-                        if (GeyserUnitValue == nullptr || Distance2D(TownHallUnitValue->pos, GeyserUnitValue->pos) > 15.0f ||
-                            !FrameValue.Query->Placement(ABILITY_ID::BUILD_REFINERY, GeyserUnitValue->pos))
+                        if (GeyserUnitValue == nullptr || Distance2D(TownHallUnitValue->pos, GeyserUnitValue->pos) > 15.0f)
                         {
                             continue;
                         }
 
+                        if (!FrameValue.Query->Placement(ABILITY_ID::BUILD_REFINERY, GeyserUnitValue->pos))
+                        {
+                            continue;
+                        }
+
+                        HasValidGeyserPlacementValue = true;
                         const Unit* WorkerUnitValue = SelectBuildWorker(AgentStateValue, IntentBufferValue,
                                                                         CommandAuthoritySchedulingStateValue,
                                                                         UNIT_TYPEID::TERRAN_SCV, GeyserUnitValue->pos);
                         if (WorkerUnitValue == nullptr)
                         {
+                            HasWorkerAvailabilityFailureValue = true;
                             continue;
                         }
 
@@ -754,6 +859,22 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         TERRAN_ECONOMIC_DATA.GetBuildingCostData(UNIT_TYPEID::TERRAN_REFINERY);
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, RefineryCostDataValue.CostData.Minerals,
                                              RefineryCostDataValue.CostData.Vespine, 0U);
+                    if (HasWorkerAvailabilityFailureValue)
+                    {
+                        DeferralReasonValue = GetWorkerAvailabilityDeferralReason(AgentStateValue);
+                    }
+                    else if (HasValidGeyserPlacementValue)
+                    {
+                        DeferralReasonValue = ECommandOrderDeferralReason::NoProducer;
+                    }
+                    else if (HasCompletedTownHallValue)
+                    {
+                        DeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
+                    }
+                    else
+                    {
+                        DeferralReasonValue = ECommandOrderDeferralReason::NoProducer;
+                    }
                 }
                 break;
             }
@@ -762,20 +883,28 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 const Point2D ExpansionLocationValue = GetNextExpansionLocation(FrameValue, ExpansionLocationsValue);
                 if (!IsPointFinite(ExpansionLocationValue))
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
                     break;
                 }
 
                 const Unit* WorkerUnitValue = SelectBuildWorker(AgentStateValue, IntentBufferValue,
                                                                 CommandAuthoritySchedulingStateValue,
                                                                 UNIT_TYPEID::TERRAN_SCV, ExpansionLocationValue);
-                if (WorkerUnitValue == nullptr || FrameValue.Query == nullptr ||
+                if (WorkerUnitValue == nullptr)
+                {
+                    DeferralReasonValue = GetWorkerAvailabilityDeferralReason(AgentStateValue);
+                    break;
+                }
+                if (FrameValue.Query == nullptr ||
                     !FrameValue.Query->Placement(ABILITY_ID::BUILD_COMMANDCENTER, ExpansionLocationValue, WorkerUnitValue))
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
                     break;
                 }
 
                 if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, UNIT_TYPEID::TERRAN_COMMANDCENTER))
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
                 }
 
@@ -791,20 +920,27 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             {
                 if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, 150U, 0U, 0U))
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
                 }
 
                 const Units TownHallUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsTownHall());
                 const Unit* TownHallUnitValue = nullptr;
+                bool HasBusyCommandCenterValue = false;
                 for (const Unit* CandidateTownHallUnitValue : TownHallUnitsValue)
                 {
                     if (CandidateTownHallUnitValue == nullptr ||
-                        CandidateTownHallUnitValue->unit_type.ToType() != UNIT_TYPEID::TERRAN_COMMANDCENTER ||
-                        CandidateTownHallUnitValue->build_progress < 1.0f || !CandidateTownHallUnitValue->orders.empty() ||
+                        CandidateTownHallUnitValue->unit_type.ToType() != UNIT_TYPEID::TERRAN_COMMANDCENTER)
+                    {
+                        continue;
+                    }
+
+                    if (CandidateTownHallUnitValue->build_progress < 1.0f || !CandidateTownHallUnitValue->orders.empty() ||
                         IntentBufferValue.HasIntentForActor(CandidateTownHallUnitValue->tag) ||
                         HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue,
                                                         CandidateTownHallUnitValue->tag))
                     {
+                        HasBusyCommandCenterValue = true;
                         continue;
                     }
 
@@ -815,6 +951,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 if (TownHallUnitValue == nullptr)
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, 150U, 0U, 0U);
+                    DeferralReasonValue = HasBusyCommandCenterValue ? ECommandOrderDeferralReason::ProducerBusy
+                                                                    : ECommandOrderDeferralReason::NoProducer;
                     break;
                 }
 
@@ -829,20 +967,28 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             {
                 if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, 50U, 50U, 0U))
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
                 }
 
                 const Units BarracksUnitsValue =
                     FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_BARRACKS));
                 const Unit* BarracksUnitValue = nullptr;
+                bool HasBusyBarracksWithoutAddonValue = false;
                 for (const Unit* CandidateBarracksUnitValue : BarracksUnitsValue)
                 {
-                    if (CandidateBarracksUnitValue == nullptr || CandidateBarracksUnitValue->build_progress < 1.0f ||
-                        !CandidateBarracksUnitValue->orders.empty() || CandidateBarracksUnitValue->add_on_tag != NullTag ||
+                    if (CandidateBarracksUnitValue == nullptr || CandidateBarracksUnitValue->add_on_tag != NullTag)
+                    {
+                        continue;
+                    }
+
+                    if (CandidateBarracksUnitValue->build_progress < 1.0f ||
+                        !CandidateBarracksUnitValue->orders.empty() ||
                         IntentBufferValue.HasIntentForActor(CandidateBarracksUnitValue->tag) ||
                         HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue,
                                                         CandidateBarracksUnitValue->tag))
                     {
+                        HasBusyBarracksWithoutAddonValue = true;
                         continue;
                     }
 
@@ -853,6 +999,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 if (BarracksUnitValue == nullptr)
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, 50U, 50U, 0U);
+                    DeferralReasonValue = HasBusyBarracksWithoutAddonValue ? ECommandOrderDeferralReason::ProducerBusy
+                                                                           : ECommandOrderDeferralReason::NoProducer;
                     break;
                 }
 
@@ -867,20 +1015,27 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             {
                 if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, 50U, 25U, 0U))
                 {
+                    DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
                 }
 
                 const Units FactoryUnitsValue =
                     FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_FACTORY));
                 const Unit* FactoryUnitValue = nullptr;
+                bool HasBusyFactoryWithoutAddonValue = false;
                 for (const Unit* CandidateFactoryUnitValue : FactoryUnitsValue)
                 {
-                    if (CandidateFactoryUnitValue == nullptr || CandidateFactoryUnitValue->build_progress < 1.0f ||
-                        !CandidateFactoryUnitValue->orders.empty() || CandidateFactoryUnitValue->add_on_tag != NullTag ||
+                    if (CandidateFactoryUnitValue == nullptr || CandidateFactoryUnitValue->add_on_tag != NullTag)
+                    {
+                        continue;
+                    }
+
+                    if (CandidateFactoryUnitValue->build_progress < 1.0f || !CandidateFactoryUnitValue->orders.empty() ||
                         IntentBufferValue.HasIntentForActor(CandidateFactoryUnitValue->tag) ||
                         HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue,
                                                         CandidateFactoryUnitValue->tag))
                     {
+                        HasBusyFactoryWithoutAddonValue = true;
                         continue;
                     }
 
@@ -891,6 +1046,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 if (FactoryUnitValue == nullptr)
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, 50U, 25U, 0U);
+                    DeferralReasonValue = HasBusyFactoryWithoutAddonValue ? ECommandOrderDeferralReason::ProducerBusy
+                                                                          : ECommandOrderDeferralReason::NoProducer;
                     break;
                 }
 
@@ -909,14 +1066,30 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             case ABILITY_ID::TRAIN_LIBERATOR:
             case ABILITY_ID::TRAIN_SIEGETANK:
             {
+                if (EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SCV &&
+                    GameStateDescriptorValue.BuildPlanning.AvailableSupply <= 1U &&
+                    HasOutstandingSupplyDepotDemand(CommandAuthoritySchedulingStateValue,
+                                                    GameStateDescriptorValue.BuildPlanning) &&
+                    GameStateDescriptorValue.BuildPlanning.AvailableMinerals < 150U)
+                {
+                    DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
+                    break;
+                }
+
                 const Units ProducerUnitsValue =
                     FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(EconomyOrderValue.ProducerUnitTypeId));
+                bool HasBusyProducerValue = false;
                 for (const Unit* ProducerUnitValue : ProducerUnitsValue)
                 {
-                    if (ProducerUnitValue == nullptr || ProducerUnitValue->build_progress < 1.0f ||
-                        IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
+                    if (ProducerUnitValue == nullptr)
+                    {
+                        continue;
+                    }
+
+                    if (ProducerUnitValue->build_progress < 1.0f || IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
                         HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue, ProducerUnitValue->tag))
                     {
+                        HasBusyProducerValue = true;
                         continue;
                     }
 
@@ -930,11 +1103,13 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     if (GetCommittedProductionOrderCount(CommandAuthoritySchedulingStateValue, *ProducerUnitValue) >=
                         GetProductionQueueCapacity(*FrameValue.Observation, *ProducerUnitValue))
                     {
+                        HasBusyProducerValue = true;
                         continue;
                     }
 
                     if (!TryReserveUnitCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.ResultUnitTypeId))
                     {
+                        DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                         break;
                     }
 
@@ -946,14 +1121,26 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     CreatedOrderValue = true;
                     break;
                 }
+                if (!CreatedOrderValue && DeferralReasonValue == ECommandOrderDeferralReason::None)
+                {
+                    DeferralReasonValue = HasBusyProducerValue ? ECommandOrderDeferralReason::ProducerBusy
+                                                               : ECommandOrderDeferralReason::NoProducer;
+                }
                 break;
             }
             default:
+                DeferralReasonValue = ECommandOrderDeferralReason::NoProducer;
                 break;
         }
 
         if (!CreatedOrderValue)
         {
+            if (DeferralReasonValue != ECommandOrderDeferralReason::None)
+            {
+                CommandAuthoritySchedulingStateValue.SetOrderDeferralState(EconomyOrderValue.OrderId,
+                                                                           DeferralReasonValue, CurrentStepValue,
+                                                                           CurrentGameLoopValue);
+            }
             continue;
         }
 
@@ -964,6 +1151,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
         UnitExecutionOrderValue.ResultUnitTypeId = EconomyOrderValue.ResultUnitTypeId;
         UnitExecutionOrderValue.UpgradeId = EconomyOrderValue.UpgradeId;
         CommandAuthoritySchedulingStateValue.EnqueueOrder(UnitExecutionOrderValue);
+        CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+            EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion, CurrentStepValue,
+            CurrentGameLoopValue);
     }
 }
 

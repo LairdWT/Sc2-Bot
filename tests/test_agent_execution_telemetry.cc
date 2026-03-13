@@ -2,6 +2,7 @@
 
 #include <iostream>
 
+#include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentDomain.h"
 #include "common/telemetry/EAgentExecutionEventType.h"
 #include "common/telemetry/EExecutionConditionState.h"
@@ -74,6 +75,35 @@ bool TestAgentExecutionTelemetry(int ArgC, char** ArgV)
     Check(AgentExecutionTelemetryValue.TotalIdleProductionConflictCount == 1U, SuccessValue,
           "Execution telemetry should coalesce repeated idle-production conflicts inside the cooldown window.");
 
+    AgentExecutionTelemetryValue.RecordSchedulerOrderDeferred(70U, 600U, 3001U, 2U, 909U,
+                                                              ABILITY_ID::BUILD_BARRACKS,
+                                                              EIntentDomain::StructureBuild,
+                                                              ECommandOrderDeferralReason::NoValidPlacement);
+    AgentExecutionTelemetryValue.RecordSchedulerOrderDeferred(71U, 601U, 3001U, 2U, 909U,
+                                                              ABILITY_ID::BUILD_BARRACKS,
+                                                              EIntentDomain::StructureBuild,
+                                                              ECommandOrderDeferralReason::NoValidPlacement);
+    Check(AgentExecutionTelemetryValue.TotalSchedulerOrderDeferralCount == 1U, SuccessValue,
+          "Execution telemetry should coalesce repeated scheduler deferrals with the same reason.");
+    Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
+              AgentExecutionTelemetryValue.RecentEvents.back().EventType ==
+                  EAgentExecutionEventType::SchedulerOrderDeferred,
+          SuccessValue, "Execution telemetry should record scheduler deferral events.");
+    Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
+              AgentExecutionTelemetryValue.RecentEvents.back().DeferralReason ==
+                  ECommandOrderDeferralReason::NoValidPlacement,
+          SuccessValue, "Scheduler deferral events should preserve the deferral reason.");
+    Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
+              AgentExecutionTelemetryValue.RecentEvents.back().OrderId == 3001U,
+          SuccessValue, "Scheduler deferral events should preserve the scheduler order identifier.");
+
+    AgentExecutionTelemetryValue.RecordSchedulerOrderDeferred(72U, 602U, 3001U, 2U, 909U,
+                                                              ABILITY_ID::BUILD_BARRACKS,
+                                                              EIntentDomain::StructureBuild,
+                                                              ECommandOrderDeferralReason::InsufficientResources);
+    Check(AgentExecutionTelemetryValue.TotalSchedulerOrderDeferralCount == 2U, SuccessValue,
+          "A new scheduler deferral reason should produce a new telemetry event.");
+
     AgentExecutionTelemetryValue.Reset();
     Check(AgentExecutionTelemetryValue.RecentEvents.empty(), SuccessValue,
           "Execution telemetry reset should clear recent events.");
@@ -81,6 +111,8 @@ bool TestAgentExecutionTelemetry(int ArgC, char** ArgV)
           "Execution telemetry reset should clear actor conflict counts.");
     Check(AgentExecutionTelemetryValue.TotalIdleProductionConflictCount == 0U, SuccessValue,
           "Execution telemetry reset should clear idle-production conflict counts.");
+    Check(AgentExecutionTelemetryValue.TotalSchedulerOrderDeferralCount == 0U, SuccessValue,
+          "Execution telemetry reset should clear scheduler deferral counts.");
 
     return SuccessValue;
 }

@@ -17,6 +17,7 @@ set(sc2_terran_bot_common_sources
     descriptors/FMacroStateDescriptor.cc
     descriptors/IGameStateDescriptorBuilder.cc
     planning/ECommandAuthorityLayer.cc
+    planning/ECommandOrderDeferralReason.cc
     planning/EIntentDomain.cc
     planning/EIntentPlaybackState.cc
     planning/EOrderLifecycleState.cc

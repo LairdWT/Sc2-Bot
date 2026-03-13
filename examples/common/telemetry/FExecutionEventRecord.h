@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentDomain.h"
 #include "common/telemetry/EAgentExecutionEventType.h"
 #include "sc2api/sc2_common.h"
@@ -26,6 +27,9 @@ public:
     AbilityID AbilityId;
     EIntentDomain IntentDomain;
     UNIT_TYPEID UnitTypeId;
+    uint32_t OrderId;
+    uint32_t PlanStepId;
+    ECommandOrderDeferralReason DeferralReason;
     uint64_t MetricValue;
 };
 

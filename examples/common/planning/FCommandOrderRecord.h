@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentDomain.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "sc2api/sc2_common.h"
@@ -68,6 +69,14 @@ public:
     UNIT_TYPEID ProducerUnitTypeId;
     UNIT_TYPEID ResultUnitTypeId;
     UpgradeID UpgradeId;
+    ECommandOrderDeferralReason LastDeferralReason;
+    uint64_t LastDeferralStep;
+    uint64_t LastDeferralGameLoop;
+    uint64_t DispatchStep;
+    uint64_t DispatchGameLoop;
+    uint32_t ObservedCountAtDispatch;
+    uint32_t ObservedInConstructionCountAtDispatch;
+    uint32_t DispatchAttemptCount;
 };
 
 }  // namespace sc2

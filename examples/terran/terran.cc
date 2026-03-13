@@ -122,6 +122,7 @@ void TerranAgent::OnStep()
 
     UpdateAgentState(Frame);
     RebuildGameStateDescriptor(Frame);
+    UpdateDispatchedSchedulerOrders(Frame);
 
     IntentBuffer.Reset();
     ProduceSchedulerOpeningIntents(Frame);
@@ -131,7 +132,7 @@ void TerranAgent::OnStep()
 
     ResolvedIntents = IntentArbiter.Resolve(Frame, AgentState.UnitContainer, IntentBuffer);
     ExecuteResolvedIntents(Frame, ResolvedIntents);
-    CompleteDispatchedSchedulerOrders();
+    CaptureNewlyDispatchedSchedulerOrders(Frame);
 
     if (CurrentStep % 120 == 0)
     {
@@ -322,7 +323,8 @@ void TerranAgent::PrintAgentState()
               << " (" << ExecutionTelemetry.GetCurrentMineralBankDurationGameLoops(GameStateDescriptor.CurrentGameLoop)
               << " loops)"
               << " | Conflicts " << ExecutionTelemetry.TotalActorIntentConflictCount
-              << " | IdleProduction " << ExecutionTelemetry.TotalIdleProductionConflictCount << "\n";
+              << " | IdleProduction " << ExecutionTelemetry.TotalIdleProductionConflictCount
+              << " | Deferrals " << ExecutionTelemetry.TotalSchedulerOrderDeferralCount << "\n";
     std::cout << "Recent Execution Events: ";
     if (ExecutionTelemetry.RecentEvents.empty())
     {
@@ -345,6 +347,14 @@ void TerranAgent::PrintAgentState()
             {
                 std::cout << " Actor " << ExecutionEventRecordValue.ActorTag;
             }
+            if (ExecutionEventRecordValue.OrderId != 0U)
+            {
+                std::cout << " Order " << ExecutionEventRecordValue.OrderId;
+            }
+            if (ExecutionEventRecordValue.PlanStepId != 0U)
+            {
+                std::cout << " PlanStep " << ExecutionEventRecordValue.PlanStepId;
+            }
             if (ExecutionEventRecordValue.AbilityId != ABILITY_ID::INVALID)
             {
                 std::cout << " Ability " << static_cast<uint32_t>(ExecutionEventRecordValue.AbilityId);
@@ -352,6 +362,10 @@ void TerranAgent::PrintAgentState()
             if (ExecutionEventRecordValue.UnitTypeId != UNIT_TYPEID::INVALID)
             {
                 std::cout << " Unit " << static_cast<uint32_t>(ExecutionEventRecordValue.UnitTypeId);
+            }
+            if (ExecutionEventRecordValue.DeferralReason != ECommandOrderDeferralReason::None)
+            {
+                std::cout << " Reason " << ToString(ExecutionEventRecordValue.DeferralReason);
             }
             if (ExecutionEventRecordValue.MetricValue > 0U)
             {
@@ -434,6 +448,27 @@ void TerranAgent::UpdateExecutionTelemetry(const FFrameContext& Frame)
                                                             TownHallUnitValue->unit_type.ToType(),
                                                             ABILITY_ID::TRAIN_SCV);
         }
+    }
+
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
+        GameStateDescriptor.CommandAuthoritySchedulingState;
+    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.LastDeferralSteps[OrderIndexValue] != CurrentStep ||
+            CommandAuthoritySchedulingStateValue.LastDeferralReasons[OrderIndexValue] ==
+                ECommandOrderDeferralReason::None)
+        {
+            continue;
+        }
+
+        ExecutionTelemetry.RecordSchedulerOrderDeferred(
+            CurrentStep, Frame.GameLoop, CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue],
+            CommandAuthoritySchedulingStateValue.PlanStepIds[OrderIndexValue],
+            CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue],
+            CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue],
+            CommandAuthoritySchedulingStateValue.IntentDomains[OrderIndexValue],
+            CommandAuthoritySchedulingStateValue.LastDeferralReasons[OrderIndexValue]);
     }
 }
 
@@ -622,8 +657,11 @@ void TerranAgent::ExecuteResolvedIntents(const FFrameContext& Frame, const std::
     }
 }
 
-void TerranAgent::CompleteDispatchedSchedulerOrders()
+void TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)
 {
+    (void)Frame;
+
+    constexpr uint64_t DispatchConfirmationTimeoutGameLoopsValue = 96U;
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptor.CommandAuthoritySchedulingState;
     const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
@@ -635,8 +673,59 @@ void TerranAgent::CompleteDispatchedSchedulerOrders()
             continue;
         }
 
-        CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(
-            CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue], EOrderLifecycleState::Completed);
+        const FCommandOrderRecord CommandOrderRecordValue =
+            CommandAuthoritySchedulingStateValue.GetOrderRecord(OrderIndexValue);
+        const uint32_t CurrentObservedCountValue = GetObservedCountForOrder(CommandOrderRecordValue);
+        const uint32_t CurrentObservedInConstructionCountValue =
+            GetObservedInConstructionCountForOrder(CommandOrderRecordValue);
+        if (CurrentObservedCountValue > CommandOrderRecordValue.ObservedCountAtDispatch ||
+            CurrentObservedInConstructionCountValue >
+                CommandOrderRecordValue.ObservedInConstructionCountAtDispatch)
+        {
+            CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(CommandOrderRecordValue.OrderId,
+                                                                       EOrderLifecycleState::Completed);
+            continue;
+        }
+
+        const Unit* ActorUnitValue = AgentState.UnitContainer.GetUnitByTag(CommandOrderRecordValue.ActorTag);
+        if (HasProducerConfirmedDispatchedOrder(CommandOrderRecordValue, ActorUnitValue))
+        {
+            CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(CommandOrderRecordValue.OrderId,
+                                                                       EOrderLifecycleState::Completed);
+            continue;
+        }
+
+        if (CommandOrderRecordValue.DispatchGameLoop == 0U ||
+            GameStateDescriptor.CurrentGameLoop <
+                (CommandOrderRecordValue.DispatchGameLoop + DispatchConfirmationTimeoutGameLoopsValue))
+        {
+            continue;
+        }
+
+        CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(CommandOrderRecordValue.OrderId,
+                                                                   EOrderLifecycleState::Aborted);
+    }
+}
+
+void TerranAgent::CaptureNewlyDispatchedSchedulerOrders(const FFrameContext& Frame)
+{
+    FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
+        GameStateDescriptor.CommandAuthoritySchedulingState;
+    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution ||
+            CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue] != EOrderLifecycleState::Dispatched ||
+            CommandAuthoritySchedulingStateValue.DispatchAttemptCounts[OrderIndexValue] > 0U)
+        {
+            continue;
+        }
+
+        const FCommandOrderRecord CommandOrderRecordValue =
+            CommandAuthoritySchedulingStateValue.GetOrderRecord(OrderIndexValue);
+        CommandAuthoritySchedulingStateValue.SetOrderDispatchState(
+            CommandOrderRecordValue.OrderId, CurrentStep, Frame.GameLoop, GetObservedCountForOrder(CommandOrderRecordValue),
+            GetObservedInConstructionCountForOrder(CommandOrderRecordValue));
     }
 }
 
@@ -701,6 +790,127 @@ uint32_t TerranAgent::CountOrdersAndIntentsForAbility(const ABILITY_ID AbilityId
     }
 
     return OrderCountValue;
+}
+
+uint32_t TerranAgent::GetObservedCountForOrder(const FCommandOrderRecord& CommandOrderRecordValue) const
+{
+    switch (CommandOrderRecordValue.ResultUnitTypeId)
+    {
+        case UNIT_TYPEID::TERRAN_COMMANDCENTER:
+            return GameStateDescriptor.BuildPlanning.ObservedTownHallCount;
+        case UNIT_TYPEID::TERRAN_ORBITALCOMMAND:
+            return GameStateDescriptor.BuildPlanning.ObservedOrbitalCommandCount;
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOT:
+            return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_SUPPLYDEPOT)]) +
+                   static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED)]);
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+            return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_BARRACKS)]) +
+                   static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_BARRACKSFLYING)]);
+        case UNIT_TYPEID::TERRAN_FACTORY:
+            return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_FACTORY)]) +
+                   static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_FACTORYFLYING)]);
+        case UNIT_TYPEID::TERRAN_STARPORT:
+            return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_STARPORT)]) +
+                   static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_STARPORTFLYING)]);
+        case UNIT_TYPEID::TERRAN_REFINERY:
+            return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_REFINERY)]) +
+                   static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+                       UNIT_TYPEID::TERRAN_REFINERYRICH)]);
+        case UNIT_TYPEID::TERRAN_HELLION:
+            return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
+                       UNIT_TYPEID::TERRAN_HELLION)]) +
+                   static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
+                       UNIT_TYPEID::TERRAN_HELLIONTANK)]);
+        case UNIT_TYPEID::TERRAN_LIBERATOR:
+            return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
+                       UNIT_TYPEID::TERRAN_LIBERATOR)]) +
+                   static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
+                       UNIT_TYPEID::TERRAN_LIBERATORAG)]);
+        case UNIT_TYPEID::TERRAN_SIEGETANK:
+            return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
+                       UNIT_TYPEID::TERRAN_SIEGETANK)]) +
+                   static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
+                       UNIT_TYPEID::TERRAN_SIEGETANKSIEGED)]);
+        default:
+            break;
+    }
+
+    if (IsTerranBuilding(CommandOrderRecordValue.ResultUnitTypeId))
+    {
+        const size_t BuildingTypeIndexValue = GetTerranBuildingTypeIndex(CommandOrderRecordValue.ResultUnitTypeId);
+        return IsTerranBuildingTypeIndexValid(BuildingTypeIndexValue)
+                   ? static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingCounts[BuildingTypeIndexValue])
+                   : 0U;
+    }
+
+    const size_t UnitTypeIndexValue = GetTerranUnitTypeIndex(CommandOrderRecordValue.ResultUnitTypeId);
+    return IsTerranUnitTypeIndexValid(UnitTypeIndexValue)
+               ? static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedUnitCounts[UnitTypeIndexValue])
+               : 0U;
+}
+
+uint32_t TerranAgent::GetObservedInConstructionCountForOrder(const FCommandOrderRecord& CommandOrderRecordValue) const
+{
+    if (CommandOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_COMMANDCENTER)
+    {
+        return static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedBuildingsInConstruction[
+            GetTerranBuildingTypeIndex(UNIT_TYPEID::TERRAN_COMMANDCENTER)]);
+    }
+
+    if (IsTerranBuilding(CommandOrderRecordValue.ResultUnitTypeId))
+    {
+        const size_t BuildingTypeIndexValue = GetTerranBuildingTypeIndex(CommandOrderRecordValue.ResultUnitTypeId);
+        return IsTerranBuildingTypeIndexValid(BuildingTypeIndexValue)
+                   ? static_cast<uint32_t>(
+                         GameStateDescriptor.BuildPlanning.ObservedBuildingsInConstruction[BuildingTypeIndexValue])
+                   : 0U;
+    }
+
+    const size_t UnitTypeIndexValue = GetTerranUnitTypeIndex(CommandOrderRecordValue.ResultUnitTypeId);
+    return IsTerranUnitTypeIndexValid(UnitTypeIndexValue)
+               ? static_cast<uint32_t>(GameStateDescriptor.BuildPlanning.ObservedUnitsInConstruction[UnitTypeIndexValue])
+               : 0U;
+}
+
+bool TerranAgent::HasProducerConfirmedDispatchedOrder(const FCommandOrderRecord& CommandOrderRecordValue,
+                                                      const Unit* ActorUnitValue) const
+{
+    if (ActorUnitValue == nullptr)
+    {
+        return false;
+    }
+
+    if (CommandOrderRecordValue.AbilityId == ABILITY_ID::MORPH_ORBITALCOMMAND &&
+        ActorUnitValue->unit_type.ToType() == UNIT_TYPEID::TERRAN_ORBITALCOMMAND)
+    {
+        return true;
+    }
+
+    if ((CommandOrderRecordValue.AbilityId == ABILITY_ID::BUILD_REACTOR_BARRACKS ||
+         CommandOrderRecordValue.AbilityId == ABILITY_ID::BUILD_TECHLAB_FACTORY) &&
+        ActorUnitValue->add_on_tag != NullTag)
+    {
+        return true;
+    }
+
+    for (const UnitOrder& UnitOrderValue : ActorUnitValue->orders)
+    {
+        if (UnitOrderValue.ability_id == CommandOrderRecordValue.AbilityId)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool TerranAgent::ShouldRefreshArmyOrder(const Unit& UnitValue, const ABILITY_ID AbilityValue,

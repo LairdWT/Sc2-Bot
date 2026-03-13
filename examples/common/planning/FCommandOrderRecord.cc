@@ -35,6 +35,14 @@ void FCommandOrderRecord::Reset()
     ProducerUnitTypeId = UNIT_TYPEID::INVALID;
     ResultUnitTypeId = UNIT_TYPEID::INVALID;
     UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
+    LastDeferralReason = ECommandOrderDeferralReason::None;
+    LastDeferralStep = 0U;
+    LastDeferralGameLoop = 0U;
+    DispatchStep = 0U;
+    DispatchGameLoop = 0U;
+    ObservedCountAtDispatch = 0U;
+    ObservedInConstructionCountAtDispatch = 0U;
+    DispatchAttemptCount = 0U;
 }
 
 FCommandOrderRecord FCommandOrderRecord::CreateNoTarget(const ECommandAuthorityLayer SourceLayerValue,

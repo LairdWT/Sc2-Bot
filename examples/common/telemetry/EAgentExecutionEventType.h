@@ -11,6 +11,7 @@ enum class EAgentExecutionEventType
     MineralBankEnded,
     ActorIntentConflict,
     IdleProductionStructure,
+    SchedulerOrderDeferred,
 };
 
 const char* ToString(EAgentExecutionEventType AgentExecutionEventTypeValue);

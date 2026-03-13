@@ -19,6 +19,8 @@ const char* ToString(const EAgentExecutionEventType AgentExecutionEventTypeValue
             return "ActorIntentConflict";
         case EAgentExecutionEventType::IdleProductionStructure:
             return "IdleProductionStructure";
+        case EAgentExecutionEventType::SchedulerOrderDeferred:
+            return "SchedulerOrderDeferred";
         default:
             return "Unknown";
     }

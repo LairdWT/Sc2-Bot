@@ -35,9 +35,12 @@ void FAgentExecutionTelemetry::Reset()
     LastMineralBankAmount = 0U;
     TotalActorIntentConflictCount = 0U;
     TotalIdleProductionConflictCount = 0U;
+    TotalSchedulerOrderDeferralCount = 0U;
     RecentEvents.clear();
     LastActorConflictStepByActor.clear();
     LastIdleProductionConflictStepByActor.clear();
+    LastSchedulerDeferralStepByOrderId.clear();
+    LastSchedulerDeferralReasonByOrderId.clear();
 }
 
 void FAgentExecutionTelemetry::UpdateSupplyBlockState(const EExecutionConditionState NextStateValue,
@@ -155,6 +158,39 @@ void FAgentExecutionTelemetry::RecordIdleProductionConflict(const uint64_t Curre
     ExecutionEventRecordValue.ActorTag = ActorTagValue;
     ExecutionEventRecordValue.UnitTypeId = UnitTypeIdValue;
     ExecutionEventRecordValue.AbilityId = AbilityIdValue;
+    AppendEvent(ExecutionEventRecordValue);
+}
+
+void FAgentExecutionTelemetry::RecordSchedulerOrderDeferred(
+    const uint64_t CurrentStepValue, const uint64_t CurrentGameLoopValue, const uint32_t OrderIdValue,
+    const uint32_t PlanStepIdValue, const Tag ActorTagValue, const AbilityID AbilityIdValue,
+    const EIntentDomain IntentDomainValue, const ECommandOrderDeferralReason DeferralReasonValue)
+{
+    const std::unordered_map<uint32_t, uint64_t>::const_iterator FoundStepValue =
+        LastSchedulerDeferralStepByOrderId.find(OrderIdValue);
+    const std::unordered_map<uint32_t, ECommandOrderDeferralReason>::const_iterator FoundReasonValue =
+        LastSchedulerDeferralReasonByOrderId.find(OrderIdValue);
+    if (FoundStepValue != LastSchedulerDeferralStepByOrderId.end() &&
+        FoundReasonValue != LastSchedulerDeferralReasonByOrderId.end() &&
+        FoundReasonValue->second == DeferralReasonValue &&
+        CurrentStepValue < (FoundStepValue->second + EventCooldownStepsValue))
+    {
+        return;
+    }
+
+    LastSchedulerDeferralStepByOrderId[OrderIdValue] = CurrentStepValue;
+    LastSchedulerDeferralReasonByOrderId[OrderIdValue] = DeferralReasonValue;
+    ++TotalSchedulerOrderDeferralCount;
+
+    FExecutionEventRecord ExecutionEventRecordValue;
+    PopulateCommonEventFields(ExecutionEventRecordValue, EAgentExecutionEventType::SchedulerOrderDeferred,
+                              CurrentStepValue, CurrentGameLoopValue);
+    ExecutionEventRecordValue.OrderId = OrderIdValue;
+    ExecutionEventRecordValue.PlanStepId = PlanStepIdValue;
+    ExecutionEventRecordValue.ActorTag = ActorTagValue;
+    ExecutionEventRecordValue.AbilityId = AbilityIdValue;
+    ExecutionEventRecordValue.IntentDomain = IntentDomainValue;
+    ExecutionEventRecordValue.DeferralReason = DeferralReasonValue;
     AppendEvent(ExecutionEventRecordValue);
 }
 

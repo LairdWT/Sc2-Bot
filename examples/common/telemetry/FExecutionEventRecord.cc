@@ -17,6 +17,9 @@ void FExecutionEventRecord::Reset()
     AbilityId = ABILITY_ID::INVALID;
     IntentDomain = EIntentDomain::Recovery;
     UnitTypeId = UNIT_TYPEID::INVALID;
+    OrderId = 0U;
+    PlanStepId = 0U;
+    DeferralReason = ECommandOrderDeferralReason::None;
     MetricValue = 0U;
 }
 

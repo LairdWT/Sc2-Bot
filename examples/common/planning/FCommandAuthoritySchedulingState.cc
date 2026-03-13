@@ -43,6 +43,14 @@ void FCommandAuthoritySchedulingState::Reset()
     ProducerUnitTypeIds.clear();
     ResultUnitTypeIds.clear();
     UpgradeIds.clear();
+    LastDeferralReasons.clear();
+    LastDeferralSteps.clear();
+    LastDeferralGameLoops.clear();
+    DispatchSteps.clear();
+    DispatchGameLoops.clear();
+    ObservedCountsAtDispatch.clear();
+    ObservedInConstructionCountsAtDispatch.clear();
+    DispatchAttemptCounts.clear();
 
     OrderIdToIndex.clear();
     StrategicOrderIndices.clear();
@@ -78,6 +86,14 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     ProducerUnitTypeIds.reserve(OrderCapacityValue);
     ResultUnitTypeIds.reserve(OrderCapacityValue);
     UpgradeIds.reserve(OrderCapacityValue);
+    LastDeferralReasons.reserve(OrderCapacityValue);
+    LastDeferralSteps.reserve(OrderCapacityValue);
+    LastDeferralGameLoops.reserve(OrderCapacityValue);
+    DispatchSteps.reserve(OrderCapacityValue);
+    DispatchGameLoops.reserve(OrderCapacityValue);
+    ObservedCountsAtDispatch.reserve(OrderCapacityValue);
+    ObservedInConstructionCountsAtDispatch.reserve(OrderCapacityValue);
+    DispatchAttemptCounts.reserve(OrderCapacityValue);
 }
 
 uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecord& CommandOrderRecordValue)
@@ -117,6 +133,14 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     ProducerUnitTypeIds.push_back(StoredOrderValue.ProducerUnitTypeId);
     ResultUnitTypeIds.push_back(StoredOrderValue.ResultUnitTypeId);
     UpgradeIds.push_back(StoredOrderValue.UpgradeId);
+    LastDeferralReasons.push_back(StoredOrderValue.LastDeferralReason);
+    LastDeferralSteps.push_back(StoredOrderValue.LastDeferralStep);
+    LastDeferralGameLoops.push_back(StoredOrderValue.LastDeferralGameLoop);
+    DispatchSteps.push_back(StoredOrderValue.DispatchStep);
+    DispatchGameLoops.push_back(StoredOrderValue.DispatchGameLoop);
+    ObservedCountsAtDispatch.push_back(StoredOrderValue.ObservedCountAtDispatch);
+    ObservedInConstructionCountsAtDispatch.push_back(StoredOrderValue.ObservedInConstructionCountAtDispatch);
+    DispatchAttemptCounts.push_back(StoredOrderValue.DispatchAttemptCount);
     OrderIdToIndex[StoredOrderValue.OrderId] = OrderIndexValue;
 
     RebuildDerivedQueues();
@@ -192,6 +216,15 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.ProducerUnitTypeId = ProducerUnitTypeIds[OrderIndexValue];
     CommandOrderRecordValue.ResultUnitTypeId = ResultUnitTypeIds[OrderIndexValue];
     CommandOrderRecordValue.UpgradeId = UpgradeIds[OrderIndexValue];
+    CommandOrderRecordValue.LastDeferralReason = LastDeferralReasons[OrderIndexValue];
+    CommandOrderRecordValue.LastDeferralStep = LastDeferralSteps[OrderIndexValue];
+    CommandOrderRecordValue.LastDeferralGameLoop = LastDeferralGameLoops[OrderIndexValue];
+    CommandOrderRecordValue.DispatchStep = DispatchSteps[OrderIndexValue];
+    CommandOrderRecordValue.DispatchGameLoop = DispatchGameLoops[OrderIndexValue];
+    CommandOrderRecordValue.ObservedCountAtDispatch = ObservedCountsAtDispatch[OrderIndexValue];
+    CommandOrderRecordValue.ObservedInConstructionCountAtDispatch =
+        ObservedInConstructionCountsAtDispatch[OrderIndexValue];
+    CommandOrderRecordValue.DispatchAttemptCount = DispatchAttemptCounts[OrderIndexValue];
     return CommandOrderRecordValue;
 }
 
@@ -206,6 +239,60 @@ bool FCommandAuthoritySchedulingState::SetOrderLifecycleState(const uint32_t Ord
 
     LifecycleStates[OrderIndexValue] = LifecycleStateValue;
     RebuildDerivedQueues();
+    return true;
+}
+
+bool FCommandAuthoritySchedulingState::SetOrderDeferralState(const uint32_t OrderIdValue,
+                                                             const ECommandOrderDeferralReason DeferralReasonValue,
+                                                             const uint64_t CurrentStepValue,
+                                                             const uint64_t CurrentGameLoopValue)
+{
+    size_t OrderIndexValue = 0U;
+    if (!TryGetOrderIndex(OrderIdValue, OrderIndexValue))
+    {
+        return false;
+    }
+
+    LastDeferralReasons[OrderIndexValue] = DeferralReasonValue;
+    LastDeferralSteps[OrderIndexValue] = CurrentStepValue;
+    LastDeferralGameLoops[OrderIndexValue] = CurrentGameLoopValue;
+    return true;
+}
+
+bool FCommandAuthoritySchedulingState::ClearOrderDeferralState(const uint32_t OrderIdValue)
+{
+    size_t OrderIndexValue = 0U;
+    if (!TryGetOrderIndex(OrderIdValue, OrderIndexValue))
+    {
+        return false;
+    }
+
+    LastDeferralReasons[OrderIndexValue] = ECommandOrderDeferralReason::None;
+    LastDeferralSteps[OrderIndexValue] = 0U;
+    LastDeferralGameLoops[OrderIndexValue] = 0U;
+    return true;
+}
+
+bool FCommandAuthoritySchedulingState::SetOrderDispatchState(const uint32_t OrderIdValue,
+                                                             const uint64_t DispatchStepValue,
+                                                             const uint64_t DispatchGameLoopValue,
+                                                             const uint32_t ObservedCountValue,
+                                                             const uint32_t ObservedInConstructionCountValue)
+{
+    size_t OrderIndexValue = 0U;
+    if (!TryGetOrderIndex(OrderIdValue, OrderIndexValue))
+    {
+        return false;
+    }
+
+    DispatchSteps[OrderIndexValue] = DispatchStepValue;
+    DispatchGameLoops[OrderIndexValue] = DispatchGameLoopValue;
+    ObservedCountsAtDispatch[OrderIndexValue] = ObservedCountValue;
+    ObservedInConstructionCountsAtDispatch[OrderIndexValue] = ObservedInConstructionCountValue;
+    ++DispatchAttemptCounts[OrderIndexValue];
+    LastDeferralReasons[OrderIndexValue] = ECommandOrderDeferralReason::None;
+    LastDeferralSteps[OrderIndexValue] = 0U;
+    LastDeferralGameLoops[OrderIndexValue] = 0U;
     return true;
 }
 

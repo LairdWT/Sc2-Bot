@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentDomain.h"
 #include "common/planning/EIntentPlaybackState.h"
 #include "common/planning/EOrderLifecycleState.h"
@@ -32,6 +33,11 @@ public:
     size_t GetOrderCount() const;
     FCommandOrderRecord GetOrderRecord(size_t OrderIndexValue) const;
     bool SetOrderLifecycleState(uint32_t OrderIdValue, EOrderLifecycleState LifecycleStateValue);
+    bool SetOrderDeferralState(uint32_t OrderIdValue, ECommandOrderDeferralReason DeferralReasonValue,
+                               uint64_t CurrentStepValue, uint64_t CurrentGameLoopValue);
+    bool ClearOrderDeferralState(uint32_t OrderIdValue);
+    bool SetOrderDispatchState(uint32_t OrderIdValue, uint64_t DispatchStepValue, uint64_t DispatchGameLoopValue,
+                               uint32_t ObservedCountValue, uint32_t ObservedInConstructionCountValue);
     void RebuildDerivedQueues();
 
 public:
@@ -66,6 +72,14 @@ public:
     std::vector<UNIT_TYPEID> ProducerUnitTypeIds;
     std::vector<UNIT_TYPEID> ResultUnitTypeIds;
     std::vector<UpgradeID> UpgradeIds;
+    std::vector<ECommandOrderDeferralReason> LastDeferralReasons;
+    std::vector<uint64_t> LastDeferralSteps;
+    std::vector<uint64_t> LastDeferralGameLoops;
+    std::vector<uint64_t> DispatchSteps;
+    std::vector<uint64_t> DispatchGameLoops;
+    std::vector<uint32_t> ObservedCountsAtDispatch;
+    std::vector<uint32_t> ObservedInConstructionCountsAtDispatch;
+    std::vector<uint32_t> DispatchAttemptCounts;
 
     std::unordered_map<uint32_t, size_t> OrderIdToIndex;
     std::vector<size_t> StrategicOrderIndices;

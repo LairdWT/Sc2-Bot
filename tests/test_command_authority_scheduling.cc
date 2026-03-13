@@ -7,6 +7,7 @@
 #include "common/agent_framework.h"
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentPlaybackState.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "common/planning/EPlanningProcessorState.h"
@@ -124,6 +125,22 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Existing orders without a producer type should default the producer type to invalid.");
     Check(FirstUnitOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::INVALID, SuccessValue,
           "Existing orders without a result type should default the result type to invalid.");
+    Check(FirstUnitOrderRecordValue.LastDeferralReason == ECommandOrderDeferralReason::None, SuccessValue,
+          "Existing orders should default the scheduler deferral reason to None.");
+    Check(FirstUnitOrderRecordValue.DispatchAttemptCount == 0U, SuccessValue,
+          "Existing orders should default dispatch attempts to zero.");
+
+    CommandAuthoritySchedulingStateValue.SetOrderDeferralState(FirstUnitOrderIdValue,
+                                                               ECommandOrderDeferralReason::ProducerBusy, 15U, 140U);
+    const FCommandOrderRecord DeferredUnitOrderRecordValue =
+        CommandAuthoritySchedulingStateValue.GetOrderRecord(FirstUnitOrderIndexValue);
+    Check(DeferredUnitOrderRecordValue.LastDeferralReason == ECommandOrderDeferralReason::ProducerBusy, SuccessValue,
+          "Scheduling state should reconstruct the last deferral reason for an order.");
+    Check(DeferredUnitOrderRecordValue.LastDeferralStep == 15U, SuccessValue,
+          "Scheduling state should reconstruct the deferral step for an order.");
+    Check(DeferredUnitOrderRecordValue.LastDeferralGameLoop == 140U, SuccessValue,
+          "Scheduling state should reconstruct the deferral game loop for an order.");
+    CommandAuthoritySchedulingStateValue.ClearOrderDeferralState(FirstUnitOrderIdValue);
 
     IntentSchedulingServiceValue.UpdateOrderLifecycleState(CommandAuthoritySchedulingStateValue, FirstUnitOrderIdValue,
                                                            EOrderLifecycleState::Ready);
@@ -172,6 +189,16 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Ready buffer indices should empty after all ready work is dispatched.");
     Check(CommandAuthoritySchedulingStateValue.PlaybackState == EIntentPlaybackState::Dispatching, SuccessValue,
           "Dispatched work should keep playback state in Dispatching until completion.");
+
+    CommandAuthoritySchedulingStateValue.SetOrderDispatchState(FirstUnitOrderIdValue, 16U, 160U, 0U, 0U);
+    const FCommandOrderRecord DispatchedUnitOrderRecordValue =
+        CommandAuthoritySchedulingStateValue.GetOrderRecord(FirstUnitOrderIndexValue);
+    Check(DispatchedUnitOrderRecordValue.DispatchStep == 16U, SuccessValue,
+          "Scheduling state should reconstruct the dispatch step snapshot.");
+    Check(DispatchedUnitOrderRecordValue.DispatchGameLoop == 160U, SuccessValue,
+          "Scheduling state should reconstruct the dispatch game-loop snapshot.");
+    Check(DispatchedUnitOrderRecordValue.DispatchAttemptCount == 1U, SuccessValue,
+          "Scheduling state should count dispatch attempts explicitly.");
 
     IntentSchedulingServiceValue.UpdateOrderLifecycleState(CommandAuthoritySchedulingStateValue, FirstUnitOrderIdValue,
                                                            EOrderLifecycleState::Completed);
@@ -222,6 +249,8 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Processor state string conversion should expose ReadyToDrain.");
     Check(std::string(ToString(EIntentPlaybackState::Dispatching)) == "Dispatching", SuccessValue,
           "Playback state string conversion should expose Dispatching.");
+    Check(std::string(ToString(ECommandOrderDeferralReason::ProducerBusy)) == "ProducerBusy", SuccessValue,
+          "Deferral reason string conversion should expose ProducerBusy.");
 
     return SuccessValue;
 }
