@@ -173,3 +173,41 @@ This backlog breaks Phase 0 and Phase 1 of [ExecutionRoadmap.md](ExecutionRoadma
 2. Complete `P0-003`, `P0-004`, and `P0-005` so the current bot behavior stops fighting the architecture work.
 3. Keep Phase 1 scaffolding compileable while it remains only partially integrated.
 4. After Phase 0 is stable, begin replacing direct Terran behavior branches with planner and service dependencies one seam at a time.
+
+## Phase 2: Descriptor Rebuild Pipeline
+
+### P2-001: Frame Descriptor Builder
+
+- Status: Started
+- Scope:
+  add a bot-owned descriptor builder that rebuilds the root `FGameStateDescriptor` from `FAgentState` without resetting persistent scheduling state
+- Target files:
+  planned bot-owned files under `examples/common/descriptors`
+  [FGameStateDescriptor.h](/L:/Sc2_Bot/examples/common/descriptors/FGameStateDescriptor.h)
+  [FMacroStateDescriptor.h](/L:/Sc2_Bot/examples/common/descriptors/FMacroStateDescriptor.h)
+  [FBuildPlanningState.h](/L:/Sc2_Bot/examples/common/build_planning/FBuildPlanningState.h)
+- Acceptance criteria:
+  live Terran state can be translated into a root descriptor each frame through one explicit builder seam
+
+### P2-002: Default Strategic Director
+
+- Status: Started
+- Scope:
+  add the first concrete strategic director that consumes the rebuilt descriptor and sets the current plan, desired base count, desired army count, and primary army goals
+- Target files:
+  planned bot-owned files under `examples/common/planning`
+  [IStrategicDirector.h](/L:/Sc2_Bot/examples/common/planning/IStrategicDirector.h)
+  [FArmyDomainState.h](/L:/Sc2_Bot/examples/common/armies/FArmyDomainState.h)
+- Acceptance criteria:
+  the initial two-base timing plan can be represented in descriptor state without adding new hard-coded branches inside `TerranAgent`
+
+### P2-003: TerranAgent Coordinator Path
+
+- Status: Started
+- Scope:
+  route `TerranAgent` through descriptor rebuild and strategic plan update before producing the existing intent set
+- Target files:
+  [terran.cc](/L:/Sc2_Bot/examples/terran/terran.cc)
+  [terran.h](/L:/Sc2_Bot/examples/terran/terran.h)
+- Acceptance criteria:
+  `TerranAgent` owns orchestration, not plan derivation, and existing behavior continues to compile and run through the new descriptor path

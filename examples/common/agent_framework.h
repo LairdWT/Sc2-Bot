@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "s2clientprotocol/sc2api.pb.h"
+#include "common/planning/EIntentDomain.h"
 #include "sc2api/sc2_api.h"
 #include "sc2api/sc2_map_info.h"
 #include "terran_unit_container.h"
@@ -25,6 +26,7 @@ struct FFrameContext
     const GameInfo* GameInfo{nullptr};
     Point2D CameraWorld;
     uint64_t CurrentStep{0};
+    uint64_t GameLoop{0};
 
     static FFrameContext Create(const ObservationInterface* ObservationPtr, QueryInterface* QueryPtr, uint64_t CurrentStepValue)
     {
@@ -37,6 +39,7 @@ struct FFrameContext
             FrameContextValue.RawObservation = ObservationPtr->GetRawObservation();
             FrameContextValue.GameInfo = &ObservationPtr->GetGameInfo();
             FrameContextValue.CameraWorld = ObservationPtr->GetCameraPos();
+            FrameContextValue.GameLoop = ObservationPtr->GetGameLoop();
         }
         return FrameContextValue;
     }
@@ -417,31 +420,6 @@ enum class EIntentTargetKind : uint8_t
     Point,
     Unit,
 };
-
-enum class EIntentDomain : uint8_t
-{
-    Recovery,
-    StructureBuild,
-    UnitProduction,
-    ArmyCombat,
-};
-
-inline int GetIntentDomainOrder(EIntentDomain DomainValue)
-{
-    switch (DomainValue)
-    {
-        case EIntentDomain::Recovery:
-            return 0;
-        case EIntentDomain::StructureBuild:
-            return 1;
-        case EIntentDomain::UnitProduction:
-            return 2;
-        case EIntentDomain::ArmyCombat:
-            return 3;
-        default:
-            return std::numeric_limits<int>::max();
-    }
-}
 
 struct FUnitIntent
 {

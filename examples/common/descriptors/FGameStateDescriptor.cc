@@ -11,9 +11,11 @@ FGameStateDescriptor::FGameStateDescriptor()
 void FGameStateDescriptor::Reset()
 {
     CurrentStep = 0;
+    CurrentGameLoop = 0;
     MacroState.Reset();
     ArmyState.Reset();
     BuildPlanning.Reset();
+    OpeningPlanExecutionState.Reset();
     CommandAuthoritySchedulingState.Reset();
     SpatialFields.Reset();
 }

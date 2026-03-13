@@ -182,8 +182,19 @@ The next implementation tasks should likely be:
 
 1. correct safety issues in the current bot-owned foundational headers and source files
 2. create the initial domain and descriptor files
-3. extract a thin coordinator path out of `TerranAgent`
-4. introduce deterministic placement and expansion services
+3. implement a frame-level descriptor rebuild path from `FAgentState` into `FGameStateDescriptor`
+4. add a default strategic director for the initial two-base timing plan and home-defense army intent
+5. extract a thin coordinator path out of `TerranAgent`
+6. introduce deterministic placement and expansion services
+
+## Current Phase 2 Vertical Slice
+
+The active next step should be a narrow Phase 2 integration slice:
+
+1. rebuild macro, army, and build-planning descriptors from the live `FAgentState`
+2. let a default strategic director update the root descriptor with the current plan and desired army/base counts
+3. route `TerranAgent` through `Observe -> UpdateAgentState -> RebuildGameStateDescriptor -> UpdateStrategicPlan -> ProduceIntents`
+4. keep the existing low-level behavior intact until the new planners replace it one seam at a time
 
 ## Definition Of Done For The Architecture Pass
 

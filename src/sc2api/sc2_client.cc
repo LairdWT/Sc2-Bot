@@ -1545,6 +1545,10 @@ bool ControlImp::Connect(const std::string& address, int port, int timeout_ms) {
         return false;
     }
 
+    // Connection retries may record transient startup errors before the final successful attach.
+    ClearClientErrors();
+    ClearProtocolErrors();
+
     std::cout << "Connected to " << address << ":" << port << std::endl;
 
     return true;

@@ -1,25 +1,46 @@
 set(sc2_terran_bot_common_sources
     armies/EArmyGoal.cc
+    armies/EArmyPosture.cc
     armies/FArmyDomainState.cc
+    build_orders/EOpeningPlanId.cc
+    build_orders/EOpeningPlanLifecycleState.cc
+    build_orders/FOpeningPlanDescriptor.cc
+    build_orders/FOpeningPlanExecutionState.cc
+    build_orders/FOpeningPlanGoals.cc
+    build_orders/FOpeningPlanRegistry.cc
+    build_orders/FOpeningPlanStep.cc
     build_planning/FBuildPlanningState.cc
     descriptors/EGamePlan.cc
     descriptors/EMacroPhase.cc
+    descriptors/FTerranGameStateDescriptorBuilder.cc
     descriptors/FGameStateDescriptor.cc
     descriptors/FMacroStateDescriptor.cc
+    descriptors/IGameStateDescriptorBuilder.cc
     planning/ECommandAuthorityLayer.cc
+    planning/EIntentDomain.cc
     planning/EIntentPlaybackState.cc
     planning/EOrderLifecycleState.cc
     planning/EPlanningProcessorState.cc
     planning/FCommandAuthoritySchedulingState.cc
+    planning/FCommandAuthorityProcessor.cc
+    planning/FDefaultStrategicDirector.cc
     planning/FCommandOrderRecord.cc
+    planning/FTerranEconomyProductionOrderExpander.cc
+    planning/FTerranArmyPlanner.cc
+    planning/FTerranTimingAttackBuildPlanner.cc
     planning/IArmyPlanner.cc
     planning/IArmyOrderExpander.cc
     planning/IBuildPlanner.cc
+    planning/IEconomyProductionOrderExpander.cc
     planning/FIntentSchedulingService.cc
     planning/IIntentSchedulingService.cc
     planning/ISquadOrderExpander.cc
     planning/IStrategicDirector.cc
     planning/IUnitExecutionPlanner.cc
+    telemetry/EAgentExecutionEventType.cc
+    telemetry/EExecutionConditionState.cc
+    telemetry/FAgentExecutionTelemetry.cc
+    telemetry/FExecutionEventRecord.cc
     services/FTerranBuildPlacementService.cc
     services/IBuildPlacementService.cc
     services/IExpansionSelectionService.cc

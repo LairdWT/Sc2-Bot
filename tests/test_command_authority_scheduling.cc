@@ -116,6 +116,14 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Unit orders should reconstruct their intent domain.");
     Check(FirstUnitOrderRecordValue.RequiresPathingValidation, SuccessValue,
           "Unit orders should preserve their pathing validation requirement.");
+    Check(FirstUnitOrderRecordValue.PlanStepId == 0U, SuccessValue,
+          "Existing orders without an opening-plan source should default the plan step identifier to zero.");
+    Check(FirstUnitOrderRecordValue.TargetCount == 0U, SuccessValue,
+          "Existing orders without an authored target count should default that count to zero.");
+    Check(FirstUnitOrderRecordValue.ProducerUnitTypeId == UNIT_TYPEID::INVALID, SuccessValue,
+          "Existing orders without a producer type should default the producer type to invalid.");
+    Check(FirstUnitOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::INVALID, SuccessValue,
+          "Existing orders without a result type should default the result type to invalid.");
 
     IntentSchedulingServiceValue.UpdateOrderLifecycleState(CommandAuthoritySchedulingStateValue, FirstUnitOrderIdValue,
                                                            EOrderLifecycleState::Ready);
@@ -172,6 +180,31 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
 
     Check(CommandAuthoritySchedulingStateValue.CompletedOrderIndices.size() == 2U, SuccessValue,
           "Completed unit-execution orders should move into the completed-order buffer.");
+
+    FCommandOrderRecord OpeningPlanOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::BUILD_FACTORY, 250,
+        EIntentDomain::StructureBuild, 20U, 0U, 0U, -1, -1, false);
+    OpeningPlanOrderValue.PlanStepId = 19U;
+    OpeningPlanOrderValue.TargetCount = 1U;
+    OpeningPlanOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    OpeningPlanOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
+    OpeningPlanOrderValue.UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
+    const uint32_t OpeningPlanOrderIdValue =
+        IntentSchedulingServiceValue.SubmitOrder(CommandAuthoritySchedulingStateValue, OpeningPlanOrderValue);
+
+    size_t OpeningPlanOrderIndexValue = 0U;
+    Check(CommandAuthoritySchedulingStateValue.TryGetOrderIndex(OpeningPlanOrderIdValue, OpeningPlanOrderIndexValue),
+          SuccessValue, "Scheduling state should index authored opening-plan orders.");
+    const FCommandOrderRecord OpeningPlanOrderRecordValue =
+        CommandAuthoritySchedulingStateValue.GetOrderRecord(OpeningPlanOrderIndexValue);
+    Check(OpeningPlanOrderRecordValue.PlanStepId == 19U, SuccessValue,
+          "Scheduling state should reconstruct the authored opening-plan step identifier.");
+    Check(OpeningPlanOrderRecordValue.TargetCount == 1U, SuccessValue,
+          "Scheduling state should reconstruct the authored opening-plan target count.");
+    Check(OpeningPlanOrderRecordValue.ProducerUnitTypeId == UNIT_TYPEID::TERRAN_SCV, SuccessValue,
+          "Scheduling state should reconstruct the authored producer unit type.");
+    Check(OpeningPlanOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_FACTORY, SuccessValue,
+          "Scheduling state should reconstruct the authored result unit type.");
 
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.CommandAuthoritySchedulingState = CommandAuthoritySchedulingStateValue;

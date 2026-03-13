@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/EIntentDomain.h"
 #include "common/planning/EIntentPlaybackState.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "common/planning/EPlanningProcessorState.h"
@@ -14,7 +15,6 @@
 namespace sc2
 {
 
-enum class EIntentDomain : uint8_t;
 enum class EIntentTargetKind : uint8_t;
 
 struct FCommandAuthoritySchedulingState
@@ -27,6 +27,8 @@ public:
     uint32_t EnqueueOrder(const FCommandOrderRecord& CommandOrderRecordValue);
     bool IsOrderIndexValid(size_t OrderIndexValue) const;
     bool TryGetOrderIndex(uint32_t OrderIdValue, size_t& OutOrderIndexValue) const;
+    bool TryGetChildOrderIndex(uint32_t ParentOrderIdValue, ECommandAuthorityLayer SourceLayerValue,
+                               size_t& OutOrderIndexValue) const;
     size_t GetOrderCount() const;
     FCommandOrderRecord GetOrderRecord(size_t OrderIndexValue) const;
     bool SetOrderLifecycleState(uint32_t OrderIdValue, EOrderLifecycleState LifecycleStateValue);
@@ -59,6 +61,11 @@ public:
     std::vector<bool> QueuedValues;
     std::vector<bool> RequiresPlacementValidationValues;
     std::vector<bool> RequiresPathingValidationValues;
+    std::vector<uint32_t> PlanStepIds;
+    std::vector<uint32_t> TargetCounts;
+    std::vector<UNIT_TYPEID> ProducerUnitTypeIds;
+    std::vector<UNIT_TYPEID> ResultUnitTypeIds;
+    std::vector<UpgradeID> UpgradeIds;
 
     std::unordered_map<uint32_t, size_t> OrderIdToIndex;
     std::vector<size_t> StrategicOrderIndices;

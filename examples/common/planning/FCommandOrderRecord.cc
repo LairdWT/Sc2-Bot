@@ -30,6 +30,11 @@ void FCommandOrderRecord::Reset()
     Queued = false;
     RequiresPlacementValidation = false;
     RequiresPathingValidation = false;
+    PlanStepId = 0U;
+    TargetCount = 0U;
+    ProducerUnitTypeId = UNIT_TYPEID::INVALID;
+    ResultUnitTypeId = UNIT_TYPEID::INVALID;
+    UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
 }
 
 FCommandOrderRecord FCommandOrderRecord::CreateNoTarget(const ECommandAuthorityLayer SourceLayerValue,

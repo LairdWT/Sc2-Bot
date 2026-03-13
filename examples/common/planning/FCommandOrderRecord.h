@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/EIntentDomain.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "sc2api/sc2_common.h"
 #include "sc2api/sc2_gametypes.h"
@@ -11,7 +12,6 @@
 namespace sc2
 {
 
-enum class EIntentDomain : uint8_t;
 enum class EIntentTargetKind : uint8_t;
 
 struct FCommandOrderRecord
@@ -63,6 +63,11 @@ public:
     bool Queued;
     bool RequiresPlacementValidation;
     bool RequiresPathingValidation;
+    uint32_t PlanStepId;
+    uint32_t TargetCount;
+    UNIT_TYPEID ProducerUnitTypeId;
+    UNIT_TYPEID ResultUnitTypeId;
+    UpgradeID UpgradeId;
 };
 
 }  // namespace sc2

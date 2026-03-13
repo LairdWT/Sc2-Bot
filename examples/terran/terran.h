@@ -7,12 +7,23 @@
 #include <vector>
 
 #include "common/bot_status_models.h"
+#include "common/descriptors/FTerranGameStateDescriptorBuilder.h"
 #include "common/descriptors/FGameStateDescriptor.h"
-#include "common/economic_models.h"
 #include "common/logging.h"
+#include "common/planning/FTerranArmyPlanner.h"
+#include "common/planning/FTerranEconomyProductionOrderExpander.h"
+#include "common/planning/FTerranTimingAttackBuildPlanner.h"
+#include "common/planning/FCommandAuthorityProcessor.h"
+#include "common/planning/FDefaultStrategicDirector.h"
+#include "common/planning/IArmyPlanner.h"
+#include "common/planning/IBuildPlanner.h"
+#include "common/planning/IEconomyProductionOrderExpander.h"
+#include "common/planning/FIntentSchedulingService.h"
+#include "common/planning/IStrategicDirector.h"
 #include "common/render_settings.h"
 #include "common/services/FTerranBuildPlacementService.h"
 #include "common/services/IBuildPlacementService.h"
+#include "common/telemetry/FAgentExecutionTelemetry.h"
 
 #include "sc2api/sc2_api.h"
 #include "sc2api/sc2_client.h"
@@ -36,27 +47,22 @@ public:
     void OnUnitCreated(const Unit* UnitPtr) final;
 
     void UpdateAgentState(const FFrameContext& Frame);
+    void RebuildGameStateDescriptor(const FFrameContext& Frame);
+    void UpdateRallyAnchor();
     void PrintAgentState();
 
     void ProduceRecoveryIntents(const FFrameContext& Frame);
-    void ProduceStructureBuildIntents(const FFrameContext& Frame);
-    void ProduceUnitProductionIntents(const FFrameContext& Frame);
+    void ProduceSchedulerOpeningIntents(const FFrameContext& Frame);
     void ProduceArmyIntents(const FFrameContext& Frame);
+    void UpdateExecutionTelemetry(const FFrameContext& Frame);
     void ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents);
+    void CompleteDispatchedSchedulerOrders();
 
     void AllMarinesAttack();
 
-    bool TryBuildStructure(ABILITY_ID StructureAbilityId, UNIT_TYPEID WorkerTypeId, int Priority);
-    bool TryBuildSupplyDepot();
-    bool TryBuildBarracks();
-    bool ShouldBuildSCV() const;
-    bool TryBuildSCV();
-    bool ShouldBuildMarine() const;
-    bool TryBuildMarine();
+    uint32_t CountOrdersAndIntentsForAbility(ABILITY_ID AbilityIdValue) const;
     bool ShouldLaunchMarineAttack() const;
 
-    const Unit* SelectBuildWorker(UNIT_TYPEID WorkerTypeId, const Point2D& BuildAnchorValue);
-    bool TryGetStructureBuildPoint(ABILITY_ID StructureAbilityId, const Unit& WorkerUnitValue, Point2D& OutBuildPointValue);
     bool ShouldRefreshArmyOrder(const Unit& UnitValue, ABILITY_ID AbilityValue, const Point2D& TargetPointValue) const;
 
     const Unit* FindNearestMineralPatch(const Point2D& Origin);
@@ -93,8 +99,22 @@ private:
     FIntentArbiter IntentArbiter;
     std::unordered_set<Tag> PendingRecoveryWorkers;
     FGameStateDescriptor GameStateDescriptor;
+    FTerranGameStateDescriptorBuilder DefaultGameStateDescriptorBuilder;
+    const IGameStateDescriptorBuilder* GameStateDescriptorBuilder{&DefaultGameStateDescriptorBuilder};
+    FDefaultStrategicDirector DefaultStrategicDirector;
+    const IStrategicDirector* StrategicDirector{&DefaultStrategicDirector};
+    FTerranTimingAttackBuildPlanner DefaultBuildPlanner;
+    const IBuildPlanner* BuildPlanner{&DefaultBuildPlanner};
+    FTerranArmyPlanner DefaultArmyPlanner;
+    const IArmyPlanner* ArmyPlanner{&DefaultArmyPlanner};
+    FCommandAuthorityProcessor CommandAuthorityProcessor;
+    FTerranEconomyProductionOrderExpander DefaultEconomyProductionOrderExpander;
+    const IEconomyProductionOrderExpander* EconomyProductionOrderExpander{&DefaultEconomyProductionOrderExpander};
     FTerranBuildPlacementService DefaultBuildPlacementService;
     const IBuildPlacementService* BuildPlacementService{&DefaultBuildPlacementService};
+    FIntentSchedulingService IntentSchedulingService;
+    std::vector<Point2D> ExpansionLocations;
+    FAgentExecutionTelemetry ExecutionTelemetry;
 };
 
 }  // namespace sc2

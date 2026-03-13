@@ -1,0 +1,190 @@
+#include "test_terran_descriptor_pipeline.h"
+
+#include <iostream>
+#include <string>
+
+#include "common/armies/EArmyGoal.h"
+#include "common/bot_status_models.h"
+#include "common/descriptors/EGamePlan.h"
+#include "common/descriptors/EMacroPhase.h"
+#include "common/descriptors/FTerranGameStateDescriptorBuilder.h"
+#include "common/descriptors/FGameStateDescriptor.h"
+#include "common/planning/FDefaultStrategicDirector.h"
+
+namespace sc2
+{
+namespace
+{
+
+bool Check(const bool ConditionValue, bool& SuccessValue, const std::string& MessageValue)
+{
+    if (!ConditionValue)
+    {
+        SuccessValue = false;
+        std::cerr << "    " << MessageValue << std::endl;
+    }
+
+    return ConditionValue;
+}
+
+void ConfigureOpeningState(FAgentState& AgentStateValue)
+{
+    AgentStateValue.Economy.Minerals = 150U;
+    AgentStateValue.Economy.Vespene = 0U;
+    AgentStateValue.Economy.Supply = 24U;
+    AgentStateValue.Economy.SupplyCap = 31U;
+    AgentStateValue.Economy.SupplyAvailable = 7U;
+
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 16U);
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_MARINE, 8U);
+    AgentStateValue.Units.Update();
+
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 1U);
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 2U);
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS, 1U);
+}
+
+void ConfigureTimingAttackState(FAgentState& AgentStateValue)
+{
+    AgentStateValue.Economy.Minerals = 320U;
+    AgentStateValue.Economy.Vespene = 170U;
+    AgentStateValue.Economy.Supply = 64U;
+    AgentStateValue.Economy.SupplyCap = 86U;
+    AgentStateValue.Economy.SupplyAvailable = 22U;
+
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 32U);
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_MARINE, 24U);
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_MARAUDER, 6U);
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC, 2U);
+    AgentStateValue.Units.Update();
+
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 2U);
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS, 3U);
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_FACTORY, 1U);
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_STARPORT, 1U);
+}
+
+void ConfigureMacroState(FAgentState& AgentStateValue)
+{
+    AgentStateValue.Economy.Minerals = 780U;
+    AgentStateValue.Economy.Vespene = 420U;
+    AgentStateValue.Economy.Supply = 170U;
+    AgentStateValue.Economy.SupplyCap = 200U;
+    AgentStateValue.Economy.SupplyAvailable = 30U;
+
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 66U);
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_MARINE, 60U);
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_MARAUDER, 12U);
+    AgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC, 8U);
+    AgentStateValue.Units.Update();
+
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 3U);
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS, 5U);
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_FACTORY, 2U);
+    AgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_STARPORT, 2U);
+}
+
+}  // namespace
+
+bool TestTerranDescriptorPipeline(int ArgC, char** ArgV)
+{
+    (void)ArgC;
+    (void)ArgV;
+
+    bool SuccessValue = true;
+
+    FTerranGameStateDescriptorBuilder GameStateDescriptorBuilderValue;
+    FDefaultStrategicDirector StrategicDirectorValue;
+
+    {
+        FAgentState AgentStateValue;
+        ConfigureOpeningState(AgentStateValue);
+
+        FGameStateDescriptor GameStateDescriptorValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(100U, 224U, AgentStateValue, GameStateDescriptorValue);
+
+        Check(GameStateDescriptorValue.CurrentStep == 100U, SuccessValue,
+              "Descriptor builder should write the current step.");
+        Check(GameStateDescriptorValue.CurrentGameLoop == 224U, SuccessValue,
+              "Descriptor builder should write the current game loop.");
+        Check(GameStateDescriptorValue.MacroState.ActiveBaseCount == 1U, SuccessValue,
+              "Descriptor builder should rebuild the active base count.");
+        Check(GameStateDescriptorValue.MacroState.CurrentGameLoop == 224U, SuccessValue,
+              "Descriptor builder should propagate the current game loop into macro state.");
+        Check(GameStateDescriptorValue.MacroState.WorkerCount == 16U, SuccessValue,
+              "Descriptor builder should rebuild the worker count.");
+        Check(GameStateDescriptorValue.MacroState.ArmyUnitCount == 8U, SuccessValue,
+              "Descriptor builder should rebuild the army unit count.");
+        Check(GameStateDescriptorValue.MacroState.BarracksCount == 1U, SuccessValue,
+              "Descriptor builder should rebuild the barracks count.");
+        Check(GameStateDescriptorValue.MacroState.ActiveMacroPhase == EMacroPhase::Opening, SuccessValue,
+              "Single-base low-tech state should remain in the Opening macro phase.");
+        Check(GameStateDescriptorValue.BuildPlanning.AvailableMinerals == 150U, SuccessValue,
+              "Descriptor builder should rebuild available minerals.");
+        Check(GameStateDescriptorValue.BuildPlanning.CurrentGameLoop == 224U, SuccessValue,
+              "Descriptor builder should propagate the current game loop into build planning state.");
+        Check(GameStateDescriptorValue.BuildPlanning.AvailableSupply == 7U, SuccessValue,
+              "Descriptor builder should rebuild available supply.");
+        Check(GameStateDescriptorValue.ArmyState.ReserveUnitCount == 8U, SuccessValue,
+              "Descriptor builder should rebuild reserve unit count from the current army.");
+
+        StrategicDirectorValue.UpdateGameStateDescriptor(GameStateDescriptorValue);
+
+        Check(GameStateDescriptorValue.MacroState.ActiveGamePlan == EGamePlan::TimingAttack, SuccessValue,
+              "The default strategic director should open on the timing-attack plan.");
+        Check(GameStateDescriptorValue.MacroState.DesiredBaseCount == 2U, SuccessValue,
+              "The opening plan should target a second base.");
+        Check(GameStateDescriptorValue.MacroState.DesiredArmyCount == 1U, SuccessValue,
+              "The opening plan should still maintain one army.");
+        Check(!GameStateDescriptorValue.ArmyState.ArmyGoals.empty() &&
+                  GameStateDescriptorValue.ArmyState.ArmyGoals.front() == EArmyGoal::HoldBase,
+              SuccessValue, "The primary army should hold base before the timing army is ready.");
+    }
+
+    {
+        FAgentState AgentStateValue;
+        ConfigureTimingAttackState(AgentStateValue);
+
+        FGameStateDescriptor GameStateDescriptorValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(800U, 2688U, AgentStateValue, GameStateDescriptorValue);
+        StrategicDirectorValue.UpdateGameStateDescriptor(GameStateDescriptorValue);
+
+        Check(GameStateDescriptorValue.MacroState.ActiveMacroPhase == EMacroPhase::MidGame, SuccessValue,
+              "Two-base bio with a starport should be classified as MidGame.");
+        Check(GameStateDescriptorValue.MacroState.ActiveGamePlan == EGamePlan::TimingAttack, SuccessValue,
+              "Two-base bio should remain on the timing-attack plan.");
+        Check(GameStateDescriptorValue.MacroState.DesiredBaseCount == 3U, SuccessValue,
+              "The timing-attack plan should target a third base after the two-base setup.");
+        Check(!GameStateDescriptorValue.ArmyState.ArmyGoals.empty() &&
+                  GameStateDescriptorValue.ArmyState.ArmyGoals.front() == EArmyGoal::TimingAttack,
+              SuccessValue, "The primary army should switch to TimingAttack when the bio core is ready.");
+    }
+
+    {
+        FAgentState AgentStateValue;
+        ConfigureMacroState(AgentStateValue);
+
+        FGameStateDescriptor GameStateDescriptorValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(1800U, 5376U, AgentStateValue, GameStateDescriptorValue);
+        StrategicDirectorValue.UpdateGameStateDescriptor(GameStateDescriptorValue);
+
+        Check(GameStateDescriptorValue.MacroState.ActiveGamePlan == EGamePlan::Macro, SuccessValue,
+              "Three-base state should transition the default strategic director to Macro.");
+        Check(GameStateDescriptorValue.MacroState.DesiredBaseCount == 4U, SuccessValue,
+              "Established three-base macro should target a fourth base.");
+        Check(GameStateDescriptorValue.MacroState.DesiredArmyCount == 2U, SuccessValue,
+              "Large macro states should request a second army anchor.");
+        Check(GameStateDescriptorValue.ArmyState.ActiveArmyCount >= 2U, SuccessValue,
+              "The army domain should expand to the requested minimum army count.");
+        Check(!GameStateDescriptorValue.ArmyState.ArmyGoals.empty() &&
+                  GameStateDescriptorValue.ArmyState.ArmyGoals.front() == EArmyGoal::MapControl,
+              SuccessValue, "The primary macro army should take the map-control goal.");
+        Check(GameStateDescriptorValue.ArmyState.ArmyGoals.size() > 1U &&
+                  GameStateDescriptorValue.ArmyState.ArmyGoals[1] == EArmyGoal::HoldBase,
+              SuccessValue, "The second army anchor should default to HoldBase.");
+    }
+
+    return SuccessValue;
+}
+
+}  // namespace sc2

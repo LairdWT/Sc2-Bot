@@ -1,6 +1,7 @@
 set(sc2test_sources
     all_tests.cc
     feature_layers_shared.cc
+    test_agent_execution_telemetry.cc
     test_command_authority_scheduling.cc
     test_ability_remap.cc
     test_actions.cc
@@ -19,6 +20,9 @@ set(sc2test_sources
     test_terran_economic_models.cc
     test_terran_build_placement_service.cc
     test_terran_bot_scaffolding.cc
+    test_terran_descriptor_pipeline.cc
+    test_terran_opening_plan_scheduler.cc
+    test_terran_planners.cc
     test_unit_command_common.cc
     test_unit_command.cc)
 

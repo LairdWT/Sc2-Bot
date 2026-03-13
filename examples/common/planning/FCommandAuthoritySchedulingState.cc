@@ -2,8 +2,6 @@
 
 #include <algorithm>
 
-#include "common/agent_framework.h"
-
 namespace sc2
 {
 
@@ -40,6 +38,11 @@ void FCommandAuthoritySchedulingState::Reset()
     QueuedValues.clear();
     RequiresPlacementValidationValues.clear();
     RequiresPathingValidationValues.clear();
+    PlanStepIds.clear();
+    TargetCounts.clear();
+    ProducerUnitTypeIds.clear();
+    ResultUnitTypeIds.clear();
+    UpgradeIds.clear();
 
     OrderIdToIndex.clear();
     StrategicOrderIndices.clear();
@@ -70,6 +73,11 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     QueuedValues.reserve(OrderCapacityValue);
     RequiresPlacementValidationValues.reserve(OrderCapacityValue);
     RequiresPathingValidationValues.reserve(OrderCapacityValue);
+    PlanStepIds.reserve(OrderCapacityValue);
+    TargetCounts.reserve(OrderCapacityValue);
+    ProducerUnitTypeIds.reserve(OrderCapacityValue);
+    ResultUnitTypeIds.reserve(OrderCapacityValue);
+    UpgradeIds.reserve(OrderCapacityValue);
 }
 
 uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecord& CommandOrderRecordValue)
@@ -104,6 +112,11 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     QueuedValues.push_back(StoredOrderValue.Queued);
     RequiresPlacementValidationValues.push_back(StoredOrderValue.RequiresPlacementValidation);
     RequiresPathingValidationValues.push_back(StoredOrderValue.RequiresPathingValidation);
+    PlanStepIds.push_back(StoredOrderValue.PlanStepId);
+    TargetCounts.push_back(StoredOrderValue.TargetCount);
+    ProducerUnitTypeIds.push_back(StoredOrderValue.ProducerUnitTypeId);
+    ResultUnitTypeIds.push_back(StoredOrderValue.ResultUnitTypeId);
+    UpgradeIds.push_back(StoredOrderValue.UpgradeId);
     OrderIdToIndex[StoredOrderValue.OrderId] = OrderIndexValue;
 
     RebuildDerivedQueues();
@@ -125,6 +138,22 @@ bool FCommandAuthoritySchedulingState::TryGetOrderIndex(const uint32_t OrderIdVa
 
     OutOrderIndexValue = FoundOrderIndexValue->second;
     return true;
+}
+
+bool FCommandAuthoritySchedulingState::TryGetChildOrderIndex(const uint32_t ParentOrderIdValue,
+                                                             const ECommandAuthorityLayer SourceLayerValue,
+                                                             size_t& OutOrderIndexValue) const
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
+    {
+        if (ParentOrderIds[OrderIndexValue] == ParentOrderIdValue && SourceLayers[OrderIndexValue] == SourceLayerValue)
+        {
+            OutOrderIndexValue = OrderIndexValue;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 size_t FCommandAuthoritySchedulingState::GetOrderCount() const
@@ -158,6 +187,11 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.Queued = QueuedValues[OrderIndexValue];
     CommandOrderRecordValue.RequiresPlacementValidation = RequiresPlacementValidationValues[OrderIndexValue];
     CommandOrderRecordValue.RequiresPathingValidation = RequiresPathingValidationValues[OrderIndexValue];
+    CommandOrderRecordValue.PlanStepId = PlanStepIds[OrderIndexValue];
+    CommandOrderRecordValue.TargetCount = TargetCounts[OrderIndexValue];
+    CommandOrderRecordValue.ProducerUnitTypeId = ProducerUnitTypeIds[OrderIndexValue];
+    CommandOrderRecordValue.ResultUnitTypeId = ResultUnitTypeIds[OrderIndexValue];
+    CommandOrderRecordValue.UpgradeId = UpgradeIds[OrderIndexValue];
     return CommandOrderRecordValue;
 }
 

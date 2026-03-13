@@ -21,8 +21,10 @@ int main(int argc, char* argv[])
     static const sc2::FeatureLayerSettings settings(CAMERA_WIDTH, FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE,
                                                     FEATURE_LAYER_SIZE, FEATURE_LAYER_SIZE);
     coordinator.SetFeatureLayers(settings);
+    coordinator.SetPortStart(16680);
+    coordinator.SetTimeoutMS(300000U);
     coordinator.SetParticipants(
-        {CreateParticipant(sc2::Race::Terran, &agent), CreateComputer(sc2::Race::Random, sc2::Difficulty::Medium)});
+        {CreateParticipant(sc2::Race::Terran, &agent), CreateComputer(sc2::Race::Random, sc2::Difficulty::Easy)});
     coordinator.LaunchStarcraft();
     coordinator.StartGame(sc2::kMapBelShirVestigeLE);
     while (coordinator.Update())
