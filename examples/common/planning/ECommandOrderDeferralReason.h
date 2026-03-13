@@ -14,6 +14,8 @@ enum class ECommandOrderDeferralReason : uint8_t
     ProducerBusy,
     TargetAlreadySatisfied,
     AwaitingObservedCompletion,
+    ReservedSlotOccupied,
+    ReservedSlotInvalidated,
 };
 
 const char* ToString(ECommandOrderDeferralReason CommandOrderDeferralReasonValue);

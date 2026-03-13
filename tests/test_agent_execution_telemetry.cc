@@ -104,6 +104,32 @@ bool TestAgentExecutionTelemetry(int ArgC, char** ArgV)
     Check(AgentExecutionTelemetryValue.TotalSchedulerOrderDeferralCount == 2U, SuccessValue,
           "A new scheduler deferral reason should produce a new telemetry event.");
 
+    AgentExecutionTelemetryValue.RecordWallDescriptorInvalid(80U, 700U);
+    Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
+              AgentExecutionTelemetryValue.RecentEvents.back().EventType ==
+                  EAgentExecutionEventType::WallDescriptorInvalid,
+          SuccessValue, "Wall-descriptor discovery failure should emit telemetry.");
+    Check(AgentExecutionTelemetryValue.RecentEvents.back().IntentDomain == EIntentDomain::StructureControl,
+          SuccessValue, "Wall-descriptor failure telemetry should use the structure-control domain.");
+
+    AgentExecutionTelemetryValue.RecordWallThreatDetected(81U, 701U);
+    Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
+              AgentExecutionTelemetryValue.RecentEvents.back().EventType ==
+                  EAgentExecutionEventType::WallThreatDetected,
+          SuccessValue, "Wall threat detection should emit telemetry.");
+
+    AgentExecutionTelemetryValue.RecordWallClosed(82U, 702U);
+    Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
+              AgentExecutionTelemetryValue.RecentEvents.back().EventType ==
+                  EAgentExecutionEventType::WallClosed,
+          SuccessValue, "Wall close transitions should emit telemetry.");
+
+    AgentExecutionTelemetryValue.RecordWallOpened(83U, 703U);
+    Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
+              AgentExecutionTelemetryValue.RecentEvents.back().EventType ==
+                  EAgentExecutionEventType::WallOpened,
+          SuccessValue, "Wall open transitions should emit telemetry.");
+
     AgentExecutionTelemetryValue.Reset();
     Check(AgentExecutionTelemetryValue.RecentEvents.empty(), SuccessValue,
           "Execution telemetry reset should clear recent events.");

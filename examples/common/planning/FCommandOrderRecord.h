@@ -6,6 +6,7 @@
 #include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentDomain.h"
 #include "common/planning/EOrderLifecycleState.h"
+#include "common/services/FBuildPlacementSlotId.h"
 #include "sc2api/sc2_common.h"
 #include "sc2api/sc2_gametypes.h"
 #include "sc2api/sc2_typeenums.h"
@@ -69,6 +70,8 @@ public:
     UNIT_TYPEID ProducerUnitTypeId;
     UNIT_TYPEID ResultUnitTypeId;
     UpgradeID UpgradeId;
+    EBuildPlacementSlotType PreferredPlacementSlotType;
+    FBuildPlacementSlotId ReservedPlacementSlotId;
     ECommandOrderDeferralReason LastDeferralReason;
     uint64_t LastDeferralStep;
     uint64_t LastDeferralGameLoop;

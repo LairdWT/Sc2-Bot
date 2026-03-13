@@ -17,6 +17,15 @@ void PopulateCommonEventFields(FExecutionEventRecord& ExecutionEventRecordValue,
     ExecutionEventRecordValue.GameLoop = CurrentGameLoopValue;
 }
 
+void PopulateWallEventFields(FExecutionEventRecord& ExecutionEventRecordValue,
+                             const EAgentExecutionEventType AgentExecutionEventTypeValue,
+                             const uint64_t CurrentStepValue, const uint64_t CurrentGameLoopValue)
+{
+    PopulateCommonEventFields(ExecutionEventRecordValue, AgentExecutionEventTypeValue, CurrentStepValue,
+                              CurrentGameLoopValue);
+    ExecutionEventRecordValue.IntentDomain = EIntentDomain::StructureControl;
+}
+
 }  // namespace
 
 FAgentExecutionTelemetry::FAgentExecutionTelemetry()
@@ -191,6 +200,42 @@ void FAgentExecutionTelemetry::RecordSchedulerOrderDeferred(
     ExecutionEventRecordValue.AbilityId = AbilityIdValue;
     ExecutionEventRecordValue.IntentDomain = IntentDomainValue;
     ExecutionEventRecordValue.DeferralReason = DeferralReasonValue;
+    AppendEvent(ExecutionEventRecordValue);
+}
+
+void FAgentExecutionTelemetry::RecordWallDescriptorInvalid(const uint64_t CurrentStepValue,
+                                                           const uint64_t CurrentGameLoopValue)
+{
+    FExecutionEventRecord ExecutionEventRecordValue;
+    PopulateWallEventFields(ExecutionEventRecordValue, EAgentExecutionEventType::WallDescriptorInvalid,
+                            CurrentStepValue, CurrentGameLoopValue);
+    AppendEvent(ExecutionEventRecordValue);
+}
+
+void FAgentExecutionTelemetry::RecordWallThreatDetected(const uint64_t CurrentStepValue,
+                                                        const uint64_t CurrentGameLoopValue)
+{
+    FExecutionEventRecord ExecutionEventRecordValue;
+    PopulateWallEventFields(ExecutionEventRecordValue, EAgentExecutionEventType::WallThreatDetected,
+                            CurrentStepValue, CurrentGameLoopValue);
+    AppendEvent(ExecutionEventRecordValue);
+}
+
+void FAgentExecutionTelemetry::RecordWallOpened(const uint64_t CurrentStepValue,
+                                                const uint64_t CurrentGameLoopValue)
+{
+    FExecutionEventRecord ExecutionEventRecordValue;
+    PopulateWallEventFields(ExecutionEventRecordValue, EAgentExecutionEventType::WallOpened, CurrentStepValue,
+                            CurrentGameLoopValue);
+    AppendEvent(ExecutionEventRecordValue);
+}
+
+void FAgentExecutionTelemetry::RecordWallClosed(const uint64_t CurrentStepValue,
+                                                const uint64_t CurrentGameLoopValue)
+{
+    FExecutionEventRecord ExecutionEventRecordValue;
+    PopulateWallEventFields(ExecutionEventRecordValue, EAgentExecutionEventType::WallClosed, CurrentStepValue,
+                            CurrentGameLoopValue);
     AppendEvent(ExecutionEventRecordValue);
 }
 

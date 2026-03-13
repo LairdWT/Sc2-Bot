@@ -19,7 +19,7 @@ private:
     void EnsureWorkerGoalOrder(FGameStateDescriptor& GameStateDescriptorValue) const;
     bool AreRequiredStepsCompleted(const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
                                    const FOpeningPlanStep& OpeningPlanStepValue) const;
-    bool DoesOrderTargetMatchObservedState(const FBuildPlanningState& BuildPlanningStateValue,
+    bool DoesOrderTargetMatchObservedState(const FGameStateDescriptor& GameStateDescriptorValue,
                                            const FCommandOrderRecord& CommandOrderRecordValue) const;
     uint32_t GetObservedCountForOrder(const FBuildPlanningState& BuildPlanningStateValue,
                                       const FCommandOrderRecord& CommandOrderRecordValue) const;

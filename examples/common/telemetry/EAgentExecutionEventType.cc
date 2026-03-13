@@ -21,6 +21,14 @@ const char* ToString(const EAgentExecutionEventType AgentExecutionEventTypeValue
             return "IdleProductionStructure";
         case EAgentExecutionEventType::SchedulerOrderDeferred:
             return "SchedulerOrderDeferred";
+        case EAgentExecutionEventType::WallDescriptorInvalid:
+            return "WallDescriptorInvalid";
+        case EAgentExecutionEventType::WallThreatDetected:
+            return "WallThreatDetected";
+        case EAgentExecutionEventType::WallOpened:
+            return "WallOpened";
+        case EAgentExecutionEventType::WallClosed:
+            return "WallClosed";
         default:
             return "Unknown";
     }

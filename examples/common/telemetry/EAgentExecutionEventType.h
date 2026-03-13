@@ -12,6 +12,10 @@ enum class EAgentExecutionEventType
     ActorIntentConflict,
     IdleProductionStructure,
     SchedulerOrderDeferred,
+    WallDescriptorInvalid,
+    WallThreatDetected,
+    WallOpened,
+    WallClosed,
 };
 
 const char* ToString(EAgentExecutionEventType AgentExecutionEventTypeValue);

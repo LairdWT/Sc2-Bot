@@ -59,6 +59,10 @@ bool IsSupplyDepotResultUnitType(const UNIT_TYPEID ResultUnitTypeIdValue)
     return ResultUnitTypeIdValue == UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
 }
 
+bool DoesPlacementSlotSatisfyFootprintPolicy(const FFrameContext& FrameValue,
+                                             const FBuildPlacementSlot& BuildPlacementSlotValue,
+                                             const ABILITY_ID StructureAbilityIdValue);
+
 uint32_t GetObservedBuildingCount(const FBuildPlanningState& BuildPlanningStateValue, const UNIT_TYPEID BuildingTypeIdValue)
 {
     switch (BuildingTypeIdValue)
@@ -330,10 +334,12 @@ int GetEffectiveEconomyOrderPriority(const FCommandOrderRecord& EconomyOrderValu
 }
 
 FBuildPlacementContext CreateBuildPlacementContext(const Point2D& BaseLocationValue,
-                                                   const std::vector<Point2D>& ExpansionLocationsValue)
+                                                   const std::vector<Point2D>& ExpansionLocationsValue,
+                                                   const FRampWallDescriptor& RampWallDescriptorValue)
 {
     FBuildPlacementContext BuildPlacementContextValue;
     BuildPlacementContextValue.BaseLocation = BaseLocationValue;
+    BuildPlacementContextValue.RampWallDescriptor = RampWallDescriptorValue;
 
     float BestDistanceSquaredValue = std::numeric_limits<float>::max();
     for (const Point2D& ExpansionLocationValue : ExpansionLocationsValue)
@@ -349,6 +355,307 @@ FBuildPlacementContext CreateBuildPlacementContext(const Point2D& BaseLocationVa
     }
 
     return BuildPlacementContextValue;
+}
+
+bool TryFindPlacementSlotById(const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue,
+                              const FBuildPlacementSlotId& BuildPlacementSlotIdValue,
+                              FBuildPlacementSlot& OutBuildPlacementSlotValue)
+{
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
+    {
+        if (BuildPlacementSlotValue.SlotId != BuildPlacementSlotIdValue)
+        {
+            continue;
+        }
+
+        OutBuildPlacementSlotValue = BuildPlacementSlotValue;
+        return true;
+    }
+
+    return false;
+}
+
+float GetPlacementSlotOccupancyRadiusSquared(const FBuildPlacementSlot& BuildPlacementSlotValue)
+{
+    switch (BuildPlacementSlotValue.SlotId.SlotType)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampBarracksWithAddon:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+        case EBuildPlacementSlotType::NaturalApproachDepot:
+        case EBuildPlacementSlotType::MainProductionWithAddon:
+        case EBuildPlacementSlotType::MainSupportStructure:
+        case EBuildPlacementSlotType::Unknown:
+        default:
+            return 6.25f;
+    }
+}
+
+const Unit* FindObservedStructureOccupyingPlacementSlot(const ObservationInterface& ObservationValue,
+                                                        const FBuildPlacementSlot& BuildPlacementSlotValue)
+{
+    const Units SelfUnitsValue = ObservationValue.GetUnits(Unit::Alliance::Self);
+    const float OccupancyRadiusSquaredValue = GetPlacementSlotOccupancyRadiusSquared(BuildPlacementSlotValue);
+    const Point2D SlotBuildPointValue = BuildPlacementSlotValue.BuildPoint;
+
+    const Unit* BestOccupyingUnitValue = nullptr;
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || !SelfUnitValue->is_building || SelfUnitValue->is_flying)
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue = DistanceSquared2D(Point2D(SelfUnitValue->pos), SlotBuildPointValue);
+        if (DistanceSquaredValue > OccupancyRadiusSquaredValue || DistanceSquaredValue >= BestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        BestDistanceSquaredValue = DistanceSquaredValue;
+        BestOccupyingUnitValue = SelfUnitValue;
+    }
+
+    return BestOccupyingUnitValue;
+}
+
+bool HasObservedBuildOrderTargetingPlacementSlot(const ObservationInterface& ObservationValue,
+                                                 const ABILITY_ID AbilityIdValue,
+                                                 const FBuildPlacementSlot& BuildPlacementSlotValue)
+{
+    const Units SelfUnitsValue = ObservationValue.GetUnits(Unit::Alliance::Self);
+    const float OccupancyRadiusSquaredValue = GetPlacementSlotOccupancyRadiusSquared(BuildPlacementSlotValue);
+    const Point2D SlotBuildPointValue = BuildPlacementSlotValue.BuildPoint;
+
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr)
+        {
+            continue;
+        }
+
+        for (const UnitOrder& UnitOrderValue : SelfUnitValue->orders)
+        {
+            if (UnitOrderValue.ability_id != AbilityIdValue)
+            {
+                continue;
+            }
+
+            const float DistanceSquaredValue =
+                DistanceSquared2D(UnitOrderValue.target_pos, SlotBuildPointValue);
+            if (DistanceSquaredValue <= OccupancyRadiusSquaredValue)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool IsPlacementSlotClaimedByOtherOrder(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                        const FBuildPlacementSlotId& BuildPlacementSlotIdValue,
+                                        const uint32_t IgnoredOrderIdValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue] == IgnoredOrderIdValue ||
+            IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        FBuildPlacementSlotId ReservedPlacementSlotIdValue;
+        ReservedPlacementSlotIdValue.SlotType =
+            CommandAuthoritySchedulingStateValue.ReservedPlacementSlotTypes[OrderIndexValue];
+        ReservedPlacementSlotIdValue.Ordinal =
+            CommandAuthoritySchedulingStateValue.ReservedPlacementSlotOrdinals[OrderIndexValue];
+        if (ReservedPlacementSlotIdValue.IsValid() && ReservedPlacementSlotIdValue == BuildPlacementSlotIdValue)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TrySelectPlacementSlotCandidate(const FFrameContext& FrameValue,
+                                     const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                     const FCommandOrderRecord& EconomyOrderValue, const Unit& WorkerUnitValue,
+                                     const FBuildPlacementSlot& BuildPlacementSlotValue,
+                                     FBuildPlacementSlot& OutBuildPlacementSlotValue)
+{
+    if (FrameValue.Observation == nullptr || FrameValue.GameInfo == nullptr || FrameValue.Query == nullptr)
+    {
+        return false;
+    }
+
+    const Point2D ClampedBuildPointValue =
+        ClampToPlayable(*FrameValue.GameInfo, BuildPlacementSlotValue.BuildPoint);
+    FBuildPlacementSlot NormalizedBuildPlacementSlotValue = BuildPlacementSlotValue;
+    NormalizedBuildPlacementSlotValue.BuildPoint = ClampedBuildPointValue;
+
+    if (IsPlacementSlotClaimedByOtherOrder(CommandAuthoritySchedulingStateValue,
+                                           NormalizedBuildPlacementSlotValue.SlotId,
+                                           EconomyOrderValue.OrderId))
+    {
+        return false;
+    }
+
+    if (FindObservedStructureOccupyingPlacementSlot(*FrameValue.Observation, NormalizedBuildPlacementSlotValue) != nullptr)
+    {
+        return false;
+    }
+
+    if (!DoesPlacementSlotSatisfyFootprintPolicy(FrameValue, NormalizedBuildPlacementSlotValue,
+                                                 EconomyOrderValue.AbilityId))
+    {
+        return false;
+    }
+
+    if (!FrameValue.Query->Placement(EconomyOrderValue.AbilityId, ClampedBuildPointValue, &WorkerUnitValue))
+    {
+        return false;
+    }
+
+    OutBuildPlacementSlotValue = NormalizedBuildPlacementSlotValue;
+    return true;
+}
+
+bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
+                                     const FGameStateDescriptor& GameStateDescriptorValue,
+                                     const IBuildPlacementService& BuildPlacementServiceValue,
+                                     const std::vector<Point2D>& ExpansionLocationsValue,
+                                     const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                     const FCommandOrderRecord& EconomyOrderValue, const Unit& WorkerUnitValue,
+                                     FBuildPlacementSlot& OutBuildPlacementSlotValue,
+                                     ECommandOrderDeferralReason& OutDeferralReasonValue)
+{
+    if (FrameValue.Observation == nullptr || FrameValue.Query == nullptr)
+    {
+        OutDeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
+        return false;
+    }
+
+    const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
+    const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
+        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor);
+    const std::vector<FBuildPlacementSlot> BuildPlacementSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, EconomyOrderValue.AbilityId,
+                                                              BuildPlacementContextValue);
+
+    if (EconomyOrderValue.ReservedPlacementSlotId.IsValid())
+    {
+        FBuildPlacementSlot ReservedBuildPlacementSlotValue;
+        if (!TryFindPlacementSlotById(BuildPlacementSlotsValue, EconomyOrderValue.ReservedPlacementSlotId,
+                                      ReservedBuildPlacementSlotValue))
+        {
+            OutDeferralReasonValue = ECommandOrderDeferralReason::ReservedSlotInvalidated;
+            return false;
+        }
+
+        if (!TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
+                                             EconomyOrderValue, WorkerUnitValue, ReservedBuildPlacementSlotValue,
+                                             OutBuildPlacementSlotValue))
+        {
+            OutDeferralReasonValue = ECommandOrderDeferralReason::ReservedSlotOccupied;
+            return false;
+        }
+
+        return true;
+    }
+
+    bool HasPreferredPlacementSlotCandidatesValue = false;
+    if (EconomyOrderValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown)
+    {
+        for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
+        {
+            if (BuildPlacementSlotValue.SlotId.SlotType != EconomyOrderValue.PreferredPlacementSlotType)
+            {
+                continue;
+            }
+
+            HasPreferredPlacementSlotCandidatesValue = true;
+            if (TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
+                                                EconomyOrderValue, WorkerUnitValue, BuildPlacementSlotValue,
+                                                OutBuildPlacementSlotValue))
+            {
+                return true;
+            }
+        }
+
+        if (HasPreferredPlacementSlotCandidatesValue)
+        {
+            OutDeferralReasonValue = ECommandOrderDeferralReason::ReservedSlotOccupied;
+            return false;
+        }
+    }
+
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
+    {
+        if (TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
+                                            EconomyOrderValue, WorkerUnitValue, BuildPlacementSlotValue,
+                                            OutBuildPlacementSlotValue))
+        {
+            return true;
+        }
+    }
+
+    OutDeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
+    return false;
+}
+
+enum class EReservedPlacementSlotState : uint8_t
+{
+    Active,
+    Invalidated,
+    Occupied,
+};
+
+EReservedPlacementSlotState GetAwaitingReservedPlacementSlotState(
+    const FFrameContext& FrameValue, const FGameStateDescriptor& GameStateDescriptorValue,
+    const IBuildPlacementService& BuildPlacementServiceValue, const std::vector<Point2D>& ExpansionLocationsValue,
+    const FCommandOrderRecord& EconomyOrderValue, FBuildPlacementSlot& OutReservedBuildPlacementSlotValue)
+{
+    if (FrameValue.Observation == nullptr || FrameValue.GameInfo == nullptr || FrameValue.Query == nullptr ||
+        !EconomyOrderValue.ReservedPlacementSlotId.IsValid())
+    {
+        return EReservedPlacementSlotState::Active;
+    }
+
+    const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
+    const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
+        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor);
+    const std::vector<FBuildPlacementSlot> BuildPlacementSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, EconomyOrderValue.AbilityId,
+                                                              BuildPlacementContextValue);
+    if (!TryFindPlacementSlotById(BuildPlacementSlotsValue, EconomyOrderValue.ReservedPlacementSlotId,
+                                  OutReservedBuildPlacementSlotValue))
+    {
+        return EReservedPlacementSlotState::Invalidated;
+    }
+
+    const Point2D ClampedBuildPointValue =
+        ClampToPlayable(*FrameValue.GameInfo, OutReservedBuildPlacementSlotValue.BuildPoint);
+    OutReservedBuildPlacementSlotValue.BuildPoint = ClampedBuildPointValue;
+
+    if (FindObservedStructureOccupyingPlacementSlot(*FrameValue.Observation,
+                                                    OutReservedBuildPlacementSlotValue) != nullptr)
+    {
+        return EReservedPlacementSlotState::Active;
+    }
+
+    if (HasObservedBuildOrderTargetingPlacementSlot(*FrameValue.Observation, EconomyOrderValue.AbilityId,
+                                                    OutReservedBuildPlacementSlotValue))
+    {
+        return EReservedPlacementSlotState::Active;
+    }
+
+    return FrameValue.Query->Placement(EconomyOrderValue.AbilityId, ClampedBuildPointValue)
+               ? EReservedPlacementSlotState::Invalidated
+               : EReservedPlacementSlotState::Occupied;
 }
 
 bool DoesStructureAbilityRequireAddonClearance(const ABILITY_ID StructureAbilityIdValue)
@@ -588,8 +895,8 @@ bool TryGetStructureBuildPoint(const FFrameContext& FrameValue, const FGameState
     }
 
     const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
-    const FBuildPlacementContext BuildPlacementContextValue =
-        CreateBuildPlacementContext(BaseLocationValue, ExpansionLocationsValue);
+    const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
+        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor);
     const std::vector<FBuildPlacementSlot> BuildPlacementSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, StructureAbilityIdValue,
                                                               BuildPlacementContextValue);
@@ -725,6 +1032,33 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             continue;
         }
 
+        if (EconomyOrderValue.LastDeferralReason == ECommandOrderDeferralReason::AwaitingObservedCompletion &&
+            EconomyOrderValue.ReservedPlacementSlotId.IsValid())
+        {
+            FBuildPlacementSlot ReservedBuildPlacementSlotValue;
+            const EReservedPlacementSlotState ReservedPlacementSlotStateValue =
+                GetAwaitingReservedPlacementSlotState(FrameValue, GameStateDescriptorValue,
+                                                      BuildPlacementServiceValue, ExpansionLocationsValue,
+                                                      EconomyOrderValue, ReservedBuildPlacementSlotValue);
+            switch (ReservedPlacementSlotStateValue)
+            {
+                case EReservedPlacementSlotState::Invalidated:
+                    CommandAuthoritySchedulingStateValue.ClearOrderReservedPlacementSlot(EconomyOrderValue.OrderId);
+                    CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+                        EconomyOrderValue.OrderId, ECommandOrderDeferralReason::ReservedSlotInvalidated,
+                        CurrentStepValue, CurrentGameLoopValue);
+                    break;
+                case EReservedPlacementSlotState::Occupied:
+                    CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+                        EconomyOrderValue.OrderId, ECommandOrderDeferralReason::ReservedSlotOccupied,
+                        CurrentStepValue, CurrentGameLoopValue);
+                    continue;
+                case EReservedPlacementSlotState::Active:
+                default:
+                    break;
+            }
+        }
+
         const uint32_t PendingOrderCountValue =
             CountCurrentOrdersForAbility(AgentStateValue, EconomyOrderValue.AbilityId) +
             CountPendingSchedulerOrdersForAbility(CommandAuthoritySchedulingStateValue, EconomyOrderValue.AbilityId) +
@@ -753,8 +1087,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             case ABILITY_ID::BUILD_STARPORT:
             {
                 const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
-                const FBuildPlacementContext BuildPlacementContextValue =
-                    CreateBuildPlacementContext(BaseLocationValue, ExpansionLocationsValue);
+                const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
+                    BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor);
                 const Point2D BuildAnchorValue = BuildPlacementServiceValue.GetPrimaryStructureAnchor(
                     GameStateDescriptorValue, BuildPlacementContextValue);
                 const Unit* WorkerUnitValue = SelectBuildWorker(AgentStateValue, IntentBufferValue,
@@ -766,12 +1100,13 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                Point2D BuildPointValue;
-                if (!TryGetStructureBuildPoint(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
-                                               ExpansionLocationsValue, EconomyOrderValue.AbilityId, *WorkerUnitValue,
-                                               BuildPointValue))
+                FBuildPlacementSlot SelectedBuildPlacementSlotValue;
+                if (!TrySelectStructurePlacementSlot(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                                     ExpansionLocationsValue,
+                                                     CommandAuthoritySchedulingStateValue, EconomyOrderValue,
+                                                     *WorkerUnitValue, SelectedBuildPlacementSlotValue,
+                                                     DeferralReasonValue))
                 {
-                    DeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
                     break;
                 }
 
@@ -783,9 +1118,13 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 UnitExecutionOrderValue = FCommandOrderRecord::CreatePointTarget(
                     ECommandAuthorityLayer::UnitExecution, WorkerUnitValue->tag, EconomyOrderValue.AbilityId,
-                    BuildPointValue, EconomyOrderValue.PriorityValue, EIntentDomain::StructureBuild,
+                    SelectedBuildPlacementSlotValue.BuildPoint, EconomyOrderValue.PriorityValue,
+                    EIntentDomain::StructureBuild,
                     GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId, -1, -1, false, true,
                     false);
+                CommandAuthoritySchedulingStateValue.SetOrderReservedPlacementSlot(EconomyOrderValue.OrderId,
+                                                                                   SelectedBuildPlacementSlotValue.SlotId);
+                UnitExecutionOrderValue.ReservedPlacementSlotId = SelectedBuildPlacementSlotValue.SlotId;
                 CreatedOrderValue = true;
                 break;
             }

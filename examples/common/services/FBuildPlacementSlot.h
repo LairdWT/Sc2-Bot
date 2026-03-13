@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/services/EBuildPlacementFootprintPolicy.h"
-#include "common/services/EBuildPlacementSlotType.h"
+#include "common/services/FBuildPlacementSlotId.h"
 #include "sc2api/sc2_common.h"
 
 namespace sc2
@@ -15,7 +15,7 @@ public:
     void Reset();
 
 public:
-    EBuildPlacementSlotType SlotType;
+    FBuildPlacementSlotId SlotId;
     EBuildPlacementFootprintPolicy FootprintPolicy;
     Point2D BuildPoint;
 };

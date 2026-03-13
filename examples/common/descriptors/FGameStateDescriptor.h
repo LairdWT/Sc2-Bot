@@ -5,8 +5,10 @@
 #include "common/armies/FArmyDomainState.h"
 #include "common/build_orders/FOpeningPlanExecutionState.h"
 #include "common/build_planning/FBuildPlanningState.h"
+#include "common/descriptors/FObservedRampWallState.h"
 #include "common/descriptors/FMacroStateDescriptor.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
+#include "common/services/FRampWallDescriptor.h"
 #include "common/spatial/FSpatialFieldSet.h"
 
 namespace sc2
@@ -22,6 +24,8 @@ struct FGameStateDescriptor
     FOpeningPlanExecutionState OpeningPlanExecutionState;
     FCommandAuthoritySchedulingState CommandAuthoritySchedulingState;
     FSpatialFieldSet SpatialFields;
+    FRampWallDescriptor RampWallDescriptor;
+    FObservedRampWallState ObservedRampWallState;
 
     FGameStateDescriptor();
 

@@ -35,6 +35,8 @@ void FCommandOrderRecord::Reset()
     ProducerUnitTypeId = UNIT_TYPEID::INVALID;
     ResultUnitTypeId = UNIT_TYPEID::INVALID;
     UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
+    PreferredPlacementSlotType = EBuildPlacementSlotType::Unknown;
+    ReservedPlacementSlotId.Reset();
     LastDeferralReason = ECommandOrderDeferralReason::None;
     LastDeferralStep = 0U;
     LastDeferralGameLoop = 0U;

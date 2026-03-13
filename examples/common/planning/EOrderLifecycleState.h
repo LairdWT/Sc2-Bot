@@ -17,5 +17,6 @@ enum class EOrderLifecycleState : uint8_t
 };
 
 const char* ToString(const EOrderLifecycleState OrderLifecycleStateValue);
+bool IsTerminalLifecycleState(EOrderLifecycleState OrderLifecycleStateValue);
 
 }  // namespace sc2

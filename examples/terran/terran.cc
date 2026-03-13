@@ -7,6 +7,8 @@ namespace sc2
 namespace
 {
 
+constexpr float WallStructureMatchRadiusSquaredValue = 6.25f;
+
 EExecutionConditionState GetExecutionConditionState(const bool ConditionValue)
 {
     return ConditionValue ? EExecutionConditionState::Active : EExecutionConditionState::Inactive;
@@ -72,6 +74,77 @@ bool IsAssemblyCombatUnitType(const UNIT_TYPEID UnitTypeIdValue)
     }
 }
 
+bool IsWallDepotUnitType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOT:
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool DoesUnitMatchWallSlot(const Unit& SelfUnitValue, const FBuildPlacementSlot& BuildPlacementSlotValue)
+{
+    if (!SelfUnitValue.is_building || SelfUnitValue.is_flying)
+    {
+        return false;
+    }
+
+    switch (BuildPlacementSlotValue.SlotId.SlotType)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+            return IsWallDepotUnitType(SelfUnitValue.unit_type.ToType());
+        case EBuildPlacementSlotType::MainRampBarracksWithAddon:
+            return SelfUnitValue.unit_type.ToType() == UNIT_TYPEID::TERRAN_BARRACKS;
+        case EBuildPlacementSlotType::Unknown:
+        case EBuildPlacementSlotType::NaturalApproachDepot:
+        case EBuildPlacementSlotType::MainProductionWithAddon:
+        case EBuildPlacementSlotType::MainSupportStructure:
+        default:
+            return false;
+    }
+}
+
+const Unit* FindWallStructureForSlot(const Units& SelfUnitsValue, const FBuildPlacementSlot& BuildPlacementSlotValue)
+{
+    const Unit* BestUnitValue = nullptr;
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || !DoesUnitMatchWallSlot(*SelfUnitValue, BuildPlacementSlotValue))
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue =
+            DistanceSquared2D(Point2D(SelfUnitValue->pos), BuildPlacementSlotValue.BuildPoint);
+        if (DistanceSquaredValue > WallStructureMatchRadiusSquaredValue || DistanceSquaredValue >= BestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        BestDistanceSquaredValue = DistanceSquaredValue;
+        BestUnitValue = SelfUnitValue;
+    }
+
+    return BestUnitValue;
+}
+
+const char* GetWallSlotOccupancyLabel(const Unit* OccupyingUnitValue)
+{
+    if (OccupyingUnitValue == nullptr)
+    {
+        return "Empty";
+    }
+
+    return OccupyingUnitValue->build_progress >= 1.0f ? "Filled" : "InProgress";
+}
+
 }  // namespace
 
 void TerranAgent::OnGameStart()
@@ -100,9 +173,11 @@ void TerranAgent::OnGameStart()
     GameStateDescriptor.Reset();
     ExecutionTelemetry.Reset();
     PendingProductionRallyStructureTags.clear();
+    CurrentWallGateState = EWallGateState::Unavailable;
 
     const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
     UpdateAgentState(Frame);
+    InitializeRampWallDescriptor(Frame);
     RebuildGameStateDescriptor(Frame);
     PrintAgentState();
 }
@@ -126,6 +201,7 @@ void TerranAgent::OnStep()
 
     IntentBuffer.Reset();
     ProduceSchedulerOpeningIntents(Frame);
+    ProduceWallGateIntents(Frame);
     ProduceRecoveryIntents(Frame);
     ProduceArmyIntents(Frame);
     UpdateExecutionTelemetry(Frame);
@@ -181,6 +257,25 @@ void TerranAgent::UpdateAgentState(const FFrameContext& Frame)
 
     NeutralUnits = Frame.Observation->GetUnits(Unit::Alliance::Neutral);
     AgentState.Update(Frame);
+}
+
+void TerranAgent::InitializeRampWallDescriptor(const FFrameContext& Frame)
+{
+    GameStateDescriptor.RampWallDescriptor.Reset();
+    if (BuildPlacementService == nullptr || ObservationPtr == nullptr)
+    {
+        return;
+    }
+
+    FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext();
+    BuildPlacementContextValue.RampWallDescriptor.Reset();
+    GameStateDescriptor.RampWallDescriptor =
+        BuildPlacementService->GetRampWallDescriptor(Frame, BuildPlacementContextValue);
+
+    if (!GameStateDescriptor.RampWallDescriptor.bIsValid)
+    {
+        ExecutionTelemetry.RecordWallDescriptorInvalid(CurrentStep, Frame.GameLoop);
+    }
 }
 
 void TerranAgent::RebuildGameStateDescriptor(const FFrameContext& Frame)
@@ -252,6 +347,8 @@ FBuildPlacementContext TerranAgent::CreateBuildPlacementContext() const
         BuildPlacementContextValue.NaturalLocation = ExpansionLocationValue;
     }
 
+    BuildPlacementContextValue.RampWallDescriptor = GameStateDescriptor.RampWallDescriptor;
+
     return BuildPlacementContextValue;
 }
 
@@ -315,6 +412,7 @@ void TerranAgent::PrintAgentState()
         }
     }
     std::cout << std::endl;
+    PrintWallState();
     std::cout << "Execution Telemetry: "
               << "SupplyBlock " << ToString(ExecutionTelemetry.SupplyBlockState)
               << " (" << ExecutionTelemetry.GetCurrentSupplyBlockDurationGameLoops(GameStateDescriptor.CurrentGameLoop)
@@ -374,6 +472,34 @@ void TerranAgent::PrintAgentState()
         }
     }
     std::cout << std::endl;
+}
+
+void TerranAgent::PrintWallState() const
+{
+    if (ObservationPtr == nullptr)
+    {
+        return;
+    }
+
+    const FRampWallDescriptor& RampWallDescriptorValue = GameStateDescriptor.RampWallDescriptor;
+    std::cout << "Wall: "
+              << (RampWallDescriptorValue.bIsValid ? "Valid" : "Invalid")
+              << " | Gate " << ToString(CurrentWallGateState);
+    if (!RampWallDescriptorValue.bIsValid)
+    {
+        std::cout << std::endl;
+        return;
+    }
+
+    const Units SelfUnitsValue = ObservationPtr->GetUnits(Unit::Alliance::Self);
+    const Unit* LeftWallUnitValue = FindWallStructureForSlot(SelfUnitsValue, RampWallDescriptorValue.LeftDepotSlot);
+    const Unit* CenterWallUnitValue = FindWallStructureForSlot(SelfUnitsValue, RampWallDescriptorValue.BarracksSlot);
+    const Unit* RightWallUnitValue = FindWallStructureForSlot(SelfUnitsValue, RampWallDescriptorValue.RightDepotSlot);
+
+    std::cout << " | Left " << GetWallSlotOccupancyLabel(LeftWallUnitValue)
+              << " | Center " << GetWallSlotOccupancyLabel(CenterWallUnitValue)
+              << " | Right " << GetWallSlotOccupancyLabel(RightWallUnitValue)
+              << std::endl;
 }
 
 void TerranAgent::UpdateExecutionTelemetry(const FFrameContext& Frame)
@@ -525,6 +651,43 @@ void TerranAgent::ProduceSchedulerOpeningIntents(const FFrameContext& Frame)
 
     IntentSchedulingService.DrainReadyIntents(GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,
                                               GameStateDescriptor.CommandAuthoritySchedulingState.MaxUnitIntentsPerStep);
+}
+
+void TerranAgent::ProduceWallGateIntents(const FFrameContext& Frame)
+{
+    if (ObservationPtr == nullptr || WallGateController == nullptr)
+    {
+        return;
+    }
+
+    const Units SelfUnitsValue = ObservationPtr->GetUnits(Unit::Alliance::Self);
+    const Units EnemyUnitsValue = ObservationPtr->GetUnits(Unit::Alliance::Enemy);
+    const EWallGateState DesiredWallGateStateValue = WallGateController->EvaluateDesiredWallGateState(
+        SelfUnitsValue, EnemyUnitsValue, GameStateDescriptor.RampWallDescriptor);
+    if (DesiredWallGateStateValue == EWallGateState::Closed && CurrentWallGateState != EWallGateState::Closed)
+    {
+        ExecutionTelemetry.RecordWallThreatDetected(CurrentStep, Frame.GameLoop);
+    }
+
+    if (DesiredWallGateStateValue != CurrentWallGateState)
+    {
+        WallGateController->ProduceWallGateIntents(SelfUnitsValue, GameStateDescriptor.RampWallDescriptor,
+                                                   DesiredWallGateStateValue, IntentBuffer);
+        switch (DesiredWallGateStateValue)
+        {
+            case EWallGateState::Open:
+                ExecutionTelemetry.RecordWallOpened(CurrentStep, Frame.GameLoop);
+                break;
+            case EWallGateState::Closed:
+                ExecutionTelemetry.RecordWallClosed(CurrentStep, Frame.GameLoop);
+                break;
+            case EWallGateState::Unavailable:
+            default:
+                break;
+        }
+    }
+
+    CurrentWallGateState = DesiredWallGateStateValue;
 }
 
 void TerranAgent::ProduceProductionRallyIntents()
@@ -688,6 +851,14 @@ void TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)
         }
 
         const Unit* ActorUnitValue = AgentState.UnitContainer.GetUnitByTag(CommandOrderRecordValue.ActorTag);
+        if (ActorUnitValue == nullptr && CommandOrderRecordValue.DispatchGameLoop > 0U &&
+            GameStateDescriptor.CurrentGameLoop > CommandOrderRecordValue.DispatchGameLoop)
+        {
+            CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(CommandOrderRecordValue.OrderId,
+                                                                       EOrderLifecycleState::Aborted);
+            continue;
+        }
+
         if (HasProducerConfirmedDispatchedOrder(CommandOrderRecordValue, ActorUnitValue))
         {
             CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(CommandOrderRecordValue.OrderId,

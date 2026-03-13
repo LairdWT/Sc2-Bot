@@ -43,6 +43,9 @@ void FCommandAuthoritySchedulingState::Reset()
     ProducerUnitTypeIds.clear();
     ResultUnitTypeIds.clear();
     UpgradeIds.clear();
+    PreferredPlacementSlotTypes.clear();
+    ReservedPlacementSlotTypes.clear();
+    ReservedPlacementSlotOrdinals.clear();
     LastDeferralReasons.clear();
     LastDeferralSteps.clear();
     LastDeferralGameLoops.clear();
@@ -86,6 +89,9 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     ProducerUnitTypeIds.reserve(OrderCapacityValue);
     ResultUnitTypeIds.reserve(OrderCapacityValue);
     UpgradeIds.reserve(OrderCapacityValue);
+    PreferredPlacementSlotTypes.reserve(OrderCapacityValue);
+    ReservedPlacementSlotTypes.reserve(OrderCapacityValue);
+    ReservedPlacementSlotOrdinals.reserve(OrderCapacityValue);
     LastDeferralReasons.reserve(OrderCapacityValue);
     LastDeferralSteps.reserve(OrderCapacityValue);
     LastDeferralGameLoops.reserve(OrderCapacityValue);
@@ -133,6 +139,9 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     ProducerUnitTypeIds.push_back(StoredOrderValue.ProducerUnitTypeId);
     ResultUnitTypeIds.push_back(StoredOrderValue.ResultUnitTypeId);
     UpgradeIds.push_back(StoredOrderValue.UpgradeId);
+    PreferredPlacementSlotTypes.push_back(StoredOrderValue.PreferredPlacementSlotType);
+    ReservedPlacementSlotTypes.push_back(StoredOrderValue.ReservedPlacementSlotId.SlotType);
+    ReservedPlacementSlotOrdinals.push_back(StoredOrderValue.ReservedPlacementSlotId.Ordinal);
     LastDeferralReasons.push_back(StoredOrderValue.LastDeferralReason);
     LastDeferralSteps.push_back(StoredOrderValue.LastDeferralStep);
     LastDeferralGameLoops.push_back(StoredOrderValue.LastDeferralGameLoop);
@@ -180,6 +189,26 @@ bool FCommandAuthoritySchedulingState::TryGetChildOrderIndex(const uint32_t Pare
     return false;
 }
 
+bool FCommandAuthoritySchedulingState::TryGetActiveChildOrderIndex(const uint32_t ParentOrderIdValue,
+                                                                   const ECommandAuthorityLayer SourceLayerValue,
+                                                                   size_t& OutOrderIndexValue) const
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
+    {
+        if (ParentOrderIds[OrderIndexValue] != ParentOrderIdValue ||
+            SourceLayers[OrderIndexValue] != SourceLayerValue ||
+            IsTerminalLifecycleState(LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        OutOrderIndexValue = OrderIndexValue;
+        return true;
+    }
+
+    return false;
+}
+
 size_t FCommandAuthoritySchedulingState::GetOrderCount() const
 {
     return OrderIds.size();
@@ -216,6 +245,9 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.ProducerUnitTypeId = ProducerUnitTypeIds[OrderIndexValue];
     CommandOrderRecordValue.ResultUnitTypeId = ResultUnitTypeIds[OrderIndexValue];
     CommandOrderRecordValue.UpgradeId = UpgradeIds[OrderIndexValue];
+    CommandOrderRecordValue.PreferredPlacementSlotType = PreferredPlacementSlotTypes[OrderIndexValue];
+    CommandOrderRecordValue.ReservedPlacementSlotId.SlotType = ReservedPlacementSlotTypes[OrderIndexValue];
+    CommandOrderRecordValue.ReservedPlacementSlotId.Ordinal = ReservedPlacementSlotOrdinals[OrderIndexValue];
     CommandOrderRecordValue.LastDeferralReason = LastDeferralReasons[OrderIndexValue];
     CommandOrderRecordValue.LastDeferralStep = LastDeferralSteps[OrderIndexValue];
     CommandOrderRecordValue.LastDeferralGameLoop = LastDeferralGameLoops[OrderIndexValue];
@@ -238,6 +270,11 @@ bool FCommandAuthoritySchedulingState::SetOrderLifecycleState(const uint32_t Ord
     }
 
     LifecycleStates[OrderIndexValue] = LifecycleStateValue;
+    if (IsTerminalLifecycleState(LifecycleStateValue))
+    {
+        ReservedPlacementSlotTypes[OrderIndexValue] = EBuildPlacementSlotType::Unknown;
+        ReservedPlacementSlotOrdinals[OrderIndexValue] = 0U;
+    }
     RebuildDerivedQueues();
     return true;
 }
@@ -293,6 +330,33 @@ bool FCommandAuthoritySchedulingState::SetOrderDispatchState(const uint32_t Orde
     LastDeferralReasons[OrderIndexValue] = ECommandOrderDeferralReason::None;
     LastDeferralSteps[OrderIndexValue] = 0U;
     LastDeferralGameLoops[OrderIndexValue] = 0U;
+    return true;
+}
+
+bool FCommandAuthoritySchedulingState::SetOrderReservedPlacementSlot(
+    const uint32_t OrderIdValue, const FBuildPlacementSlotId& BuildPlacementSlotIdValue)
+{
+    size_t OrderIndexValue = 0U;
+    if (!TryGetOrderIndex(OrderIdValue, OrderIndexValue))
+    {
+        return false;
+    }
+
+    ReservedPlacementSlotTypes[OrderIndexValue] = BuildPlacementSlotIdValue.SlotType;
+    ReservedPlacementSlotOrdinals[OrderIndexValue] = BuildPlacementSlotIdValue.Ordinal;
+    return true;
+}
+
+bool FCommandAuthoritySchedulingState::ClearOrderReservedPlacementSlot(const uint32_t OrderIdValue)
+{
+    size_t OrderIndexValue = 0U;
+    if (!TryGetOrderIndex(OrderIdValue, OrderIndexValue))
+    {
+        return false;
+    }
+
+    ReservedPlacementSlotTypes[OrderIndexValue] = EBuildPlacementSlotType::Unknown;
+    ReservedPlacementSlotOrdinals[OrderIndexValue] = 0U;
     return true;
 }
 

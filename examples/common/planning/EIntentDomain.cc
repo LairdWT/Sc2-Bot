@@ -13,10 +13,12 @@ int GetIntentDomainOrder(const EIntentDomain IntentDomainValue)
             return 0;
         case EIntentDomain::StructureBuild:
             return 1;
-        case EIntentDomain::UnitProduction:
+        case EIntentDomain::StructureControl:
             return 2;
-        case EIntentDomain::ArmyCombat:
+        case EIntentDomain::UnitProduction:
             return 3;
+        case EIntentDomain::ArmyCombat:
+            return 4;
         default:
             return std::numeric_limits<int>::max();
     }
@@ -30,6 +32,8 @@ const char* ToString(const EIntentDomain IntentDomainValue)
             return "Recovery";
         case EIntentDomain::StructureBuild:
             return "StructureBuild";
+        case EIntentDomain::StructureControl:
+            return "StructureControl";
         case EIntentDomain::UnitProduction:
             return "UnitProduction";
         case EIntentDomain::ArmyCombat:

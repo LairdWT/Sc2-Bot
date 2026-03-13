@@ -26,4 +26,17 @@ const char* ToString(const EOrderLifecycleState OrderLifecycleStateValue)
     }
 }
 
+bool IsTerminalLifecycleState(const EOrderLifecycleState OrderLifecycleStateValue)
+{
+    switch (OrderLifecycleStateValue)
+    {
+        case EOrderLifecycleState::Completed:
+        case EOrderLifecycleState::Aborted:
+        case EOrderLifecycleState::Expired:
+            return true;
+        default:
+            return false;
+    }
+}
+
 }  // namespace sc2

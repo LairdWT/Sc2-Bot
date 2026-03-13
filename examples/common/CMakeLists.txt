@@ -10,7 +10,9 @@ set(sc2_terran_bot_common_sources
     build_orders/FOpeningPlanRegistry.cc
     build_orders/FOpeningPlanStep.cc
     build_planning/FBuildPlanningState.cc
+    descriptors/EObservedWallSlotState.cc
     descriptors/EGamePlan.cc
+    descriptors/FObservedRampWallState.cc
     descriptors/EMacroPhase.cc
     descriptors/FTerranGameStateDescriptorBuilder.cc
     descriptors/FGameStateDescriptor.cc
@@ -22,10 +24,12 @@ set(sc2_terran_bot_common_sources
     planning/EIntentPlaybackState.cc
     planning/EOrderLifecycleState.cc
     planning/EPlanningProcessorState.cc
+    planning/EWallGateState.cc
     planning/FCommandAuthoritySchedulingState.cc
     planning/FCommandAuthorityProcessor.cc
     planning/FDefaultStrategicDirector.cc
     planning/FCommandOrderRecord.cc
+    planning/FTerranRampWallController.cc
     planning/FTerranEconomyProductionOrderExpander.cc
     planning/FTerranArmyPlanner.cc
     planning/FTerranTimingAttackBuildPlanner.cc
@@ -37,6 +41,7 @@ set(sc2_terran_bot_common_sources
     planning/IIntentSchedulingService.cc
     planning/ISquadOrderExpander.cc
     planning/IStrategicDirector.cc
+    planning/IWallGateController.cc
     planning/IUnitExecutionPlanner.cc
     telemetry/EAgentExecutionEventType.cc
     telemetry/EExecutionConditionState.cc
@@ -46,6 +51,8 @@ set(sc2_terran_bot_common_sources
     services/EBuildPlacementSlotType.cc
     services/FBuildPlacementContext.cc
     services/FBuildPlacementSlot.cc
+    services/FBuildPlacementSlotId.cc
+    services/FRampWallDescriptor.cc
     services/FTerranBuildPlacementService.cc
     services/IBuildPlacementService.cc
     services/IExpansionSelectionService.cc

@@ -33,6 +33,10 @@ public:
                                       uint32_t PlanStepIdValue, Tag ActorTagValue, AbilityID AbilityIdValue,
                                       EIntentDomain IntentDomainValue,
                                       ECommandOrderDeferralReason DeferralReasonValue);
+    void RecordWallDescriptorInvalid(uint64_t CurrentStepValue, uint64_t CurrentGameLoopValue);
+    void RecordWallThreatDetected(uint64_t CurrentStepValue, uint64_t CurrentGameLoopValue);
+    void RecordWallOpened(uint64_t CurrentStepValue, uint64_t CurrentGameLoopValue);
+    void RecordWallClosed(uint64_t CurrentStepValue, uint64_t CurrentGameLoopValue);
     uint64_t GetCurrentSupplyBlockDurationGameLoops(uint64_t CurrentGameLoopValue) const;
     uint64_t GetCurrentMineralBankDurationGameLoops(uint64_t CurrentGameLoopValue) const;
 

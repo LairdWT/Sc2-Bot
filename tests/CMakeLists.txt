@@ -22,6 +22,7 @@ set(sc2test_sources
     test_terran_bot_scaffolding.cc
     test_terran_descriptor_pipeline.cc
     test_terran_opening_plan_scheduler.cc
+    test_terran_ramp_wall_controller.cc
     test_terran_planners.cc
     test_unit_command_common.cc
     test_unit_command.cc)

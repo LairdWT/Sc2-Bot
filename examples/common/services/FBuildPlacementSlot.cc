@@ -10,7 +10,7 @@ FBuildPlacementSlot::FBuildPlacementSlot()
 
 void FBuildPlacementSlot::Reset()
 {
-    SlotType = EBuildPlacementSlotType::MainSupportStructure;
+    SlotId.Reset();
     FootprintPolicy = EBuildPlacementFootprintPolicy::StructureOnly;
     BuildPoint = Point2D();
 }

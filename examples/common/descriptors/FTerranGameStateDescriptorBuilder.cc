@@ -9,6 +9,51 @@
 namespace sc2
 {
 
+namespace
+{
+
+constexpr float WallStructureMatchRadiusSquaredValue = 6.25f;
+
+bool DoesWallSlotAcceptUnitType(const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
+                                const UNIT_TYPEID CandidateUnitTypeIdValue)
+{
+    switch (BuildPlacementSlotTypeValue)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+            return CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_SUPPLYDEPOT ||
+                   CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED;
+        case EBuildPlacementSlotType::MainRampBarracksWithAddon:
+            return CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_BARRACKS;
+        default:
+            return false;
+    }
+}
+
+EObservedWallSlotState DetermineObservedWallSlotState(const FTerranUnitContainer& UnitContainerValue,
+                                                      const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
+                                                      const Point2D& BuildPointValue)
+{
+    for (const Unit* ControlledUnitValue : UnitContainerValue.ControlledUnits)
+    {
+        if (ControlledUnitValue == nullptr || ControlledUnitValue->build_progress < 1.0f ||
+            !DoesWallSlotAcceptUnitType(BuildPlacementSlotTypeValue, ControlledUnitValue->unit_type.ToType()))
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue = DistanceSquared2D(Point2D(ControlledUnitValue->pos), BuildPointValue);
+        if (DistanceSquaredValue <= WallStructureMatchRadiusSquaredValue)
+        {
+            return EObservedWallSlotState::Occupied;
+        }
+    }
+
+    return EObservedWallSlotState::Empty;
+}
+
+}  // namespace
+
 void FTerranGameStateDescriptorBuilder::RebuildGameStateDescriptor(
     const uint64_t CurrentStepValue, const uint64_t CurrentGameLoopValue, const FAgentState& AgentStateValue,
     FGameStateDescriptor& GameStateDescriptorValue) const
@@ -18,6 +63,19 @@ void FTerranGameStateDescriptorBuilder::RebuildGameStateDescriptor(
     RebuildMacroStateDescriptor(CurrentGameLoopValue, AgentStateValue, GameStateDescriptorValue.MacroState);
     RebuildArmyDomainState(AgentStateValue, GameStateDescriptorValue.ArmyState);
     RebuildBuildPlanningState(CurrentGameLoopValue, AgentStateValue, GameStateDescriptorValue.BuildPlanning);
+    GameStateDescriptorValue.ObservedRampWallState.Reset();
+    if (GameStateDescriptorValue.RampWallDescriptor.bIsValid)
+    {
+        GameStateDescriptorValue.ObservedRampWallState.LeftDepotState = DetermineObservedWallSlotState(
+            AgentStateValue.UnitContainer, EBuildPlacementSlotType::MainRampDepotLeft,
+            GameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.BuildPoint);
+        GameStateDescriptorValue.ObservedRampWallState.BarracksState = DetermineObservedWallSlotState(
+            AgentStateValue.UnitContainer, EBuildPlacementSlotType::MainRampBarracksWithAddon,
+            GameStateDescriptorValue.RampWallDescriptor.BarracksSlot.BuildPoint);
+        GameStateDescriptorValue.ObservedRampWallState.RightDepotState = DetermineObservedWallSlotState(
+            AgentStateValue.UnitContainer, EBuildPlacementSlotType::MainRampDepotRight,
+            GameStateDescriptorValue.RampWallDescriptor.RightDepotSlot.BuildPoint);
+    }
 }
 
 void FTerranGameStateDescriptorBuilder::RebuildMacroStateDescriptor(

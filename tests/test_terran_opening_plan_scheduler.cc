@@ -4,6 +4,7 @@
 #include <string>
 
 #include "common/build_orders/FOpeningPlanRegistry.h"
+#include "common/descriptors/EObservedWallSlotState.h"
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/planning/ECommandAuthorityLayer.h"
 #include "common/planning/EPlanningProcessorState.h"
@@ -72,6 +73,13 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
         FOpeningPlanRegistry::GetOpeningPlanDescriptor(EOpeningPlanId::TerranTwoBaseMMMFrameOpening);
     Check(OpeningPlanDescriptorValue.Steps.size() == 32U, SuccessValue,
           "Compiled opening-plan registry should expose the authored Terran opener steps.");
+    Check(OpeningPlanDescriptorValue.Steps[0].PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotLeft,
+          SuccessValue, "The first depot step should bind to the left ramp depot slot.");
+    Check(OpeningPlanDescriptorValue.Steps[1].PreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainRampBarracksWithAddon,
+          SuccessValue, "The first barracks step should bind to the ramp barracks slot.");
+    Check(OpeningPlanDescriptorValue.Steps[7].PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotRight,
+          SuccessValue, "The second wall depot step should bind to the right ramp depot slot.");
 
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
@@ -117,6 +125,8 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
           "First authored opening-plan step should build a supply depot.");
     Check(DepotStrategicOrderValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_SUPPLYDEPOT, SuccessValue,
           "First authored opening-plan step should target a supply depot result type.");
+    Check(DepotStrategicOrderValue.PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotLeft,
+          SuccessValue, "The seeded depot strategic order should preserve its preferred ramp slot.");
 
     size_t DepotChildOrderIndexValue = 0U;
     Check(GameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetChildOrderIndex(
@@ -126,9 +136,30 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
         GameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(DepotChildOrderIndexValue);
     Check(DepotChildOrderValue.PlanStepId == 1U, SuccessValue,
           "Economy child orders should preserve the authored opening-plan step identifier.");
+    Check(DepotChildOrderValue.PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotLeft,
+          SuccessValue, "Economy child orders should preserve the authored preferred ramp slot.");
+
+    GameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
+        DepotChildOrderValue.OrderId, EOrderLifecycleState::Aborted);
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(GameStateDescriptorValue);
+    Check(GameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderCount() == 5U, SuccessValue,
+          "Aborted economy children should not block the strategic parent from creating a replacement child.");
+
+    size_t ReplacementDepotChildOrderIndexValue = 0U;
+    Check(GameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetActiveChildOrderIndex(
+              DepotStrategicOrderValue.OrderId, ECommandAuthorityLayer::EconomyAndProduction,
+              ReplacementDepotChildOrderIndexValue),
+          SuccessValue, "Opening-plan parents should expose the replacement active economy child after an abort.");
+    Check(GameStateDescriptorValue.CommandAuthoritySchedulingState.OrderIds[ReplacementDepotChildOrderIndexValue] !=
+              DepotChildOrderValue.OrderId,
+          SuccessValue, "Replacement active child lookup should return the new economy child order.");
+    const FCommandOrderRecord ReplacementDepotChildOrderValue =
+        GameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(ReplacementDepotChildOrderIndexValue);
+    Check(ReplacementDepotChildOrderValue.PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotLeft,
+          SuccessValue, "Replacement economy children should preserve the authored preferred ramp slot.");
 
     CommandAuthorityProcessorValue.ProcessSchedulerStep(GameStateDescriptorValue);
-    Check(GameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderCount() == 4U, SuccessValue,
+    Check(GameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderCount() == 5U, SuccessValue,
           "Repeated scheduler passes without new observations should not duplicate seeded orders.");
 
     GameStateDescriptorValue.CurrentGameLoop = 896U;
@@ -151,6 +182,9 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
         GameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(BarracksStrategicOrderIndexValue);
     Check(BarracksStrategicOrderValue.AbilityId == ABILITY_ID::BUILD_BARRACKS, SuccessValue,
           "The second authored step should seed a barracks strategic order.");
+    Check(BarracksStrategicOrderValue.PreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainRampBarracksWithAddon,
+          SuccessValue, "The seeded barracks strategic order should preserve the ramp barracks slot binding.");
 
     size_t RefineryStrategicOrderIndexValue = 0U;
     Check(!TryFindOrderIndexByPlanStepId(GameStateDescriptorValue.CommandAuthoritySchedulingState, 3U,
@@ -167,6 +201,58 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     CommandAuthorityProcessorValue.ProcessSchedulerStep(GameStateDescriptorValue);
     Check(GameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(2U), SuccessValue,
           "Observed barracks completion should complete the second authored opening-plan step.");
+
+    FGameStateDescriptor WallSlotGameStateDescriptorValue;
+    WallSlotGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+    SetObservedWorkerCount(WallSlotGameStateDescriptorValue, 12U);
+    WallSlotGameStateDescriptorValue.RampWallDescriptor.bIsValid = true;
+    WallSlotGameStateDescriptorValue.ObservedRampWallState.LeftDepotState = EObservedWallSlotState::Empty;
+    WallSlotGameStateDescriptorValue.ObservedRampWallState.BarracksState = EObservedWallSlotState::Empty;
+    WallSlotGameStateDescriptorValue.ObservedRampWallState.RightDepotState = EObservedWallSlotState::Empty;
+
+    WallSlotGameStateDescriptorValue.CurrentGameLoop = 357U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(WallSlotGameStateDescriptorValue);
+    WallSlotGameStateDescriptorValue.CurrentGameLoop = 358U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(WallSlotGameStateDescriptorValue);
+
+    size_t WallDepotStrategicOrderIndexValue = 0U;
+    Check(TryFindOrderIndexByPlanStepId(WallSlotGameStateDescriptorValue.CommandAuthoritySchedulingState, 1U,
+                                        ECommandAuthorityLayer::StrategicDirector, WallDepotStrategicOrderIndexValue),
+          SuccessValue, "Slot-bound wall verification should seed the first depot strategic order.");
+    const FCommandOrderRecord WallDepotStrategicOrderValue =
+        WallSlotGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(WallDepotStrategicOrderIndexValue);
+    size_t InitialWallDepotChildOrderIndexValue = 0U;
+    Check(WallSlotGameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetChildOrderIndex(
+              WallDepotStrategicOrderValue.OrderId, ECommandAuthorityLayer::EconomyAndProduction,
+              InitialWallDepotChildOrderIndexValue),
+          SuccessValue, "Slot-bound wall verification should create the first depot economy child.");
+    const FCommandOrderRecord InitialWallDepotChildOrderValue =
+        WallSlotGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(
+            InitialWallDepotChildOrderIndexValue);
+
+    WallSlotGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] =
+        1U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(WallSlotGameStateDescriptorValue);
+    Check(!WallSlotGameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(1U), SuccessValue,
+          "Slot-bound wall steps should not complete from aggregate depot counts when the exact wall slot is empty.");
+
+    WallSlotGameStateDescriptorValue.ObservedRampWallState.LeftDepotState = EObservedWallSlotState::Occupied;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(WallSlotGameStateDescriptorValue);
+    Check(WallSlotGameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(1U), SuccessValue,
+          "Slot-bound wall steps should complete once the exact wall slot is occupied.");
+
+    WallSlotGameStateDescriptorValue.ObservedRampWallState.LeftDepotState = EObservedWallSlotState::Empty;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(WallSlotGameStateDescriptorValue);
+    Check(!WallSlotGameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(1U), SuccessValue,
+          "Destroyed wall structures should regress slot-bound opening-plan step completion.");
+    size_t RebuiltWallDepotChildOrderIndexValue = 0U;
+    Check(WallSlotGameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetActiveChildOrderIndex(
+              WallDepotStrategicOrderValue.OrderId, ECommandAuthorityLayer::EconomyAndProduction,
+              RebuiltWallDepotChildOrderIndexValue),
+          SuccessValue, "Regressed slot-bound wall steps should respawn an active economy child.");
+    Check(WallSlotGameStateDescriptorValue.CommandAuthoritySchedulingState.OrderIds[RebuiltWallDepotChildOrderIndexValue] !=
+              InitialWallDepotChildOrderValue.OrderId,
+          SuccessValue, "Regressed slot-bound wall steps should create a replacement economy child order.");
 
     return SuccessValue;
 }

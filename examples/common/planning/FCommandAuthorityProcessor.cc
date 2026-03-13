@@ -80,6 +80,34 @@ uint32_t GetUnitCount(const std::array<uint16_t, NUM_TERRAN_UNITS>& UnitCountsVa
     }
 }
 
+bool IsRampWallSlotType(const EBuildPlacementSlotType PreferredPlacementSlotTypeValue)
+{
+    switch (PreferredPlacementSlotTypeValue)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampBarracksWithAddon:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool ShouldUseExactWallSlotObservedMatch(const FGameStateDescriptor& GameStateDescriptorValue,
+                                         const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    return CommandOrderRecordValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown &&
+           GameStateDescriptorValue.RampWallDescriptor.bIsValid &&
+           IsRampWallSlotType(CommandOrderRecordValue.PreferredPlacementSlotType);
+}
+
+bool DoesExactWallSlotContainExpectedStructure(const FGameStateDescriptor& GameStateDescriptorValue,
+                                               const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    return GameStateDescriptorValue.ObservedRampWallState.GetObservedWallSlotState(
+               CommandOrderRecordValue.PreferredPlacementSlotType) == EObservedWallSlotState::Occupied;
+}
+
 }  // namespace
 
 void FCommandAuthorityProcessor::ProcessSchedulerStep(FGameStateDescriptor& GameStateDescriptorValue) const
@@ -113,6 +141,44 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
     FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
     const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
         FOpeningPlanRegistry::GetOpeningPlanDescriptor(OpeningPlanExecutionStateValue.ActivePlanId);
+    FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
+        GameStateDescriptorValue.CommandAuthoritySchedulingState;
+
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        if (!OpeningPlanExecutionStateValue.IsStepCompleted(OpeningPlanStepValue.StepId))
+        {
+            continue;
+        }
+
+        uint32_t StrategicOrderIdValue = 0U;
+        if (!OpeningPlanExecutionStateValue.TryGetPlanOrderId(OpeningPlanStepValue.StepId, StrategicOrderIdValue))
+        {
+            continue;
+        }
+
+        size_t StrategicOrderIndexValue = 0U;
+        if (!CommandAuthoritySchedulingStateValue.TryGetOrderIndex(StrategicOrderIdValue, StrategicOrderIndexValue))
+        {
+            continue;
+        }
+
+        const FCommandOrderRecord StrategicOrderRecordValue =
+            CommandAuthoritySchedulingStateValue.GetOrderRecord(StrategicOrderIndexValue);
+        if (!ShouldUseExactWallSlotObservedMatch(GameStateDescriptorValue, StrategicOrderRecordValue) ||
+            DoesExactWallSlotContainExpectedStructure(GameStateDescriptorValue, StrategicOrderRecordValue))
+        {
+            continue;
+        }
+
+        OpeningPlanExecutionStateValue.MarkStepIncomplete(OpeningPlanStepValue.StepId);
+        CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(StrategicOrderIdValue, EOrderLifecycleState::Queued);
+        CommandAuthoritySchedulingStateValue.ClearOrderDeferralState(StrategicOrderIdValue);
+        if (OpeningPlanExecutionStateValue.LifecycleState == EOpeningPlanLifecycleState::Completed)
+        {
+            OpeningPlanExecutionStateValue.LifecycleState = EOpeningPlanLifecycleState::Active;
+        }
+    }
 
     for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
     {
@@ -124,7 +190,8 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
         FCommandOrderRecord CompletionProbeValue;
         CompletionProbeValue.ResultUnitTypeId = OpeningPlanStepValue.ResultUnitTypeId;
         CompletionProbeValue.TargetCount = OpeningPlanStepValue.TargetCount;
-        if (!DoesOrderTargetMatchObservedState(GameStateDescriptorValue.BuildPlanning, CompletionProbeValue))
+        CompletionProbeValue.PreferredPlacementSlotType = OpeningPlanStepValue.PreferredPlacementSlotType;
+        if (!DoesOrderTargetMatchObservedState(GameStateDescriptorValue, CompletionProbeValue))
         {
             continue;
         }
@@ -137,20 +204,23 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
             GameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(StrategicOrderIdValue,
                                                                                            EOrderLifecycleState::Completed);
 
-            size_t EconomyChildOrderIndexValue = 0U;
-            if (GameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetChildOrderIndex(
-                    StrategicOrderIdValue, ECommandAuthorityLayer::EconomyAndProduction, EconomyChildOrderIndexValue))
+            const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+            for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
             {
-                const uint32_t EconomyChildOrderIdValue =
-                    GameStateDescriptorValue.CommandAuthoritySchedulingState.OrderIds[EconomyChildOrderIndexValue];
-                GameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
-                    EconomyChildOrderIdValue, EOrderLifecycleState::Completed);
+                if (CommandAuthoritySchedulingStateValue.ParentOrderIds[OrderIndexValue] != StrategicOrderIdValue ||
+                    CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] !=
+                        ECommandAuthorityLayer::EconomyAndProduction ||
+                    IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+                {
+                    continue;
+                }
+
+                CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(
+                    CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue], EOrderLifecycleState::Completed);
             }
         }
     }
 
-    FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
-        GameStateDescriptorValue.CommandAuthoritySchedulingState;
     for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size(); ++OrderIndexValue)
     {
         const EOrderLifecycleState LifecycleStateValue =
@@ -164,7 +234,7 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
         const FCommandOrderRecord CommandOrderRecordValue =
             CommandAuthoritySchedulingStateValue.GetOrderRecord(OrderIndexValue);
         if (CommandOrderRecordValue.TargetCount == 0U ||
-            !DoesOrderTargetMatchObservedState(GameStateDescriptorValue.BuildPlanning, CommandOrderRecordValue))
+            !DoesOrderTargetMatchObservedState(GameStateDescriptorValue, CommandOrderRecordValue))
         {
             continue;
         }
@@ -216,6 +286,7 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(FGameStateDescriptor& 
         StrategicOrderValue.ProducerUnitTypeId = OpeningPlanStepValue.ProducerUnitTypeId;
         StrategicOrderValue.ResultUnitTypeId = OpeningPlanStepValue.ResultUnitTypeId;
         StrategicOrderValue.UpgradeId = OpeningPlanStepValue.UpgradeId;
+        StrategicOrderValue.PreferredPlacementSlotType = OpeningPlanStepValue.PreferredPlacementSlotType;
         StrategicOrderValue.IntentDomain = DetermineIntentDomain(StrategicOrderValue);
 
         const uint32_t StrategicOrderIdValue =
@@ -270,15 +341,14 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
             CommandAuthoritySchedulingStateValue.GetOrderRecord(StrategicOrderIndexValue);
         if (StrategicOrderValue.SourceLayer != ECommandAuthorityLayer::StrategicDirector ||
             StrategicOrderValue.LifecycleState == EOrderLifecycleState::Completed ||
-            DoesOrderTargetMatchObservedState(GameStateDescriptorValue.BuildPlanning, StrategicOrderValue))
+            DoesOrderTargetMatchObservedState(GameStateDescriptorValue, StrategicOrderValue))
         {
             continue;
         }
 
         size_t EconomyChildOrderIndexValue = 0U;
-        if (CommandAuthoritySchedulingStateValue.TryGetChildOrderIndex(StrategicOrderValue.OrderId,
-                                                                       ECommandAuthorityLayer::EconomyAndProduction,
-                                                                       EconomyChildOrderIndexValue))
+        if (CommandAuthoritySchedulingStateValue.TryGetActiveChildOrderIndex(
+                StrategicOrderValue.OrderId, ECommandAuthorityLayer::EconomyAndProduction, EconomyChildOrderIndexValue))
         {
             continue;
         }
@@ -292,6 +362,7 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
         EconomyOrderValue.ProducerUnitTypeId = StrategicOrderValue.ProducerUnitTypeId;
         EconomyOrderValue.ResultUnitTypeId = StrategicOrderValue.ResultUnitTypeId;
         EconomyOrderValue.UpgradeId = StrategicOrderValue.UpgradeId;
+        EconomyOrderValue.PreferredPlacementSlotType = StrategicOrderValue.PreferredPlacementSlotType;
         CommandAuthoritySchedulingStateValue.EnqueueOrder(EconomyOrderValue);
     }
 }
@@ -311,9 +382,15 @@ bool FCommandAuthorityProcessor::AreRequiredStepsCompleted(
 }
 
 bool FCommandAuthorityProcessor::DoesOrderTargetMatchObservedState(
-    const FBuildPlanningState& BuildPlanningStateValue, const FCommandOrderRecord& CommandOrderRecordValue) const
+    const FGameStateDescriptor& GameStateDescriptorValue, const FCommandOrderRecord& CommandOrderRecordValue) const
 {
-    return GetObservedCountForOrder(BuildPlanningStateValue, CommandOrderRecordValue) >= CommandOrderRecordValue.TargetCount;
+    if (ShouldUseExactWallSlotObservedMatch(GameStateDescriptorValue, CommandOrderRecordValue))
+    {
+        return DoesExactWallSlotContainExpectedStructure(GameStateDescriptorValue, CommandOrderRecordValue);
+    }
+
+    return GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, CommandOrderRecordValue) >=
+           CommandOrderRecordValue.TargetCount;
 }
 
 uint32_t FCommandAuthorityProcessor::GetObservedCountForOrder(const FBuildPlanningState& BuildPlanningStateValue,

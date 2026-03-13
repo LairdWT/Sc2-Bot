@@ -7,6 +7,7 @@ namespace sc2
 
 enum class EBuildPlacementSlotType : uint8_t
 {
+    Unknown,
     MainRampDepotLeft,
     MainRampBarracksWithAddon,
     MainRampDepotRight,

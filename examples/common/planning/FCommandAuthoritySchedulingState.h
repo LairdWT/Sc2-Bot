@@ -12,6 +12,7 @@
 #include "common/planning/EOrderLifecycleState.h"
 #include "common/planning/EPlanningProcessorState.h"
 #include "common/planning/FCommandOrderRecord.h"
+#include "common/services/FBuildPlacementSlotId.h"
 
 namespace sc2
 {
@@ -30,6 +31,8 @@ public:
     bool TryGetOrderIndex(uint32_t OrderIdValue, size_t& OutOrderIndexValue) const;
     bool TryGetChildOrderIndex(uint32_t ParentOrderIdValue, ECommandAuthorityLayer SourceLayerValue,
                                size_t& OutOrderIndexValue) const;
+    bool TryGetActiveChildOrderIndex(uint32_t ParentOrderIdValue, ECommandAuthorityLayer SourceLayerValue,
+                                     size_t& OutOrderIndexValue) const;
     size_t GetOrderCount() const;
     FCommandOrderRecord GetOrderRecord(size_t OrderIndexValue) const;
     bool SetOrderLifecycleState(uint32_t OrderIdValue, EOrderLifecycleState LifecycleStateValue);
@@ -38,6 +41,8 @@ public:
     bool ClearOrderDeferralState(uint32_t OrderIdValue);
     bool SetOrderDispatchState(uint32_t OrderIdValue, uint64_t DispatchStepValue, uint64_t DispatchGameLoopValue,
                                uint32_t ObservedCountValue, uint32_t ObservedInConstructionCountValue);
+    bool SetOrderReservedPlacementSlot(uint32_t OrderIdValue, const FBuildPlacementSlotId& BuildPlacementSlotIdValue);
+    bool ClearOrderReservedPlacementSlot(uint32_t OrderIdValue);
     void RebuildDerivedQueues();
 
 public:
@@ -72,6 +77,9 @@ public:
     std::vector<UNIT_TYPEID> ProducerUnitTypeIds;
     std::vector<UNIT_TYPEID> ResultUnitTypeIds;
     std::vector<UpgradeID> UpgradeIds;
+    std::vector<EBuildPlacementSlotType> PreferredPlacementSlotTypes;
+    std::vector<EBuildPlacementSlotType> ReservedPlacementSlotTypes;
+    std::vector<uint8_t> ReservedPlacementSlotOrdinals;
     std::vector<ECommandOrderDeferralReason> LastDeferralReasons;
     std::vector<uint64_t> LastDeferralSteps;
     std::vector<uint64_t> LastDeferralGameLoops;

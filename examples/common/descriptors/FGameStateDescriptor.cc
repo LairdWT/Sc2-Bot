@@ -18,6 +18,8 @@ void FGameStateDescriptor::Reset()
     OpeningPlanExecutionState.Reset();
     CommandAuthoritySchedulingState.Reset();
     SpatialFields.Reset();
+    RampWallDescriptor.Reset();
+    ObservedRampWallState.Reset();
 }
 
 }  // namespace sc2

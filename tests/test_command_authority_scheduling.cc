@@ -125,10 +125,25 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Existing orders without a producer type should default the producer type to invalid.");
     Check(FirstUnitOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::INVALID, SuccessValue,
           "Existing orders without a result type should default the result type to invalid.");
+    Check(FirstUnitOrderRecordValue.PreferredPlacementSlotType == EBuildPlacementSlotType::Unknown, SuccessValue,
+          "Existing orders without slot metadata should default the preferred placement slot type to unknown.");
+    Check(!FirstUnitOrderRecordValue.ReservedPlacementSlotId.IsValid(), SuccessValue,
+          "Existing orders without slot metadata should default the reserved placement slot to invalid.");
     Check(FirstUnitOrderRecordValue.LastDeferralReason == ECommandOrderDeferralReason::None, SuccessValue,
           "Existing orders should default the scheduler deferral reason to None.");
     Check(FirstUnitOrderRecordValue.DispatchAttemptCount == 0U, SuccessValue,
           "Existing orders should default dispatch attempts to zero.");
+
+    FBuildPlacementSlotId ReservedPlacementSlotIdValue;
+    ReservedPlacementSlotIdValue.SlotType = EBuildPlacementSlotType::MainRampDepotLeft;
+    ReservedPlacementSlotIdValue.Ordinal = 0U;
+    Check(CommandAuthoritySchedulingStateValue.SetOrderReservedPlacementSlot(FirstUnitOrderIdValue,
+                                                                             ReservedPlacementSlotIdValue),
+          SuccessValue, "Scheduling state should accept reserved placement-slot claims for active orders.");
+    const FCommandOrderRecord ReservedFirstUnitOrderRecordValue =
+        CommandAuthoritySchedulingStateValue.GetOrderRecord(FirstUnitOrderIndexValue);
+    Check(ReservedFirstUnitOrderRecordValue.ReservedPlacementSlotId == ReservedPlacementSlotIdValue, SuccessValue,
+          "Scheduling state should reconstruct reserved placement-slot claims.");
 
     CommandAuthoritySchedulingStateValue.SetOrderDeferralState(FirstUnitOrderIdValue,
                                                                ECommandOrderDeferralReason::ProducerBusy, 15U, 140U);
@@ -207,6 +222,10 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
 
     Check(CommandAuthoritySchedulingStateValue.CompletedOrderIndices.size() == 2U, SuccessValue,
           "Completed unit-execution orders should move into the completed-order buffer.");
+    const FCommandOrderRecord CompletedFirstUnitOrderRecordValue =
+        CommandAuthoritySchedulingStateValue.GetOrderRecord(FirstUnitOrderIndexValue);
+    Check(!CompletedFirstUnitOrderRecordValue.ReservedPlacementSlotId.IsValid(), SuccessValue,
+          "Terminal lifecycle transitions should release reserved placement-slot claims.");
 
     FCommandOrderRecord OpeningPlanOrderValue = FCommandOrderRecord::CreateNoTarget(
         ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::BUILD_FACTORY, 250,
@@ -232,6 +251,48 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Scheduling state should reconstruct the authored producer unit type.");
     Check(OpeningPlanOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_FACTORY, SuccessValue,
           "Scheduling state should reconstruct the authored result unit type.");
+
+    FCommandOrderRecord EconomyChildOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_FACTORY, 250,
+        EIntentDomain::StructureBuild, 21U, 0U, OpeningPlanOrderIdValue, -1, -1, false);
+    EconomyChildOrderValue.PlanStepId = 19U;
+    EconomyChildOrderValue.TargetCount = 1U;
+    EconomyChildOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    EconomyChildOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
+    EconomyChildOrderValue.PreferredPlacementSlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    EconomyChildOrderValue.ReservedPlacementSlotId.SlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    EconomyChildOrderValue.ReservedPlacementSlotId.Ordinal = 2U;
+    const uint32_t EconomyChildOrderIdValue =
+        IntentSchedulingServiceValue.SubmitOrder(CommandAuthoritySchedulingStateValue, EconomyChildOrderValue);
+
+    size_t ActiveEconomyChildOrderIndexValue = 0U;
+    Check(CommandAuthoritySchedulingStateValue.TryGetActiveChildOrderIndex(
+              OpeningPlanOrderIdValue, ECommandAuthorityLayer::EconomyAndProduction, ActiveEconomyChildOrderIndexValue),
+          SuccessValue, "Scheduling state should find active child orders for an opening-plan parent.");
+    Check(CommandAuthoritySchedulingStateValue.OrderIds[ActiveEconomyChildOrderIndexValue] == EconomyChildOrderIdValue,
+          SuccessValue, "Active child lookup should return the non-terminal child order.");
+    const FCommandOrderRecord ActiveEconomyChildOrderValue =
+        CommandAuthoritySchedulingStateValue.GetOrderRecord(ActiveEconomyChildOrderIndexValue);
+    Check(ActiveEconomyChildOrderValue.PreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainProductionWithAddon,
+          SuccessValue, "Scheduling state should reconstruct authored preferred placement-slot metadata.");
+    Check(ActiveEconomyChildOrderValue.ReservedPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainProductionWithAddon &&
+              ActiveEconomyChildOrderValue.ReservedPlacementSlotId.Ordinal == 2U,
+          SuccessValue, "Scheduling state should reconstruct authored reserved placement-slot metadata.");
+
+    IntentSchedulingServiceValue.UpdateOrderLifecycleState(CommandAuthoritySchedulingStateValue, EconomyChildOrderIdValue,
+                                                           EOrderLifecycleState::Aborted);
+    Check(!CommandAuthoritySchedulingStateValue.TryGetActiveChildOrderIndex(
+              OpeningPlanOrderIdValue, ECommandAuthorityLayer::EconomyAndProduction, ActiveEconomyChildOrderIndexValue),
+          SuccessValue, "Terminal child orders should not block active child lookup.");
+    size_t EconomyChildOrderIndexValue = 0U;
+    Check(CommandAuthoritySchedulingStateValue.TryGetOrderIndex(EconomyChildOrderIdValue, EconomyChildOrderIndexValue),
+          SuccessValue, "Scheduling state should keep aborted child orders addressable by identifier.");
+    const FCommandOrderRecord AbortedEconomyChildOrderValue =
+        CommandAuthoritySchedulingStateValue.GetOrderRecord(EconomyChildOrderIndexValue);
+    Check(!AbortedEconomyChildOrderValue.ReservedPlacementSlotId.IsValid(), SuccessValue,
+          "Aborted child orders should release their reserved placement-slot claims.");
 
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.CommandAuthoritySchedulingState = CommandAuthoritySchedulingStateValue;

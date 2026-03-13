@@ -9,6 +9,7 @@ enum class EIntentDomain : uint8_t
 {
     Recovery,
     StructureBuild,
+    StructureControl,
     UnitProduction,
     ArmyCombat,
 };

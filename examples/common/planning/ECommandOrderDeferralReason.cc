@@ -21,6 +21,10 @@ const char* ToString(const ECommandOrderDeferralReason CommandOrderDeferralReaso
             return "TargetAlreadySatisfied";
         case ECommandOrderDeferralReason::AwaitingObservedCompletion:
             return "AwaitingObservedCompletion";
+        case ECommandOrderDeferralReason::ReservedSlotOccupied:
+            return "ReservedSlotOccupied";
+        case ECommandOrderDeferralReason::ReservedSlotInvalidated:
+            return "ReservedSlotInvalidated";
         default:
             return "Unknown";
     }

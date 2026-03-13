@@ -11,6 +11,7 @@
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/logging.h"
 #include "common/planning/FTerranArmyPlanner.h"
+#include "common/planning/FTerranRampWallController.h"
 #include "common/planning/FTerranEconomyProductionOrderExpander.h"
 #include "common/planning/FTerranTimingAttackBuildPlanner.h"
 #include "common/planning/FCommandAuthorityProcessor.h"
@@ -47,13 +48,16 @@ public:
     void OnUnitCreated(const Unit* UnitPtr) final;
 
     void UpdateAgentState(const FFrameContext& Frame);
+    void InitializeRampWallDescriptor(const FFrameContext& Frame);
     void RebuildGameStateDescriptor(const FFrameContext& Frame);
     void UpdateRallyAnchor();
     void PrintAgentState();
+    void PrintWallState() const;
     FBuildPlacementContext CreateBuildPlacementContext() const;
 
     void ProduceRecoveryIntents(const FFrameContext& Frame);
     void ProduceSchedulerOpeningIntents(const FFrameContext& Frame);
+    void ProduceWallGateIntents(const FFrameContext& Frame);
     void ProduceProductionRallyIntents();
     void ProduceArmyIntents(const FFrameContext& Frame);
     void AssembleCombatUnitsAtRallyPoint();
@@ -118,12 +122,15 @@ private:
     FCommandAuthorityProcessor CommandAuthorityProcessor;
     FTerranEconomyProductionOrderExpander DefaultEconomyProductionOrderExpander;
     const IEconomyProductionOrderExpander* EconomyProductionOrderExpander{&DefaultEconomyProductionOrderExpander};
+    FTerranRampWallController DefaultWallGateController;
+    const IWallGateController* WallGateController{&DefaultWallGateController};
     FTerranBuildPlacementService DefaultBuildPlacementService;
     const IBuildPlacementService* BuildPlacementService{&DefaultBuildPlacementService};
     FIntentSchedulingService IntentSchedulingService;
     std::vector<Point2D> ExpansionLocations;
     std::unordered_set<Tag> PendingProductionRallyStructureTags;
     FAgentExecutionTelemetry ExecutionTelemetry;
+    EWallGateState CurrentWallGateState{EWallGateState::Unavailable};
 };
 
 }  // namespace sc2

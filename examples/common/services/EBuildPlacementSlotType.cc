@@ -7,6 +7,8 @@ const char* ToString(const EBuildPlacementSlotType BuildPlacementSlotTypeValue)
 {
     switch (BuildPlacementSlotTypeValue)
     {
+        case EBuildPlacementSlotType::Unknown:
+            return "Unknown";
         case EBuildPlacementSlotType::MainRampDepotLeft:
             return "MainRampDepotLeft";
         case EBuildPlacementSlotType::MainRampBarracksWithAddon:
