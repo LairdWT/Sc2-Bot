@@ -36,6 +36,7 @@ void FCommandOrderRecord::Reset()
     ResultUnitTypeId = UNIT_TYPEID::INVALID;
     UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
     PreferredPlacementSlotType = EBuildPlacementSlotType::Unknown;
+    PreferredPlacementSlotId.Reset();
     ReservedPlacementSlotId.Reset();
     LastDeferralReason = ECommandOrderDeferralReason::None;
     LastDeferralStep = 0U;

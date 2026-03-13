@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "common/services/FMainBaseLayoutDescriptor.h"
 #include "common/services/FRampWallDescriptor.h"
 #include "sc2api/sc2_common.h"
@@ -14,10 +16,14 @@ public:
 
     void Reset();
     bool HasNaturalLocation() const;
+    bool HasPlayableBounds() const;
 
 public:
+    std::string MapName;
     Point2D BaseLocation;
     Point2D NaturalLocation;
+    Point2D PlayableMin;
+    Point2D PlayableMax;
     FRampWallDescriptor RampWallDescriptor;
     FMainBaseLayoutDescriptor MainBaseLayoutDescriptor;
 };

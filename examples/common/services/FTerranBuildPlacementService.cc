@@ -6,6 +6,7 @@
 #include <limits>
 
 #include "common/terran_models.h"
+#include "common/services/FTerranMainBaseLayoutRegistry.h"
 #include "sc2api/sc2_unit_filters.h"
 
 namespace sc2
@@ -30,6 +31,16 @@ Point2D GetAddonFootprintCenter(const Point2D& StructureBuildPointValue);
 bool IsPlacementCandidateValid(const FFrameContext& FrameValue, const ABILITY_ID StructureAbilityIdValue,
                                const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
                                const Point2D& CandidatePointValue);
+void AppendExactSlotsToLayoutDescriptor(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const std::vector<FBuildPlacementSlot>& TemplateBuildPlacementSlotsValue, const ABILITY_ID StructureAbilityIdValue,
+    std::vector<FBuildPlacementSlot>& OutPlacementSlotsValue,
+    std::vector<FResolvedLayoutPlacementSlot>& OutResolvedLayoutPlacementSlotsValue);
+void AppendProductionRailSlotsToLayoutDescriptor(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const std::vector<FBuildPlacementSlot>& TemplateBuildPlacementSlotsValue,
+    std::vector<FBuildPlacementSlot>& OutPlacementSlotsValue,
+    std::vector<FResolvedLayoutPlacementSlot>& OutResolvedLayoutPlacementSlotsValue);
 
 Point2D GetNormalizedDirection(const Point2D& DirectionValue)
 {
@@ -488,6 +499,17 @@ Point2D GetMainBaseLayoutAnchorPoint(const FBuildPlacementContext& BuildPlacemen
            (MainBaseDepthDirectionValue * 2.0f);
 }
 
+Point2D MirrorPointAcrossDepthAxis(const Point2D& PointValue, const Point2D& AnchorPointValue,
+                                   const Point2D& MainBaseDepthDirectionValue,
+                                   const Point2D& MainBaseLateralDirectionValue)
+{
+    const Point2D AnchorToPointValue = PointValue - AnchorPointValue;
+    const float DepthOffsetValue = Dot2D(AnchorToPointValue, MainBaseDepthDirectionValue);
+    const float LateralOffsetValue = Dot2D(AnchorToPointValue, MainBaseLateralDirectionValue);
+    return AnchorPointValue + (MainBaseDepthDirectionValue * DepthOffsetValue) -
+           (MainBaseLateralDirectionValue * LateralOffsetValue);
+}
+
 bool TryResolveExactPlacementSlot(
     const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
     const FBuildPlacementSlot& TemplateBuildPlacementSlotValue, const ABILITY_ID StructureAbilityIdValue,
@@ -526,6 +548,44 @@ bool TryResolveExactPlacementSlot(
     return true;
 }
 
+bool TryResolveAuthoredPlacementSlot(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const FBuildPlacementSlot& TemplateBuildPlacementSlotValue, const ABILITY_ID StructureAbilityIdValue,
+    const std::vector<FResolvedLayoutPlacementSlot>& ResolvedLayoutPlacementSlotsValue,
+    FBuildPlacementSlot& OutResolvedBuildPlacementSlotValue)
+{
+    if (TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue, TemplateBuildPlacementSlotValue,
+                                     StructureAbilityIdValue, ResolvedLayoutPlacementSlotsValue,
+                                     OutResolvedBuildPlacementSlotValue))
+    {
+        return true;
+    }
+
+    if (FrameValue.GameInfo == nullptr)
+    {
+        return false;
+    }
+
+    const std::array<Point2DI, 25>& SearchOffsetsValue = GetTemplateSearchOffsets();
+    for (size_t SearchOffsetIndexValue = 1U; SearchOffsetIndexValue < SearchOffsetsValue.size();
+         ++SearchOffsetIndexValue)
+    {
+        const Point2DI& SearchOffsetValue = SearchOffsetsValue[SearchOffsetIndexValue];
+        FBuildPlacementSlot CandidateBuildPlacementSlotValue = TemplateBuildPlacementSlotValue;
+        CandidateBuildPlacementSlotValue.BuildPoint =
+            Point2D(TemplateBuildPlacementSlotValue.BuildPoint.x + static_cast<float>(SearchOffsetValue.x),
+                    TemplateBuildPlacementSlotValue.BuildPoint.y + static_cast<float>(SearchOffsetValue.y));
+        if (TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue, CandidateBuildPlacementSlotValue,
+                                         StructureAbilityIdValue, ResolvedLayoutPlacementSlotsValue,
+                                         OutResolvedBuildPlacementSlotValue))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool TryResolveTemplatePlacementSlot(
     const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
     const FBuildPlacementSlot& TemplateBuildPlacementSlotValue, const ABILITY_ID StructureAbilityIdValue,
@@ -562,6 +622,120 @@ bool TryResolveTemplatePlacementSlot(
     }
 
     return false;
+}
+
+void MirrorPlacementSlotsAcrossDepthAxis(const std::vector<FBuildPlacementSlot>& SourcePlacementSlotsValue,
+                                         const Point2D& AnchorPointValue,
+                                         const Point2D& MainBaseDepthDirectionValue,
+                                         const Point2D& MainBaseLateralDirectionValue,
+                                         std::vector<FBuildPlacementSlot>& OutPlacementSlotsValue)
+{
+    OutPlacementSlotsValue.clear();
+    OutPlacementSlotsValue.reserve(SourcePlacementSlotsValue.size());
+
+    for (const FBuildPlacementSlot& SourcePlacementSlotValue : SourcePlacementSlotsValue)
+    {
+        FBuildPlacementSlot MirroredPlacementSlotValue = SourcePlacementSlotValue;
+        MirroredPlacementSlotValue.BuildPoint = MirrorPointAcrossDepthAxis(
+            SourcePlacementSlotValue.BuildPoint, AnchorPointValue, MainBaseDepthDirectionValue,
+            MainBaseLateralDirectionValue);
+        OutPlacementSlotsValue.push_back(MirroredPlacementSlotValue);
+    }
+}
+
+FMainBaseLayoutDescriptor CreateMirroredAuthoredMainBaseLayoutDescriptor(
+    const FMainBaseLayoutDescriptor& SourceMainBaseLayoutDescriptorValue,
+    const Point2D& MainBaseDepthDirectionValue, const Point2D& MainBaseLateralDirectionValue)
+{
+    FMainBaseLayoutDescriptor MirroredMainBaseLayoutDescriptorValue;
+    MirroredMainBaseLayoutDescriptorValue.LayoutAnchorPoint =
+        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint;
+    MirroredMainBaseLayoutDescriptorValue.bIsValid = SourceMainBaseLayoutDescriptorValue.bIsValid;
+
+    MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                        MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                        MirroredMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots);
+    MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                        MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                        MirroredMainBaseLayoutDescriptorValue.SupportDepotSlots);
+    MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
+                                        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                        MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                        MirroredMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots);
+    MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                                        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                        MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                        MirroredMainBaseLayoutDescriptorValue.BarracksWithAddonSlots);
+    MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                                        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                        MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                        MirroredMainBaseLayoutDescriptorValue.FactoryWithAddonSlots);
+    MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.StarportWithAddonSlots,
+                                        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                        MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                        MirroredMainBaseLayoutDescriptorValue.StarportWithAddonSlots);
+    return MirroredMainBaseLayoutDescriptorValue;
+}
+
+void ResolveAuthoredMainBaseLayoutDescriptor(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const FMainBaseLayoutDescriptor& TemplateMainBaseLayoutDescriptorValue,
+    FMainBaseLayoutDescriptor& OutResolvedMainBaseLayoutDescriptorValue,
+    std::vector<FResolvedLayoutPlacementSlot>& OutResolvedLayoutPlacementSlotsValue)
+{
+    OutResolvedMainBaseLayoutDescriptorValue.Reset();
+    OutResolvedMainBaseLayoutDescriptorValue.LayoutAnchorPoint = TemplateMainBaseLayoutDescriptorValue.LayoutAnchorPoint;
+
+    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                       TemplateMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                       ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                       OutResolvedMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                       OutResolvedLayoutPlacementSlotsValue);
+    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                       TemplateMainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                       ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                       OutResolvedMainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                       OutResolvedLayoutPlacementSlotsValue);
+    AppendProductionRailSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                                TemplateMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
+                                                OutResolvedMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
+                                                OutResolvedLayoutPlacementSlotsValue);
+    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                       TemplateMainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                                       ABILITY_ID::BUILD_BARRACKS,
+                                       OutResolvedMainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                                       OutResolvedLayoutPlacementSlotsValue);
+    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                       TemplateMainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                                       ABILITY_ID::BUILD_FACTORY,
+                                       OutResolvedMainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                                       OutResolvedLayoutPlacementSlotsValue);
+    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                       TemplateMainBaseLayoutDescriptorValue.StarportWithAddonSlots,
+                                       ABILITY_ID::BUILD_STARPORT,
+                                       OutResolvedMainBaseLayoutDescriptorValue.StarportWithAddonSlots,
+                                       OutResolvedLayoutPlacementSlotsValue);
+
+    OutResolvedMainBaseLayoutDescriptorValue.bIsValid =
+        !OutResolvedMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty() ||
+        !OutResolvedMainBaseLayoutDescriptorValue.SupportDepotSlots.empty() ||
+        !OutResolvedMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty() ||
+        !OutResolvedMainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() ||
+        !OutResolvedMainBaseLayoutDescriptorValue.FactoryWithAddonSlots.empty() ||
+        !OutResolvedMainBaseLayoutDescriptorValue.StarportWithAddonSlots.empty();
+}
+
+uint32_t GetAuthoredMainBaseLayoutResolutionScore(
+    const FMainBaseLayoutDescriptor& MainBaseLayoutDescriptorValue)
+{
+    return (static_cast<uint32_t>(MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.size()) * 100U) +
+           (static_cast<uint32_t>(MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.size()) * 10U) +
+           (static_cast<uint32_t>(MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.size()) * 10U) +
+           (static_cast<uint32_t>(MainBaseLayoutDescriptorValue.StarportWithAddonSlots.size()) * 10U) +
+           static_cast<uint32_t>(MainBaseLayoutDescriptorValue.SupportDepotSlots.size()) +
+           static_cast<uint32_t>(MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.size());
 }
 
 bool TryResolveProductionLayoutAnchorPoint(
@@ -642,6 +816,82 @@ bool TryResolveProductionLayoutAnchorPoint(
     }
 
     return false;
+}
+
+void AppendExactSlotsToLayoutDescriptor(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const std::vector<FBuildPlacementSlot>& TemplateBuildPlacementSlotsValue, const ABILITY_ID StructureAbilityIdValue,
+    std::vector<FBuildPlacementSlot>& OutPlacementSlotsValue,
+    std::vector<FResolvedLayoutPlacementSlot>& OutResolvedLayoutPlacementSlotsValue)
+{
+    for (const FBuildPlacementSlot& TemplateBuildPlacementSlotValue : TemplateBuildPlacementSlotsValue)
+    {
+        FBuildPlacementSlot CandidateBuildPlacementSlotValue = TemplateBuildPlacementSlotValue;
+        CandidateBuildPlacementSlotValue.SlotId.Ordinal = static_cast<uint8_t>(OutPlacementSlotsValue.size());
+
+        FBuildPlacementSlot ResolvedBuildPlacementSlotValue;
+        if (!TryResolveAuthoredPlacementSlot(FrameValue, BuildPlacementContextValue,
+                                             CandidateBuildPlacementSlotValue, StructureAbilityIdValue,
+                                             OutResolvedLayoutPlacementSlotsValue,
+                                             ResolvedBuildPlacementSlotValue))
+        {
+            continue;
+        }
+
+        ResolvedBuildPlacementSlotValue.SlotId = CandidateBuildPlacementSlotValue.SlotId;
+        OutPlacementSlotsValue.push_back(ResolvedBuildPlacementSlotValue);
+
+        FResolvedLayoutPlacementSlot ResolvedLayoutPlacementSlotValue;
+        ResolvedLayoutPlacementSlotValue.BuildPlacementSlot = ResolvedBuildPlacementSlotValue;
+        ResolvedLayoutPlacementSlotValue.StructureAbilityId = StructureAbilityIdValue;
+        OutResolvedLayoutPlacementSlotsValue.push_back(ResolvedLayoutPlacementSlotValue);
+    }
+}
+
+ABILITY_ID GetProductionRailRepresentativeAbilityId(const uint8_t SlotOrdinalValue)
+{
+    switch (SlotOrdinalValue)
+    {
+        case 0U:
+            return ABILITY_ID::BUILD_BARRACKS;
+        case 1U:
+            return ABILITY_ID::BUILD_FACTORY;
+        case 2U:
+            return ABILITY_ID::BUILD_STARPORT;
+        default:
+            return ABILITY_ID::BUILD_BARRACKS;
+    }
+}
+
+void AppendProductionRailSlotsToLayoutDescriptor(
+    const FFrameContext& FrameValue, const FBuildPlacementContext& BuildPlacementContextValue,
+    const std::vector<FBuildPlacementSlot>& TemplateBuildPlacementSlotsValue,
+    std::vector<FBuildPlacementSlot>& OutPlacementSlotsValue,
+    std::vector<FResolvedLayoutPlacementSlot>& OutResolvedLayoutPlacementSlotsValue)
+{
+    for (const FBuildPlacementSlot& TemplateBuildPlacementSlotValue : TemplateBuildPlacementSlotsValue)
+    {
+        FBuildPlacementSlot CandidateBuildPlacementSlotValue = TemplateBuildPlacementSlotValue;
+
+        const ABILITY_ID StructureAbilityIdValue =
+            GetProductionRailRepresentativeAbilityId(CandidateBuildPlacementSlotValue.SlotId.Ordinal);
+        FBuildPlacementSlot ResolvedBuildPlacementSlotValue;
+        if (!TryResolveAuthoredPlacementSlot(FrameValue, BuildPlacementContextValue,
+                                             CandidateBuildPlacementSlotValue, StructureAbilityIdValue,
+                                             OutResolvedLayoutPlacementSlotsValue,
+                                             ResolvedBuildPlacementSlotValue))
+        {
+            continue;
+        }
+
+        ResolvedBuildPlacementSlotValue.SlotId = CandidateBuildPlacementSlotValue.SlotId;
+        OutPlacementSlotsValue.push_back(ResolvedBuildPlacementSlotValue);
+
+        FResolvedLayoutPlacementSlot ResolvedLayoutPlacementSlotValue;
+        ResolvedLayoutPlacementSlotValue.BuildPlacementSlot = ResolvedBuildPlacementSlotValue;
+        ResolvedLayoutPlacementSlotValue.StructureAbilityId = StructureAbilityIdValue;
+        OutResolvedLayoutPlacementSlotsValue.push_back(ResolvedLayoutPlacementSlotValue);
+    }
 }
 
 void AppendTemplateSlotsToLayoutDescriptor(
@@ -1464,24 +1714,79 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
         ResolvedLayoutPlacementSlotsValue.push_back(RightWallPlacementSlotValue);
     }
 
-    MainBaseLayoutDescriptorValue.LayoutAnchorPoint = RequestedLayoutAnchorPointValue;
-    Point2D ResolvedLayoutAnchorPointValue = RequestedLayoutAnchorPointValue;
-    bool HasResolvedProductionLayoutAnchorValue = TryResolveProductionLayoutAnchorPoint(
-        FrameValue, BuildPlacementContextValue, RequestedLayoutAnchorPointValue, MainBaseDepthDirectionValue,
-        MainBaseLateralDirectionValue, ResolvedLayoutPlacementSlotsValue, ResolvedLayoutAnchorPointValue);
+    const FTerranMainBaseLayoutRegistry TerranMainBaseLayoutRegistryValue;
+    FMainBaseLayoutDescriptor AuthoredMainBaseLayoutDescriptorValue;
+    const bool HasAuthoredMainBaseLayoutValue = TerranMainBaseLayoutRegistryValue.TryGetAuthoredMainBaseLayout(
+        FrameValue.GameInfo, BuildPlacementContextValue, AuthoredMainBaseLayoutDescriptorValue);
+
+    MainBaseLayoutDescriptorValue.LayoutAnchorPoint =
+        HasAuthoredMainBaseLayoutValue ? AuthoredMainBaseLayoutDescriptorValue.LayoutAnchorPoint
+                                       : RequestedLayoutAnchorPointValue;
+
+    if (HasAuthoredMainBaseLayoutValue)
+    {
+        FMainBaseLayoutDescriptor PrimaryResolvedAuthoredMainBaseLayoutDescriptorValue;
+        std::vector<FResolvedLayoutPlacementSlot> PrimaryResolvedAuthoredPlacementSlotsValue =
+            ResolvedLayoutPlacementSlotsValue;
+        ResolveAuthoredMainBaseLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                                AuthoredMainBaseLayoutDescriptorValue,
+                                                PrimaryResolvedAuthoredMainBaseLayoutDescriptorValue,
+                                                PrimaryResolvedAuthoredPlacementSlotsValue);
+
+        const FMainBaseLayoutDescriptor MirroredAuthoredMainBaseLayoutDescriptorValue =
+            CreateMirroredAuthoredMainBaseLayoutDescriptor(AuthoredMainBaseLayoutDescriptorValue,
+                                                           MainBaseDepthDirectionValue,
+                                                           MainBaseLateralDirectionValue);
+        FMainBaseLayoutDescriptor MirroredResolvedAuthoredMainBaseLayoutDescriptorValue;
+        std::vector<FResolvedLayoutPlacementSlot> MirroredResolvedAuthoredPlacementSlotsValue =
+            ResolvedLayoutPlacementSlotsValue;
+        ResolveAuthoredMainBaseLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                                MirroredAuthoredMainBaseLayoutDescriptorValue,
+                                                MirroredResolvedAuthoredMainBaseLayoutDescriptorValue,
+                                                MirroredResolvedAuthoredPlacementSlotsValue);
+
+        const uint32_t PrimaryResolutionScoreValue =
+            GetAuthoredMainBaseLayoutResolutionScore(PrimaryResolvedAuthoredMainBaseLayoutDescriptorValue);
+        const uint32_t MirroredResolutionScoreValue =
+            GetAuthoredMainBaseLayoutResolutionScore(MirroredResolvedAuthoredMainBaseLayoutDescriptorValue);
+        if (MirroredResolutionScoreValue > PrimaryResolutionScoreValue)
+        {
+            MainBaseLayoutDescriptorValue = MirroredResolvedAuthoredMainBaseLayoutDescriptorValue;
+            ResolvedLayoutPlacementSlotsValue = MirroredResolvedAuthoredPlacementSlotsValue;
+        }
+        else
+        {
+            MainBaseLayoutDescriptorValue = PrimaryResolvedAuthoredMainBaseLayoutDescriptorValue;
+            ResolvedLayoutPlacementSlotsValue = PrimaryResolvedAuthoredPlacementSlotsValue;
+        }
+    }
+
+    const bool HasAuthoredProductionSlotsValue = !MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty() ||
+                                                 !MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() ||
+                                                 !MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.empty() ||
+                                                 !MainBaseLayoutDescriptorValue.StarportWithAddonSlots.empty();
+
+    Point2D ResolvedLayoutAnchorPointValue = MainBaseLayoutDescriptorValue.LayoutAnchorPoint;
+    bool HasResolvedProductionLayoutAnchorValue = HasAuthoredProductionSlotsValue;
     if (!HasResolvedProductionLayoutAnchorValue)
     {
-        const Point2D AlternateMainBaseLateralDirectionValue(-MainBaseLateralDirectionValue.x,
-                                                             -MainBaseLateralDirectionValue.y);
-        if (TryResolveProductionLayoutAnchorPoint(FrameValue, BuildPlacementContextValue,
-                                                  RequestedLayoutAnchorPointValue,
-                                                  MainBaseDepthDirectionValue,
-                                                  AlternateMainBaseLateralDirectionValue,
-                                                  ResolvedLayoutPlacementSlotsValue,
-                                                  ResolvedLayoutAnchorPointValue))
+        HasResolvedProductionLayoutAnchorValue = TryResolveProductionLayoutAnchorPoint(
+            FrameValue, BuildPlacementContextValue, RequestedLayoutAnchorPointValue, MainBaseDepthDirectionValue,
+            MainBaseLateralDirectionValue, ResolvedLayoutPlacementSlotsValue, ResolvedLayoutAnchorPointValue);
+        if (!HasResolvedProductionLayoutAnchorValue)
         {
-            MainBaseLateralDirectionValue = AlternateMainBaseLateralDirectionValue;
-            HasResolvedProductionLayoutAnchorValue = true;
+            const Point2D AlternateMainBaseLateralDirectionValue(-MainBaseLateralDirectionValue.x,
+                                                                 -MainBaseLateralDirectionValue.y);
+            if (TryResolveProductionLayoutAnchorPoint(FrameValue, BuildPlacementContextValue,
+                                                      RequestedLayoutAnchorPointValue,
+                                                      MainBaseDepthDirectionValue,
+                                                      AlternateMainBaseLateralDirectionValue,
+                                                      ResolvedLayoutPlacementSlotsValue,
+                                                      ResolvedLayoutAnchorPointValue))
+            {
+                MainBaseLateralDirectionValue = AlternateMainBaseLateralDirectionValue;
+                HasResolvedProductionLayoutAnchorValue = true;
+            }
         }
     }
 
@@ -1551,6 +1856,7 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
     MainBaseLayoutDescriptorValue.bIsValid =
         !MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty() ||
         !MainBaseLayoutDescriptorValue.SupportDepotSlots.empty() ||
+        !MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty() ||
         !MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() ||
         !MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.empty() ||
         !MainBaseLayoutDescriptorValue.StarportWithAddonSlots.empty();
@@ -1625,16 +1931,25 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
             }
 
             PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
                                        MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.begin(),
                                        MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.end());
             break;
         }
         case ABILITY_ID::BUILD_FACTORY:
             PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
                                        MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.begin(),
                                        MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.end());
             break;
         case ABILITY_ID::BUILD_STARPORT:
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
             PlacementSlotsValue.insert(PlacementSlotsValue.end(),
                                        MainBaseLayoutDescriptorValue.StarportWithAddonSlots.begin(),
                                        MainBaseLayoutDescriptorValue.StarportWithAddonSlots.end());

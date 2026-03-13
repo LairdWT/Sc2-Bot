@@ -78,6 +78,8 @@ public:
     std::vector<UNIT_TYPEID> ResultUnitTypeIds;
     std::vector<UpgradeID> UpgradeIds;
     std::vector<EBuildPlacementSlotType> PreferredPlacementSlotTypes;
+    std::vector<EBuildPlacementSlotType> PreferredPlacementSlotIdTypes;
+    std::vector<uint8_t> PreferredPlacementSlotIdOrdinals;
     std::vector<EBuildPlacementSlotType> ReservedPlacementSlotTypes;
     std::vector<uint8_t> ReservedPlacementSlotOrdinals;
     std::vector<ECommandOrderDeferralReason> LastDeferralReasons;

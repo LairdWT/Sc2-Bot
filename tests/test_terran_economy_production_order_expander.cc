@@ -9,9 +9,11 @@
 #include "common/bot_status_models.h"
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "common/planning/FCommandOrderRecord.h"
 #include "common/planning/FTerranEconomyProductionOrderExpander.h"
+#include "common/services/EBuildPlacementFootprintPolicy.h"
 #include "common/services/FTerranBuildPlacementService.h"
 #include "sc2api/sc2_api.h"
 #include "sc2api/sc2_score.h"
@@ -645,6 +647,257 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
         Check(WallBarracksChildOrderValue.TargetPoint ==
                   WallBarracksGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.BuildPoint,
               SuccessValue, "The wall barracks child order should preserve the reserved ramp barracks slot.");
+    }
+
+    std::vector<Unit> StaleWallDepotUnitStorageValue;
+    StaleWallDepotUnitStorageValue.push_back(
+        MakeUnit(601U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(57.0f, 52.0f), false));
+    UnitOrder StaleWallDepotBuildOrderValue;
+    StaleWallDepotBuildOrderValue.ability_id = ABILITY_ID::BUILD_SUPPLYDEPOT;
+    StaleWallDepotBuildOrderValue.target_pos = Point2D(61.0f, 54.0f);
+    StaleWallDepotUnitStorageValue[0].orders.push_back(StaleWallDepotBuildOrderValue);
+
+    Units StaleWallDepotUnitPointersValue;
+    AppendUnitPointers(StaleWallDepotUnitStorageValue, StaleWallDepotUnitPointersValue);
+
+    FakeObservation StaleWallDepotObservationValue;
+    StaleWallDepotObservationValue.GameLoopValue = 400U;
+    StaleWallDepotObservationValue.SetUnits(StaleWallDepotUnitPointersValue);
+    FakeQuery StaleWallDepotQueryValue;
+    const FFrameContext StaleWallDepotFrameValue =
+        FFrameContext::Create(&StaleWallDepotObservationValue, &StaleWallDepotQueryValue, 4U);
+
+    FAgentState StaleWallDepotAgentStateValue;
+    StaleWallDepotAgentStateValue.Update(StaleWallDepotFrameValue);
+
+    FGameStateDescriptor StaleWallDepotGameStateDescriptorValue;
+    StaleWallDepotGameStateDescriptorValue.CurrentStep = 400U;
+    StaleWallDepotGameStateDescriptorValue.CurrentGameLoop = 400U;
+    StaleWallDepotGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    StaleWallDepotGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    StaleWallDepotGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.bIsValid = true;
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.SlotId.SlotType =
+        EBuildPlacementSlotType::MainRampDepotLeft;
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.FootprintPolicy =
+        EBuildPlacementFootprintPolicy::StructureOnly;
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.BuildPoint = Point2D(61.0f, 54.0f);
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.SlotId.SlotType =
+        EBuildPlacementSlotType::MainRampBarracksWithAddon;
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.FootprintPolicy =
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.BuildPoint = Point2D(58.0f, 52.0f);
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.RightDepotSlot.SlotId.SlotType =
+        EBuildPlacementSlotType::MainRampDepotRight;
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.RightDepotSlot.FootprintPolicy =
+        EBuildPlacementFootprintPolicy::StructureOnly;
+    StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.RightDepotSlot.BuildPoint = Point2D(61.0f, 50.0f);
+
+    FCommandAuthoritySchedulingState& StaleWallDepotSchedulingStateValue =
+        StaleWallDepotGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord StaleWallDepotEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_SUPPLYDEPOT, 160,
+        EIntentDomain::StructureBuild, 400U);
+    StaleWallDepotEconomyOrderValue.TargetCount = 1U;
+    StaleWallDepotEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    StaleWallDepotEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
+    StaleWallDepotEconomyOrderValue.PreferredPlacementSlotType = EBuildPlacementSlotType::MainRampDepotLeft;
+    const uint32_t StaleWallDepotEconomyOrderIdValue =
+        StaleWallDepotSchedulingStateValue.EnqueueOrder(StaleWallDepotEconomyOrderValue);
+    StaleWallDepotSchedulingStateValue.SetOrderReservedPlacementSlot(
+        StaleWallDepotEconomyOrderIdValue,
+        StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.SlotId);
+    StaleWallDepotSchedulingStateValue.SetOrderDeferralState(
+        StaleWallDepotEconomyOrderIdValue, ECommandOrderDeferralReason::AwaitingObservedCompletion, 400U, 400U);
+
+    FCommandOrderRecord StaleWallDepotCompletedChildOrderValue = FCommandOrderRecord::CreatePointTarget(
+        ECommandAuthorityLayer::UnitExecution, 601U, ABILITY_ID::BUILD_SUPPLYDEPOT,
+        StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.BuildPoint, 160,
+        EIntentDomain::StructureBuild, 200U, 0U, StaleWallDepotEconomyOrderIdValue, -1, -1, false, true, false);
+    StaleWallDepotCompletedChildOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    StaleWallDepotCompletedChildOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
+    const uint32_t StaleWallDepotCompletedChildOrderIdValue =
+        StaleWallDepotSchedulingStateValue.EnqueueOrder(StaleWallDepotCompletedChildOrderValue);
+    StaleWallDepotSchedulingStateValue.SetOrderDispatchState(StaleWallDepotCompletedChildOrderIdValue, 200U, 200U, 0U,
+                                                             0U);
+    StaleWallDepotSchedulingStateValue.SetOrderLifecycleState(StaleWallDepotCompletedChildOrderIdValue,
+                                                              EOrderLifecycleState::Completed);
+
+    const std::vector<Point2D> StaleWallDepotExpansionLocationsValue =
+    {
+        Point2D(20.0f, 10.0f),
+    };
+
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        StaleWallDepotFrameValue, StaleWallDepotAgentStateValue, StaleWallDepotGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, StaleWallDepotExpansionLocationsValue);
+
+    size_t StaleWallDepotReplacementChildOrderIndexValue = 0U;
+    Check(StaleWallDepotSchedulingStateValue.TryGetActiveChildOrderIndex(
+              StaleWallDepotEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              StaleWallDepotReplacementChildOrderIndexValue),
+          SuccessValue,
+          "A stale reserved wall-slot build order should respawn a new child once the grace window expires.");
+    if (StaleWallDepotSchedulingStateValue.TryGetActiveChildOrderIndex(
+            StaleWallDepotEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+            StaleWallDepotReplacementChildOrderIndexValue))
+    {
+        const FCommandOrderRecord StaleWallDepotReplacementChildOrderValue =
+            StaleWallDepotSchedulingStateValue.GetOrderRecord(StaleWallDepotReplacementChildOrderIndexValue);
+        Check(StaleWallDepotReplacementChildOrderValue.TargetPoint ==
+                  StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.BuildPoint,
+              SuccessValue,
+              "The replacement wall depot child order should keep the original reserved ramp slot.");
+        Check(StaleWallDepotReplacementChildOrderValue.ReservedPlacementSlotId ==
+                  StaleWallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.SlotId,
+              SuccessValue,
+              "The replacement wall depot child order should preserve the reserved placement slot id.");
+    }
+
+    std::vector<Unit> ProductionRailUnitStorageValue;
+    ProductionRailUnitStorageValue.push_back(
+        MakeUnit(701U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(12.0f, 10.0f), false));
+
+    Units ProductionRailUnitPointersValue;
+    AppendUnitPointers(ProductionRailUnitStorageValue, ProductionRailUnitPointersValue);
+
+    FakeObservation ProductionRailObservationValue;
+    ProductionRailObservationValue.SetUnits(ProductionRailUnitPointersValue);
+    FakeQuery ProductionRailQueryValue;
+    const FFrameContext ProductionRailFrameValue =
+        FFrameContext::Create(&ProductionRailObservationValue, &ProductionRailQueryValue, 5U);
+
+    FAgentState ProductionRailAgentStateValue;
+    ProductionRailAgentStateValue.Update(ProductionRailFrameValue);
+
+    FGameStateDescriptor ProductionRailGameStateDescriptorValue;
+    ProductionRailGameStateDescriptorValue.CurrentStep = 5U;
+    ProductionRailGameStateDescriptorValue.CurrentGameLoop = 5U;
+    ProductionRailGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    ProductionRailGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    ProductionRailGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    ProductionRailGameStateDescriptorValue.MainBaseLayoutDescriptor.bIsValid = true;
+
+    FBuildPlacementSlot ProductionRailBarracksSlotValue;
+    ProductionRailBarracksSlotValue.SlotId.SlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    ProductionRailBarracksSlotValue.SlotId.Ordinal = 0U;
+    ProductionRailBarracksSlotValue.FootprintPolicy = EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    ProductionRailBarracksSlotValue.BuildPoint = Point2D(18.0f, 14.0f);
+    ProductionRailGameStateDescriptorValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots.push_back(
+        ProductionRailBarracksSlotValue);
+
+    FBuildPlacementSlot ProductionRailFactorySlotValue;
+    ProductionRailFactorySlotValue.SlotId.SlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    ProductionRailFactorySlotValue.SlotId.Ordinal = 1U;
+    ProductionRailFactorySlotValue.FootprintPolicy = EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    ProductionRailFactorySlotValue.BuildPoint = Point2D(22.0f, 18.0f);
+    ProductionRailGameStateDescriptorValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots.push_back(
+        ProductionRailFactorySlotValue);
+
+    FBuildPlacementSlot ProductionRailStarportSlotValue;
+    ProductionRailStarportSlotValue.SlotId.SlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    ProductionRailStarportSlotValue.SlotId.Ordinal = 2U;
+    ProductionRailStarportSlotValue.FootprintPolicy = EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    ProductionRailStarportSlotValue.BuildPoint = Point2D(26.0f, 22.0f);
+    ProductionRailGameStateDescriptorValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots.push_back(
+        ProductionRailStarportSlotValue);
+
+    FCommandAuthoritySchedulingState& ProductionRailSchedulingStateValue =
+        ProductionRailGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord ProductionRailFactoryEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_FACTORY, 170,
+        EIntentDomain::StructureBuild, 5U);
+    ProductionRailFactoryEconomyOrderValue.TargetCount = 1U;
+    ProductionRailFactoryEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    ProductionRailFactoryEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
+    ProductionRailFactoryEconomyOrderValue.PreferredPlacementSlotType =
+        EBuildPlacementSlotType::MainProductionWithAddon;
+    ProductionRailFactoryEconomyOrderValue.PreferredPlacementSlotId = ProductionRailFactorySlotValue.SlotId;
+    const uint32_t ProductionRailFactoryEconomyOrderIdValue =
+        ProductionRailSchedulingStateValue.EnqueueOrder(ProductionRailFactoryEconomyOrderValue);
+
+    const std::vector<Point2D> ProductionRailExpansionLocationsValue =
+    {
+        Point2D(20.0f, 10.0f),
+    };
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        ProductionRailFrameValue, ProductionRailAgentStateValue, ProductionRailGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ProductionRailExpansionLocationsValue);
+
+    size_t ProductionRailChildOrderIndexValue = 0U;
+    Check(ProductionRailSchedulingStateValue.TryGetActiveChildOrderIndex(
+              ProductionRailFactoryEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              ProductionRailChildOrderIndexValue),
+          SuccessValue, "A factory order with an exact preferred rail slot id should create a child on that rail pad.");
+    if (ProductionRailSchedulingStateValue.TryGetActiveChildOrderIndex(
+            ProductionRailFactoryEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+            ProductionRailChildOrderIndexValue))
+    {
+        const FCommandOrderRecord ProductionRailChildOrderValue =
+            ProductionRailSchedulingStateValue.GetOrderRecord(ProductionRailChildOrderIndexValue);
+        Check(ProductionRailChildOrderValue.TargetPoint == ProductionRailFactorySlotValue.BuildPoint,
+              SuccessValue, "The factory child order should target the authored factory rail pad.");
+        Check(ProductionRailChildOrderValue.ReservedPlacementSlotId == ProductionRailFactorySlotValue.SlotId,
+              SuccessValue, "The factory child order should preserve the exact reserved rail slot id.");
+    }
+
+    FGameStateDescriptor OccupiedRailGameStateDescriptorValue = ProductionRailGameStateDescriptorValue;
+    OccupiedRailGameStateDescriptorValue.CommandAuthoritySchedulingState.Reset();
+    OccupiedRailGameStateDescriptorValue.CurrentStep = 6U;
+    OccupiedRailGameStateDescriptorValue.CurrentGameLoop = 6U;
+    OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+
+    FCommandAuthoritySchedulingState& OccupiedRailSchedulingStateValue =
+        OccupiedRailGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord BlockingRailOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_BARRACKS, 180,
+        EIntentDomain::StructureBuild, 6U);
+    BlockingRailOrderValue.TargetCount = 1U;
+    BlockingRailOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    BlockingRailOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    BlockingRailOrderValue.ReservedPlacementSlotId = ProductionRailFactorySlotValue.SlotId;
+    const uint32_t BlockingRailOrderIdValue = OccupiedRailSchedulingStateValue.EnqueueOrder(BlockingRailOrderValue);
+    (void)BlockingRailOrderIdValue;
+
+    FCommandOrderRecord OccupiedRailFactoryEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_FACTORY, 170,
+        EIntentDomain::StructureBuild, 6U);
+    OccupiedRailFactoryEconomyOrderValue.TargetCount = 1U;
+    OccupiedRailFactoryEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    OccupiedRailFactoryEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
+    OccupiedRailFactoryEconomyOrderValue.PreferredPlacementSlotType =
+        EBuildPlacementSlotType::MainProductionWithAddon;
+    OccupiedRailFactoryEconomyOrderValue.PreferredPlacementSlotId = ProductionRailFactorySlotValue.SlotId;
+    const uint32_t OccupiedRailFactoryEconomyOrderIdValue =
+        OccupiedRailSchedulingStateValue.EnqueueOrder(OccupiedRailFactoryEconomyOrderValue);
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        ProductionRailFrameValue, ProductionRailAgentStateValue, OccupiedRailGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ProductionRailExpansionLocationsValue);
+
+    Check(!OccupiedRailSchedulingStateValue.TryGetActiveChildOrderIndex(
+              OccupiedRailFactoryEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              ProductionRailChildOrderIndexValue),
+          SuccessValue,
+          "An exact preferred rail slot id should defer when its authored pad is claimed instead of drifting to another rail slot.");
+    size_t OccupiedRailFactoryEconomyOrderIndexValue = 0U;
+    Check(OccupiedRailSchedulingStateValue.TryGetOrderIndex(
+              OccupiedRailFactoryEconomyOrderIdValue, OccupiedRailFactoryEconomyOrderIndexValue),
+          SuccessValue, "The deferred exact preferred rail order should remain addressable in scheduling state.");
+    if (OccupiedRailSchedulingStateValue.TryGetOrderIndex(
+            OccupiedRailFactoryEconomyOrderIdValue, OccupiedRailFactoryEconomyOrderIndexValue))
+    {
+        const FCommandOrderRecord OccupiedRailFactoryEconomyOrderRecordValue =
+            OccupiedRailSchedulingStateValue.GetOrderRecord(OccupiedRailFactoryEconomyOrderIndexValue);
+        Check(OccupiedRailFactoryEconomyOrderRecordValue.LastDeferralReason ==
+                  ECommandOrderDeferralReason::ReservedSlotOccupied,
+              SuccessValue,
+              "A claimed exact preferred rail slot should defer with ReservedSlotOccupied instead of drifting.");
     }
 
     std::vector<Unit> RefineryUnitStorageValue;

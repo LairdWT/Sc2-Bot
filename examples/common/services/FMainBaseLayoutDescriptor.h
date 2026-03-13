@@ -20,6 +20,7 @@ public:
     Point2D LayoutAnchorPoint;
     std::vector<FBuildPlacementSlot> NaturalApproachDepotSlots;
     std::vector<FBuildPlacementSlot> SupportDepotSlots;
+    std::vector<FBuildPlacementSlot> ProductionRailWithAddonSlots;
     std::vector<FBuildPlacementSlot> BarracksWithAddonSlots;
     std::vector<FBuildPlacementSlot> FactoryWithAddonSlots;
     std::vector<FBuildPlacementSlot> StarportWithAddonSlots;

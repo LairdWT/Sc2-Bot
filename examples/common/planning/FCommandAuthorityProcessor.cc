@@ -191,6 +191,7 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
         CompletionProbeValue.ResultUnitTypeId = OpeningPlanStepValue.ResultUnitTypeId;
         CompletionProbeValue.TargetCount = OpeningPlanStepValue.TargetCount;
         CompletionProbeValue.PreferredPlacementSlotType = OpeningPlanStepValue.PreferredPlacementSlotType;
+        CompletionProbeValue.PreferredPlacementSlotId = OpeningPlanStepValue.PreferredPlacementSlotId;
         if (!DoesOrderTargetMatchObservedState(GameStateDescriptorValue, CompletionProbeValue))
         {
             continue;
@@ -287,6 +288,7 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(FGameStateDescriptor& 
         StrategicOrderValue.ResultUnitTypeId = OpeningPlanStepValue.ResultUnitTypeId;
         StrategicOrderValue.UpgradeId = OpeningPlanStepValue.UpgradeId;
         StrategicOrderValue.PreferredPlacementSlotType = OpeningPlanStepValue.PreferredPlacementSlotType;
+        StrategicOrderValue.PreferredPlacementSlotId = OpeningPlanStepValue.PreferredPlacementSlotId;
         StrategicOrderValue.IntentDomain = DetermineIntentDomain(StrategicOrderValue);
 
         const uint32_t StrategicOrderIdValue =
@@ -363,6 +365,7 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
         EconomyOrderValue.ResultUnitTypeId = StrategicOrderValue.ResultUnitTypeId;
         EconomyOrderValue.UpgradeId = StrategicOrderValue.UpgradeId;
         EconomyOrderValue.PreferredPlacementSlotType = StrategicOrderValue.PreferredPlacementSlotType;
+        EconomyOrderValue.PreferredPlacementSlotId = StrategicOrderValue.PreferredPlacementSlotId;
         CommandAuthoritySchedulingStateValue.EnqueueOrder(EconomyOrderValue);
     }
 }

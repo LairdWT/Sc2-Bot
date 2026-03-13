@@ -91,6 +91,116 @@ bool IsWallDepotUnitType(const UNIT_TYPEID UnitTypeIdValue)
     }
 }
 
+void PrintMainLayoutSlotFamily(const char* LabelPtrValue,
+                               const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue)
+{
+    std::cout << " | " << LabelPtrValue << " ";
+    if (BuildPlacementSlotsValue.empty())
+    {
+        std::cout << "None";
+        return;
+    }
+
+    for (size_t SlotIndexValue = 0U; SlotIndexValue < BuildPlacementSlotsValue.size(); ++SlotIndexValue)
+    {
+        if (SlotIndexValue > 0U)
+        {
+            std::cout << ",";
+        }
+
+        const FBuildPlacementSlot& BuildPlacementSlotValue = BuildPlacementSlotsValue[SlotIndexValue];
+        std::cout << SlotIndexValue << ":(" << BuildPlacementSlotValue.BuildPoint.x << ", "
+                  << BuildPlacementSlotValue.BuildPoint.y << ")";
+    }
+}
+
+bool IsProductionRailStructureType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+        case UNIT_TYPEID::TERRAN_FACTORY:
+        case UNIT_TYPEID::TERRAN_STARPORT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+const Unit* FindProductionRailStructureForSlot(const Units& SelfUnitsValue,
+                                               const FBuildPlacementSlot& BuildPlacementSlotValue)
+{
+    const Unit* BestUnitValue = nullptr;
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || !SelfUnitValue->is_building || SelfUnitValue->is_flying ||
+            !IsProductionRailStructureType(SelfUnitValue->unit_type.ToType()))
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue =
+            DistanceSquared2D(Point2D(SelfUnitValue->pos), BuildPlacementSlotValue.BuildPoint);
+        if (DistanceSquaredValue > WallStructureMatchRadiusSquaredValue || DistanceSquaredValue >= BestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        BestDistanceSquaredValue = DistanceSquaredValue;
+        BestUnitValue = SelfUnitValue;
+    }
+
+    return BestUnitValue;
+}
+
+const char* GetProductionRailOccupancyLabel(const Unit* OccupyingUnitValue)
+{
+    if (OccupyingUnitValue == nullptr)
+    {
+        return "Empty";
+    }
+
+    switch (OccupyingUnitValue->unit_type.ToType())
+    {
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+            return OccupyingUnitValue->build_progress >= 1.0f ? "Barracks" : "BarracksInProgress";
+        case UNIT_TYPEID::TERRAN_FACTORY:
+            return OccupyingUnitValue->build_progress >= 1.0f ? "Factory" : "FactoryInProgress";
+        case UNIT_TYPEID::TERRAN_STARPORT:
+            return OccupyingUnitValue->build_progress >= 1.0f ? "Starport" : "StarportInProgress";
+        default:
+            return OccupyingUnitValue->build_progress >= 1.0f ? "Occupied" : "OccupiedInProgress";
+    }
+}
+
+void PrintProductionRailSlots(const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue,
+                              const Units& SelfUnitsValue)
+{
+    std::cout << " | ProductionRail ";
+    if (BuildPlacementSlotsValue.empty())
+    {
+        std::cout << "None";
+        return;
+    }
+
+    for (size_t SlotIndexValue = 0U; SlotIndexValue < BuildPlacementSlotsValue.size(); ++SlotIndexValue)
+    {
+        if (SlotIndexValue > 0U)
+        {
+            std::cout << ",";
+        }
+
+        const FBuildPlacementSlot& BuildPlacementSlotValue = BuildPlacementSlotsValue[SlotIndexValue];
+        const Unit* OccupyingUnitValue = FindProductionRailStructureForSlot(SelfUnitsValue, BuildPlacementSlotValue);
+        std::cout << static_cast<uint32_t>(BuildPlacementSlotValue.SlotId.Ordinal)
+                  << ":" << GetProductionRailOccupancyLabel(OccupyingUnitValue)
+                  << "@(" << BuildPlacementSlotValue.BuildPoint.x << ", "
+                  << BuildPlacementSlotValue.BuildPoint.y << ")";
+    }
+}
+
 bool IsRefineryUnitType(const UNIT_TYPEID UnitTypeIdValue)
 {
     switch (UnitTypeIdValue)
@@ -636,7 +746,11 @@ FBuildPlacementContext TerranAgent::CreateBuildPlacementContext() const
         return BuildPlacementContextValue;
     }
 
+    const GameInfo& GameInfoValue = ObservationPtr->GetGameInfo();
+    BuildPlacementContextValue.MapName = GameInfoValue.map_name;
     BuildPlacementContextValue.BaseLocation = Point2D(ObservationPtr->GetStartLocation());
+    BuildPlacementContextValue.PlayableMin = GameInfoValue.playable_min;
+    BuildPlacementContextValue.PlayableMax = GameInfoValue.playable_max;
 
     float BestDistanceSquaredValue = std::numeric_limits<float>::max();
     for (const Point2D& ExpansionLocationValue : ExpansionLocations)
@@ -725,24 +839,11 @@ void TerranAgent::PrintAgentState()
     {
         std::cout << " | Anchor (" << MainBaseLayoutDescriptorValue.LayoutAnchorPoint.x
                   << ", " << MainBaseLayoutDescriptorValue.LayoutAnchorPoint.y << ")";
-        if (!MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty())
-        {
-            const Point2D& BarracksPointValue =
-                MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.front().BuildPoint;
-            std::cout << " | Barracks0 (" << BarracksPointValue.x << ", " << BarracksPointValue.y << ")";
-        }
-        if (!MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.empty())
-        {
-            const Point2D& FactoryPointValue =
-                MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.front().BuildPoint;
-            std::cout << " | Factory0 (" << FactoryPointValue.x << ", " << FactoryPointValue.y << ")";
-        }
-        if (!MainBaseLayoutDescriptorValue.StarportWithAddonSlots.empty())
-        {
-            const Point2D& StarportPointValue =
-                MainBaseLayoutDescriptorValue.StarportWithAddonSlots.front().BuildPoint;
-            std::cout << " | Starport0 (" << StarportPointValue.x << ", " << StarportPointValue.y << ")";
-        }
+        PrintProductionRailSlots(MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
+                                 AgentState.UnitContainer.ControlledUnits);
+        PrintMainLayoutSlotFamily("Barracks", MainBaseLayoutDescriptorValue.BarracksWithAddonSlots);
+        PrintMainLayoutSlotFamily("Factory", MainBaseLayoutDescriptorValue.FactoryWithAddonSlots);
+        PrintMainLayoutSlotFamily("Starport", MainBaseLayoutDescriptorValue.StarportWithAddonSlots);
     }
     std::cout << std::endl;
     std::cout << "Execution Telemetry: "

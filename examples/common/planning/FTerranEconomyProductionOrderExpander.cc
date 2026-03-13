@@ -329,6 +329,52 @@ bool HasActiveUnitExecutionChild(const FCommandAuthoritySchedulingState& Command
     return false;
 }
 
+bool TryGetLatestUnitExecutionChildDispatchGameLoop(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const uint32_t ParentOrderIdValue,
+    uint64_t& OutLatestDispatchGameLoopValue)
+{
+    bool HasLatestDispatchGameLoopValue = false;
+    OutLatestDispatchGameLoopValue = 0U;
+
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ParentOrderIds[OrderIndexValue] != ParentOrderIdValue ||
+            CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution)
+        {
+            continue;
+        }
+
+        const uint64_t DispatchGameLoopValue = CommandAuthoritySchedulingStateValue.DispatchGameLoops[OrderIndexValue];
+        if (DispatchGameLoopValue == 0U || (HasLatestDispatchGameLoopValue &&
+                                            DispatchGameLoopValue <= OutLatestDispatchGameLoopValue))
+        {
+            continue;
+        }
+
+        HasLatestDispatchGameLoopValue = true;
+        OutLatestDispatchGameLoopValue = DispatchGameLoopValue;
+    }
+
+    return HasLatestDispatchGameLoopValue;
+}
+
+bool IsStructureBuildAbility(const ABILITY_ID AbilityIdValue)
+{
+    switch (AbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_SUPPLYDEPOT:
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+        case ABILITY_ID::BUILD_COMMANDCENTER:
+        case ABILITY_ID::BUILD_REFINERY:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool HasOutstandingSupplyDepotDemand(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                      const FBuildPlanningState& BuildPlanningStateValue)
 {
@@ -684,6 +730,27 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
         return true;
     }
 
+    if (EconomyOrderValue.PreferredPlacementSlotId.IsValid())
+    {
+        FBuildPlacementSlot PreferredBuildPlacementSlotValue;
+        if (!TryFindPlacementSlotById(BuildPlacementSlotsValue, EconomyOrderValue.PreferredPlacementSlotId,
+                                      PreferredBuildPlacementSlotValue))
+        {
+            OutDeferralReasonValue = ECommandOrderDeferralReason::ReservedSlotInvalidated;
+            return false;
+        }
+
+        if (!TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
+                                             EconomyOrderValue, WorkerUnitValue, PreferredBuildPlacementSlotValue,
+                                             OutBuildPlacementSlotValue))
+        {
+            OutDeferralReasonValue = ECommandOrderDeferralReason::ReservedSlotOccupied;
+            return false;
+        }
+
+        return true;
+    }
+
     bool HasPreferredPlacementSlotCandidatesValue = false;
     if (EconomyOrderValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown)
     {
@@ -733,6 +800,7 @@ enum class EReservedPlacementSlotState : uint8_t
 
 EReservedPlacementSlotState GetAwaitingReservedPlacementSlotState(
     const FFrameContext& FrameValue, const FGameStateDescriptor& GameStateDescriptorValue,
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
     const IBuildPlacementService& BuildPlacementServiceValue, const std::vector<Point2D>& ExpansionLocationsValue,
     const FCommandOrderRecord& EconomyOrderValue, FBuildPlacementSlot& OutReservedBuildPlacementSlotValue)
 {
@@ -768,7 +836,16 @@ EReservedPlacementSlotState GetAwaitingReservedPlacementSlotState(
     if (HasObservedBuildOrderTargetingPlacementSlot(*FrameValue.Observation, EconomyOrderValue.AbilityId,
                                                     OutReservedBuildPlacementSlotValue))
     {
-        return EReservedPlacementSlotState::Active;
+        constexpr uint64_t BuildStartGraceGameLoopsValue = 192U;
+        uint64_t LatestChildDispatchGameLoopValue = 0U;
+        if (!TryGetLatestUnitExecutionChildDispatchGameLoop(CommandAuthoritySchedulingStateValue,
+                                                            EconomyOrderValue.OrderId,
+                                                            LatestChildDispatchGameLoopValue) ||
+            GameStateDescriptorValue.CurrentGameLoop <
+                (LatestChildDispatchGameLoopValue + BuildStartGraceGameLoopsValue))
+        {
+            return EReservedPlacementSlotState::Active;
+        }
     }
 
     return FrameValue.Query->Placement(EconomyOrderValue.AbilityId, ClampedBuildPointValue)
@@ -1161,6 +1238,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             FBuildPlacementSlot ReservedBuildPlacementSlotValue;
             const EReservedPlacementSlotState ReservedPlacementSlotStateValue =
                 GetAwaitingReservedPlacementSlotState(FrameValue, GameStateDescriptorValue,
+                                                      CommandAuthoritySchedulingStateValue,
                                                       BuildPlacementServiceValue, ExpansionLocationsValue,
                                                       EconomyOrderValue, ReservedBuildPlacementSlotValue);
             switch (ReservedPlacementSlotStateValue)
@@ -1182,8 +1260,12 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             }
         }
 
+        const uint32_t CurrentOrderCountValue = IsStructureBuildAbility(EconomyOrderValue.AbilityId)
+                                                    ? 0U
+                                                    : CountCurrentOrdersForAbility(AgentStateValue,
+                                                                                  EconomyOrderValue.AbilityId);
         const uint32_t PendingOrderCountValue =
-            CountCurrentOrdersForAbility(AgentStateValue, EconomyOrderValue.AbilityId) +
+            CurrentOrderCountValue +
             CountPendingSchedulerOrdersForAbility(CommandAuthoritySchedulingStateValue, EconomyOrderValue.AbilityId) +
             CountPendingIntentsForAbility(IntentBufferValue, EconomyOrderValue.AbilityId);
         const uint32_t ProjectedCountValue =
@@ -1246,6 +1328,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     EIntentDomain::StructureBuild,
                     GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId, -1, -1, false, true,
                     false);
+                UnitExecutionOrderValue.PreferredPlacementSlotType = EconomyOrderValue.PreferredPlacementSlotType;
+                UnitExecutionOrderValue.PreferredPlacementSlotId = EconomyOrderValue.PreferredPlacementSlotId;
                 CommandAuthoritySchedulingStateValue.SetOrderReservedPlacementSlot(EconomyOrderValue.OrderId,
                                                                                    SelectedBuildPlacementSlotValue.SlotId);
                 UnitExecutionOrderValue.ReservedPlacementSlotId = SelectedBuildPlacementSlotValue.SlotId;

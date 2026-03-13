@@ -67,6 +67,32 @@ The important change was making the placement service return explicit ordered sl
 
 This keeps production deterministic and prevents one structure type from consuming another type's intended space.
 
+## Latest Finding
+
+The ramp wall works because it is modeled as exact named slots. The main-base production layout is still weaker because only a small authored subset exists and the rest of the family still falls back to inferred template placement.
+
+Recent live feedback narrowed the remaining issue:
+- the opening ramp wall is correct
+- the second barracks position is acceptable
+- the first factory and starport are still too far back
+
+That means the next improvement should mimic the ramp model more closely for main-base production:
+- use authored ordered slots, not “find something near this anchor”
+- keep the early production line on one authored rail behind the ramp
+- expose that rail clearly in live debug output
+
+The latest direct fix moved the authored Bel'Shir main production line from:
+- barracks `{8, 0}`
+- factory `{4, 8}`
+- starport `{0, 16}`
+
+to:
+- barracks `{8, 0}`
+- factory `{12, 8}`
+- starport `{16, 16}`
+
+These are local offsets in the ramp-derived production frame. The purpose of this change is to keep barracks, factory, and starport on the same authored ramp-back rail instead of sending factory and starport onto the previous opposite-side diagonal.
+
 ## Verification
 
 Focused tests updated and passing:
@@ -83,7 +109,15 @@ Live behavior still failing:
 - factory, starport, and second barracks construction is still unreliable or stalls entirely
 - some runs still defer those steps with `NoValidPlacement`
 - gas saturation changes still need live validation in the same match
+- some bounded launcher-script reruns still fail the initial websocket connection before gameplay, which blocks live verification of the latest authored-slot changes
 
 ## Next Direction
 
 The current anchor-and-search layout is better than the generic production bucket, but it is still heuristic. The likely next step is a curated per-map and per-start-position slot registry for each base, so the scheduler consumes exact authored slots instead of relying on local placement search during a live game.
+
+The cleaner version of that model is a shared authored production rail:
+- exact ordered addon-capable pads for the main base
+- opening steps bind factory, starport, and follow-up barracks to specific rail ordinals
+- scheduler reservations and occupancy tracking work on those exact pad ids
+
+That matches the way the ramp wall already behaves and is closer to how Ares-style placement dictionaries are structured.

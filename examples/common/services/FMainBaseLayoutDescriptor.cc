@@ -14,6 +14,7 @@ void FMainBaseLayoutDescriptor::Reset()
     LayoutAnchorPoint = Point2D();
     NaturalApproachDepotSlots.clear();
     SupportDepotSlots.clear();
+    ProductionRailWithAddonSlots.clear();
     BarracksWithAddonSlots.clear();
     FactoryWithAddonSlots.clear();
     StarportWithAddonSlots.clear();

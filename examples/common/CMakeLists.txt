@@ -54,6 +54,7 @@ set(sc2_terran_bot_common_sources
     services/FBuildPlacementSlot.cc
     services/FBuildPlacementSlotId.cc
     services/FRampWallDescriptor.cc
+    services/FTerranMainBaseLayoutRegistry.cc
     services/FTerranBuildPlacementService.cc
     services/IBuildPlacementService.cc
     services/IExpansionSelectionService.cc

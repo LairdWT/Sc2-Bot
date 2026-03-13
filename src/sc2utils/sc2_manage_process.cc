@@ -204,9 +204,7 @@ uint64_t StartProcess(const std::string& process_path, const std::vector<std::st
     std::memset(&process, 0, sizeof(process));
     process.si_.cb = sizeof(process.si_);
 
-    char current_directory[buffer_size];
     char support_directory[buffer_size];
-    GetCurrentDirectory(buffer_size, current_directory);
     strcpy_s(support_directory, process_path.c_str());
     int slashcount = 0;
     for (size_t i = strlen(support_directory); i > 0 && slashcount < 3; --i) {
@@ -226,8 +224,6 @@ uint64_t StartProcess(const std::string& process_path, const std::vector<std::st
     else
         strcat_s(support_directory, "Support");
 
-    SetCurrentDirectory(support_directory);
-
     char buffer[buffer_size];
     std::memset(buffer, 0, buffer_size);
     for (int i = 0; i < command_line.size(); ++i) {
@@ -235,23 +231,25 @@ uint64_t StartProcess(const std::string& process_path, const std::vector<std::st
         strcat_s(buffer, command_line[i].c_str());
     }
 
-    if (!CreateProcess(process_path.c_str(),  // Module name
-                       buffer,                // Command line
-                       NULL,                  // Process handle not inheritable
-                       NULL,                  // Thread handle not inheritable
-                       FALSE,                 // Set handle inheritance to FALSE
-                       0,                     // No creation flags
-                       NULL,                  // Use parent's environment block
-                       NULL,                  // Use parent's starting directory
-                       &process.si_,          // Pointer to STARTUPINFO structure
-                       &process.pi_)          // Pointer to PROCESS_INFORMATION structure
-    ) {
-        SetCurrentDirectory(current_directory);
+    const BOOL CreateProcessResultValue =
+        CreateProcess(process_path.c_str(),  // Module name
+                      buffer,                // Command line
+                      NULL,                  // Process handle not inheritable
+                      NULL,                  // Thread handle not inheritable
+                      FALSE,                 // Set handle inheritance to FALSE
+                      0,                     // No creation flags
+                      NULL,                  // Use parent's environment block
+                      support_directory,     // Use the SC2 support directory as the starting directory
+                      &process.si_,          // Pointer to STARTUPINFO structure
+                      &process.pi_);         // Pointer to PROCESS_INFORMATION structure
+    if (!CreateProcessResultValue) {
+        const DWORD ErrorCodeValue = GetLastError();
+        std::cerr << "CreateProcess failed for \"" << process_path << "\" with working directory \""
+                  << support_directory << "\". Win32 error: " << ErrorCodeValue << std::endl;
         return uint64_t(0);
     }
 
     windows_processes.push_back(process);
-    SetCurrentDirectory(current_directory);
     SleepFor(1000);
 
     // Hook.

@@ -127,6 +127,8 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Existing orders without a result type should default the result type to invalid.");
     Check(FirstUnitOrderRecordValue.PreferredPlacementSlotType == EBuildPlacementSlotType::Unknown, SuccessValue,
           "Existing orders without slot metadata should default the preferred placement slot type to unknown.");
+    Check(!FirstUnitOrderRecordValue.PreferredPlacementSlotId.IsValid(), SuccessValue,
+          "Existing orders without slot metadata should default the preferred placement slot id to invalid.");
     Check(!FirstUnitOrderRecordValue.ReservedPlacementSlotId.IsValid(), SuccessValue,
           "Existing orders without slot metadata should default the reserved placement slot to invalid.");
     Check(FirstUnitOrderRecordValue.LastDeferralReason == ECommandOrderDeferralReason::None, SuccessValue,
@@ -235,6 +237,9 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
     OpeningPlanOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
     OpeningPlanOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
     OpeningPlanOrderValue.UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
+    OpeningPlanOrderValue.PreferredPlacementSlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    OpeningPlanOrderValue.PreferredPlacementSlotId.SlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    OpeningPlanOrderValue.PreferredPlacementSlotId.Ordinal = 1U;
     const uint32_t OpeningPlanOrderIdValue =
         IntentSchedulingServiceValue.SubmitOrder(CommandAuthoritySchedulingStateValue, OpeningPlanOrderValue);
 
@@ -251,6 +256,13 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Scheduling state should reconstruct the authored producer unit type.");
     Check(OpeningPlanOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_FACTORY, SuccessValue,
           "Scheduling state should reconstruct the authored result unit type.");
+    Check(OpeningPlanOrderRecordValue.PreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainProductionWithAddon,
+          SuccessValue, "Scheduling state should reconstruct the authored preferred slot type for opening-plan work.");
+    Check(OpeningPlanOrderRecordValue.PreferredPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainProductionWithAddon &&
+              OpeningPlanOrderRecordValue.PreferredPlacementSlotId.Ordinal == 1U,
+          SuccessValue, "Scheduling state should reconstruct the authored preferred exact slot id for opening-plan work.");
 
     FCommandOrderRecord EconomyChildOrderValue = FCommandOrderRecord::CreateNoTarget(
         ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_FACTORY, 250,
@@ -260,6 +272,8 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
     EconomyChildOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
     EconomyChildOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
     EconomyChildOrderValue.PreferredPlacementSlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    EconomyChildOrderValue.PreferredPlacementSlotId.SlotType = EBuildPlacementSlotType::MainProductionWithAddon;
+    EconomyChildOrderValue.PreferredPlacementSlotId.Ordinal = 2U;
     EconomyChildOrderValue.ReservedPlacementSlotId.SlotType = EBuildPlacementSlotType::MainProductionWithAddon;
     EconomyChildOrderValue.ReservedPlacementSlotId.Ordinal = 2U;
     const uint32_t EconomyChildOrderIdValue =
@@ -276,6 +290,10 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
     Check(ActiveEconomyChildOrderValue.PreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainProductionWithAddon,
           SuccessValue, "Scheduling state should reconstruct authored preferred placement-slot metadata.");
+    Check(ActiveEconomyChildOrderValue.PreferredPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainProductionWithAddon &&
+              ActiveEconomyChildOrderValue.PreferredPlacementSlotId.Ordinal == 2U,
+          SuccessValue, "Scheduling state should reconstruct authored exact preferred placement-slot ids.");
     Check(ActiveEconomyChildOrderValue.ReservedPlacementSlotId.SlotType ==
                   EBuildPlacementSlotType::MainProductionWithAddon &&
               ActiveEconomyChildOrderValue.ReservedPlacementSlotId.Ordinal == 2U,

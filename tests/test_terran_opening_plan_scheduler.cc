@@ -80,14 +80,27 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
           SuccessValue, "The first barracks step should bind to the ramp barracks slot.");
     Check(OpeningPlanDescriptorValue.Steps[7].PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotRight,
           SuccessValue, "The second wall depot step should bind to the right ramp depot slot.");
-    Check(OpeningPlanDescriptorValue.Steps[8].PreferredPlacementSlotType == EBuildPlacementSlotType::MainFactoryWithAddon,
-          SuccessValue, "The first factory step should bind to the first main-base factory slot family.");
+    Check(OpeningPlanDescriptorValue.Steps[8].PreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainProductionWithAddon,
+          SuccessValue, "The first factory step should bind to the shared main production rail slot family.");
+    Check(OpeningPlanDescriptorValue.Steps[8].PreferredPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainProductionWithAddon &&
+              OpeningPlanDescriptorValue.Steps[8].PreferredPlacementSlotId.Ordinal == 1U,
+          SuccessValue, "The first factory step should bind to production rail ordinal one.");
     Check(OpeningPlanDescriptorValue.Steps[13].PreferredPlacementSlotType ==
-              EBuildPlacementSlotType::MainStarportWithAddon,
-          SuccessValue, "The first starport step should bind to the first main-base starport slot family.");
+              EBuildPlacementSlotType::MainProductionWithAddon,
+          SuccessValue, "The first starport step should bind to the shared main production rail slot family.");
+    Check(OpeningPlanDescriptorValue.Steps[13].PreferredPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainProductionWithAddon &&
+              OpeningPlanDescriptorValue.Steps[13].PreferredPlacementSlotId.Ordinal == 2U,
+          SuccessValue, "The first starport step should bind to production rail ordinal two.");
     Check(OpeningPlanDescriptorValue.Steps[25].PreferredPlacementSlotType ==
-              EBuildPlacementSlotType::MainBarracksWithAddon,
-          SuccessValue, "The second barracks step should bind to the main-base barracks slot family.");
+              EBuildPlacementSlotType::MainProductionWithAddon,
+          SuccessValue, "The second barracks step should bind to the shared main production rail slot family.");
+    Check(OpeningPlanDescriptorValue.Steps[25].PreferredPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainProductionWithAddon &&
+              OpeningPlanDescriptorValue.Steps[25].PreferredPlacementSlotId.Ordinal == 0U,
+          SuccessValue, "The second barracks step should bind to production rail ordinal zero.");
 
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
