@@ -4,6 +4,7 @@
 
 #include "common/bot_status_models.h"
 #include "common/economic_models.h"
+#include "sc2api/sc2_map_info.h"
 #include "sc2api/sc2_unit_filters.h"
 
 namespace sc2
@@ -267,6 +268,119 @@ bool HasActiveUnitExecutionChild(const FCommandAuthoritySchedulingState& Command
     return false;
 }
 
+FBuildPlacementContext CreateBuildPlacementContext(const Point2D& BaseLocationValue,
+                                                   const std::vector<Point2D>& ExpansionLocationsValue)
+{
+    FBuildPlacementContext BuildPlacementContextValue;
+    BuildPlacementContextValue.BaseLocation = BaseLocationValue;
+
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+    for (const Point2D& ExpansionLocationValue : ExpansionLocationsValue)
+    {
+        const float DistanceSquaredValue = DistanceSquared2D(BaseLocationValue, ExpansionLocationValue);
+        if (DistanceSquaredValue < 16.0f || DistanceSquaredValue >= BestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        BestDistanceSquaredValue = DistanceSquaredValue;
+        BuildPlacementContextValue.NaturalLocation = ExpansionLocationValue;
+    }
+
+    return BuildPlacementContextValue;
+}
+
+bool DoesStructureAbilityRequireAddonClearance(const ABILITY_ID StructureAbilityIdValue)
+{
+    switch (StructureAbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+Point2D GetAddonFootprintCenter(const Point2D& StructureBuildPointValue)
+{
+    return Point2D(StructureBuildPointValue.x + 2.5f, StructureBuildPointValue.y - 0.5f);
+}
+
+bool DoesAddonFootprintSupportTerrain(const GameInfo& GameInfoValue, const Point2D& StructureBuildPointValue)
+{
+    const PlacementGrid PlacementGridValue(GameInfoValue);
+    const Point2D AddonCenterValue = GetAddonFootprintCenter(StructureBuildPointValue);
+
+    static const std::array<Point2D, 5> AddonSampleOffsetsValue =
+    {{
+        Point2D(0.0f, 0.0f),
+        Point2D(-0.5f, -0.5f),
+        Point2D(-0.5f, 0.5f),
+        Point2D(0.5f, -0.5f),
+        Point2D(0.5f, 0.5f),
+    }};
+
+    for (const Point2D& AddonSampleOffsetValue : AddonSampleOffsetsValue)
+    {
+        const Point2D SamplePointValue(AddonCenterValue.x + AddonSampleOffsetValue.x,
+                                       AddonCenterValue.y + AddonSampleOffsetValue.y);
+        if (!PlacementGridValue.IsPlacable(SamplePointValue))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool DoesAddonFootprintAvoidObservedStructures(const ObservationInterface& ObservationValue,
+                                               const Point2D& StructureBuildPointValue)
+{
+    const Point2D AddonCenterValue = GetAddonFootprintCenter(StructureBuildPointValue);
+    const Units SelfUnitsValue = ObservationValue.GetUnits(Unit::Alliance::Self);
+
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || !IsTerranBuilding(SelfUnitValue->unit_type.ToType()))
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue = DistanceSquared2D(Point2D(SelfUnitValue->pos), AddonCenterValue);
+        if (DistanceSquaredValue < 9.0f)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool DoesPlacementSlotSatisfyFootprintPolicy(const FFrameContext& FrameValue,
+                                             const FBuildPlacementSlot& BuildPlacementSlotValue,
+                                             const ABILITY_ID StructureAbilityIdValue)
+{
+    switch (BuildPlacementSlotValue.FootprintPolicy)
+    {
+        case EBuildPlacementFootprintPolicy::StructureOnly:
+            return true;
+        case EBuildPlacementFootprintPolicy::RequiresAddonClearance:
+            if (FrameValue.Observation == nullptr || FrameValue.GameInfo == nullptr ||
+                !DoesStructureAbilityRequireAddonClearance(StructureAbilityIdValue))
+            {
+                return false;
+            }
+
+            return DoesAddonFootprintSupportTerrain(*FrameValue.GameInfo, BuildPlacementSlotValue.BuildPoint) &&
+                   DoesAddonFootprintAvoidObservedStructures(*FrameValue.Observation,
+                                                             BuildPlacementSlotValue.BuildPoint);
+        default:
+            return false;
+    }
+}
+
 bool CanReserveResources(const FBuildPlanningState& BuildPlanningStateValue, const uint32_t MineralsCostValue,
                          const uint32_t VespeneCostValue, const uint32_t SupplyCostValue)
 {
@@ -403,6 +517,7 @@ const Unit* SelectBuildWorker(const FAgentState& AgentStateValue, const FIntentB
 
 bool TryGetStructureBuildPoint(const FFrameContext& FrameValue, const FGameStateDescriptor& GameStateDescriptorValue,
                                const IBuildPlacementService& BuildPlacementServiceValue,
+                               const std::vector<Point2D>& ExpansionLocationsValue,
                                const ABILITY_ID StructureAbilityIdValue, const Unit& WorkerUnitValue,
                                Point2D& OutBuildPointValue)
 {
@@ -412,13 +527,25 @@ bool TryGetStructureBuildPoint(const FFrameContext& FrameValue, const FGameState
     }
 
     const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
-    const std::vector<Point2D> CandidateValues = BuildPlacementServiceValue.GetStructurePlacementCandidates(
-        GameStateDescriptorValue, StructureAbilityIdValue, BaseLocationValue);
+    const FBuildPlacementContext BuildPlacementContextValue =
+        CreateBuildPlacementContext(BaseLocationValue, ExpansionLocationsValue);
+    const std::vector<FBuildPlacementSlot> BuildPlacementSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, StructureAbilityIdValue,
+                                                              BuildPlacementContextValue);
     const GameInfo& GameInfoValue = FrameValue.Observation->GetGameInfo();
 
-    for (const Point2D& CandidateValue : CandidateValues)
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
     {
-        const Point2D ClampedCandidateValue = ClampToPlayable(GameInfoValue, CandidateValue);
+        const Point2D ClampedCandidateValue = ClampToPlayable(GameInfoValue, BuildPlacementSlotValue.BuildPoint);
+        FBuildPlacementSlot NormalizedBuildPlacementSlotValue = BuildPlacementSlotValue;
+        NormalizedBuildPlacementSlotValue.BuildPoint = ClampedCandidateValue;
+
+        if (!DoesPlacementSlotSatisfyFootprintPolicy(FrameValue, NormalizedBuildPlacementSlotValue,
+                                                     StructureAbilityIdValue))
+        {
+            continue;
+        }
+
         if (FrameValue.Query->Placement(StructureAbilityIdValue, ClampedCandidateValue, &WorkerUnitValue))
         {
             OutBuildPointValue = ClampedCandidateValue;
@@ -540,8 +667,10 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             case ABILITY_ID::BUILD_STARPORT:
             {
                 const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
-                const Point2D BuildAnchorValue =
-                    BuildPlacementServiceValue.GetPrimaryStructureAnchor(GameStateDescriptorValue, BaseLocationValue);
+                const FBuildPlacementContext BuildPlacementContextValue =
+                    CreateBuildPlacementContext(BaseLocationValue, ExpansionLocationsValue);
+                const Point2D BuildAnchorValue = BuildPlacementServiceValue.GetPrimaryStructureAnchor(
+                    GameStateDescriptorValue, BuildPlacementContextValue);
                 const Unit* WorkerUnitValue = SelectBuildWorker(AgentStateValue, IntentBufferValue,
                                                                 CommandAuthoritySchedulingStateValue,
                                                                 UNIT_TYPEID::TERRAN_SCV, BuildAnchorValue);
@@ -552,7 +681,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 Point2D BuildPointValue;
                 if (!TryGetStructureBuildPoint(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
-                                               EconomyOrderValue.AbilityId, *WorkerUnitValue, BuildPointValue))
+                                               ExpansionLocationsValue, EconomyOrderValue.AbilityId, *WorkerUnitValue,
+                                               BuildPointValue))
                 {
                     break;
                 }

@@ -12,6 +12,66 @@ EExecutionConditionState GetExecutionConditionState(const bool ConditionValue)
     return ConditionValue ? EExecutionConditionState::Active : EExecutionConditionState::Inactive;
 }
 
+bool IsProductionRallyStructureType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+        case UNIT_TYPEID::TERRAN_FACTORY:
+        case UNIT_TYPEID::TERRAN_STARPORT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+AbilityID GetProductionStructureRallyAbility(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+        case UNIT_TYPEID::TERRAN_FACTORY:
+        case UNIT_TYPEID::TERRAN_STARPORT:
+            return ABILITY_ID::RALLY_UNITS;
+        default:
+            return ABILITY_ID::INVALID;
+    }
+}
+
+bool DoesArmyPostureUseAssemblyPoint(const EArmyPosture ArmyPostureValue)
+{
+    switch (ArmyPostureValue)
+    {
+        case EArmyPosture::Assemble:
+        case EArmyPosture::Hold:
+        case EArmyPosture::Regroup:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsAssemblyCombatUnitType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_MARINE:
+        case UNIT_TYPEID::TERRAN_MARAUDER:
+        case UNIT_TYPEID::TERRAN_HELLION:
+        case UNIT_TYPEID::TERRAN_HELLIONTANK:
+        case UNIT_TYPEID::TERRAN_CYCLONE:
+        case UNIT_TYPEID::TERRAN_SIEGETANK:
+        case UNIT_TYPEID::TERRAN_WIDOWMINE:
+        case UNIT_TYPEID::TERRAN_MEDIVAC:
+        case UNIT_TYPEID::TERRAN_LIBERATOR:
+        case UNIT_TYPEID::TERRAN_VIKINGFIGHTER:
+        case UNIT_TYPEID::TERRAN_VIKINGASSAULT:
+            return true;
+        default:
+            return false;
+    }
+}
+
 }  // namespace
 
 void TerranAgent::OnGameStart()
@@ -39,6 +99,7 @@ void TerranAgent::OnGameStart()
 
     GameStateDescriptor.Reset();
     ExecutionTelemetry.Reset();
+    PendingProductionRallyStructureTags.clear();
 
     const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
     UpdateAgentState(Frame);
@@ -98,7 +159,15 @@ void TerranAgent::OnUnitIdle(const Unit* UnitPtr)
 
 void TerranAgent::OnUnitCreated(const Unit* UnitPtr)
 {
-    (void)UnitPtr;
+    if (UnitPtr == nullptr)
+    {
+        return;
+    }
+
+    if (IsProductionRallyStructureType(UnitPtr->unit_type.ToType()))
+    {
+        PendingProductionRallyStructureTags.insert(UnitPtr->tag);
+    }
 }
 
 void TerranAgent::UpdateAgentState(const FFrameContext& Frame)
@@ -151,11 +220,38 @@ void TerranAgent::UpdateRallyAnchor()
         return;
     }
 
-    const Point2D BaseLocationValue = Point2D(ObservationPtr->GetStartLocation());
-    const Point2D PrimaryStructureAnchorValue =
-        BuildPlacementService ? BuildPlacementService->GetPrimaryStructureAnchor(GameStateDescriptor, BaseLocationValue)
-                              : BaseLocationValue;
-    BarracksRally = Point2D(PrimaryStructureAnchorValue.x + 6.0f, PrimaryStructureAnchorValue.y + 6.0f);
+    const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext();
+    const Point2D BaseLocationValue = BuildPlacementContextValue.BaseLocation;
+    BarracksRally = BuildPlacementService
+                        ? BuildPlacementService->GetArmyAssemblyPoint(GameStateDescriptor, BuildPlacementContextValue)
+                        : BaseLocationValue;
+}
+
+FBuildPlacementContext TerranAgent::CreateBuildPlacementContext() const
+{
+    FBuildPlacementContext BuildPlacementContextValue;
+    if (!ObservationPtr)
+    {
+        return BuildPlacementContextValue;
+    }
+
+    BuildPlacementContextValue.BaseLocation = Point2D(ObservationPtr->GetStartLocation());
+
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+    for (const Point2D& ExpansionLocationValue : ExpansionLocations)
+    {
+        const float DistanceSquaredValue =
+            DistanceSquared2D(BuildPlacementContextValue.BaseLocation, ExpansionLocationValue);
+        if (DistanceSquaredValue < 16.0f || DistanceSquaredValue >= BestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        BestDistanceSquaredValue = DistanceSquaredValue;
+        BuildPlacementContextValue.NaturalLocation = ExpansionLocationValue;
+    }
+
+    return BuildPlacementContextValue;
 }
 
 void TerranAgent::PrintAgentState()
@@ -396,12 +492,110 @@ void TerranAgent::ProduceSchedulerOpeningIntents(const FFrameContext& Frame)
                                               GameStateDescriptor.CommandAuthoritySchedulingState.MaxUnitIntentsPerStep);
 }
 
+void TerranAgent::ProduceProductionRallyIntents()
+{
+    constexpr uint64_t FullRefreshCadenceStepCount = 120U;
+    const bool ShouldRunFullRefreshValue = (CurrentStep % FullRefreshCadenceStepCount) == 0U;
+    if (!ShouldRunFullRefreshValue && PendingProductionRallyStructureTags.empty())
+    {
+        return;
+    }
+
+    for (const Unit* ControlledUnitValue : AgentState.UnitContainer.ControlledUnits)
+    {
+        if (ControlledUnitValue == nullptr || ControlledUnitValue->build_progress < 1.0f)
+        {
+            continue;
+        }
+
+        const UNIT_TYPEID UnitTypeIdValue = ControlledUnitValue->unit_type.ToType();
+        if (!IsProductionRallyStructureType(UnitTypeIdValue))
+        {
+            continue;
+        }
+
+        const std::unordered_set<Tag>::const_iterator PendingStructureIteratorValue =
+            PendingProductionRallyStructureTags.find(ControlledUnitValue->tag);
+        const bool HasPendingRefreshValue = PendingStructureIteratorValue != PendingProductionRallyStructureTags.end();
+        if (!ShouldRunFullRefreshValue && !HasPendingRefreshValue)
+        {
+            continue;
+        }
+
+        if (IntentBuffer.HasIntentForActor(ControlledUnitValue->tag))
+        {
+            continue;
+        }
+
+        const AbilityID RallyAbilityValue = GetProductionStructureRallyAbility(UnitTypeIdValue);
+        if (RallyAbilityValue == ABILITY_ID::INVALID)
+        {
+            continue;
+        }
+
+        IntentBuffer.Add(FUnitIntent::CreatePointTarget(ControlledUnitValue->tag, RallyAbilityValue, BarracksRally, 5,
+                                                        EIntentDomain::UnitProduction));
+        if (HasPendingRefreshValue)
+        {
+            PendingProductionRallyStructureTags.erase(ControlledUnitValue->tag);
+        }
+    }
+}
+
 void TerranAgent::ProduceArmyIntents(const FFrameContext& Frame)
 {
     (void)Frame;
+
+    ProduceProductionRallyIntents();
     if (ShouldLaunchMarineAttack())
     {
         AllMarinesAttack();
+        return;
+    }
+
+    AssembleCombatUnitsAtRallyPoint();
+}
+
+void TerranAgent::AssembleCombatUnitsAtRallyPoint()
+{
+    if (GameStateDescriptor.ArmyState.ArmyPostures.empty())
+    {
+        return;
+    }
+
+    const EArmyPosture PrimaryArmyPostureValue = GameStateDescriptor.ArmyState.ArmyPostures.front();
+    if (!DoesArmyPostureUseAssemblyPoint(PrimaryArmyPostureValue))
+    {
+        return;
+    }
+
+    constexpr float AssemblyRadiusSquaredValue = 36.0f;
+
+    for (const Unit* ControlledUnitValue : AgentState.UnitContainer.ControlledUnits)
+    {
+        if (ControlledUnitValue == nullptr || ControlledUnitValue->build_progress < 1.0f)
+        {
+            continue;
+        }
+
+        if (!IsAssemblyCombatUnitType(ControlledUnitValue->unit_type.ToType()) ||
+            IntentBuffer.HasIntentForActor(ControlledUnitValue->tag))
+        {
+            continue;
+        }
+
+        if (DistanceSquared2D(Point2D(ControlledUnitValue->pos), BarracksRally) <= AssemblyRadiusSquaredValue)
+        {
+            continue;
+        }
+
+        if (!ShouldRefreshArmyOrder(*ControlledUnitValue, ABILITY_ID::MOVE_MOVE, BarracksRally))
+        {
+            continue;
+        }
+
+        IntentBuffer.Add(FUnitIntent::CreatePointTarget(ControlledUnitValue->tag, ABILITY_ID::MOVE_MOVE,
+                                                        BarracksRally, 35, EIntentDomain::ArmyCombat, true));
     }
 }
 

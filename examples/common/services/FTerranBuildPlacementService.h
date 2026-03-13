@@ -11,10 +11,12 @@ class FTerranBuildPlacementService : public IBuildPlacementService
 {
 public:
     Point2D GetPrimaryStructureAnchor(const FGameStateDescriptor& GameStateDescriptorValue,
-                                      const Point2D& BaseLocationValue) const final;
-    std::vector<Point2D> GetStructurePlacementCandidates(const FGameStateDescriptor& GameStateDescriptorValue,
-                                                         ABILITY_ID StructureAbilityId,
-                                                         const Point2D& BaseLocationValue) const final;
+                                      const FBuildPlacementContext& BuildPlacementContextValue) const final;
+    Point2D GetArmyAssemblyPoint(const FGameStateDescriptor& GameStateDescriptorValue,
+                                 const FBuildPlacementContext& BuildPlacementContextValue) const final;
+    std::vector<FBuildPlacementSlot> GetStructurePlacementSlots(
+        const FGameStateDescriptor& GameStateDescriptorValue, ABILITY_ID StructureAbilityId,
+        const FBuildPlacementContext& BuildPlacementContextValue) const final;
 };
 
 }  // namespace sc2

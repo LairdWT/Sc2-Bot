@@ -50,10 +50,13 @@ public:
     void RebuildGameStateDescriptor(const FFrameContext& Frame);
     void UpdateRallyAnchor();
     void PrintAgentState();
+    FBuildPlacementContext CreateBuildPlacementContext() const;
 
     void ProduceRecoveryIntents(const FFrameContext& Frame);
     void ProduceSchedulerOpeningIntents(const FFrameContext& Frame);
+    void ProduceProductionRallyIntents();
     void ProduceArmyIntents(const FFrameContext& Frame);
+    void AssembleCombatUnitsAtRallyPoint();
     void UpdateExecutionTelemetry(const FFrameContext& Frame);
     void ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents);
     void CompleteDispatchedSchedulerOrders();
@@ -114,6 +117,7 @@ private:
     const IBuildPlacementService* BuildPlacementService{&DefaultBuildPlacementService};
     FIntentSchedulingService IntentSchedulingService;
     std::vector<Point2D> ExpansionLocations;
+    std::unordered_set<Tag> PendingProductionRallyStructureTags;
     FAgentExecutionTelemetry ExecutionTelemetry;
 };
 

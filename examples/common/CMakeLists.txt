@@ -41,6 +41,10 @@ set(sc2_terran_bot_common_sources
     telemetry/EExecutionConditionState.cc
     telemetry/FAgentExecutionTelemetry.cc
     telemetry/FExecutionEventRecord.cc
+    services/EBuildPlacementFootprintPolicy.cc
+    services/EBuildPlacementSlotType.cc
+    services/FBuildPlacementContext.cc
+    services/FBuildPlacementSlot.cc
     services/FTerranBuildPlacementService.cc
     services/IBuildPlacementService.cc
     services/IExpansionSelectionService.cc

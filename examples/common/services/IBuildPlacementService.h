@@ -3,6 +3,8 @@
 #include <vector>
 
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/services/FBuildPlacementContext.h"
+#include "common/services/FBuildPlacementSlot.h"
 #include "sc2api/sc2_common.h"
 #include "sc2api/sc2_typeenums.h"
 
@@ -15,10 +17,12 @@ public:
     virtual ~IBuildPlacementService();
 
     virtual Point2D GetPrimaryStructureAnchor(const FGameStateDescriptor& GameStateDescriptorValue,
-                                              const Point2D& BaseLocationValue) const = 0;
-    virtual std::vector<Point2D> GetStructurePlacementCandidates(const FGameStateDescriptor& GameStateDescriptorValue,
-                                                                 ABILITY_ID StructureAbilityId,
-                                                                 const Point2D& BaseLocationValue) const = 0;
+                                              const FBuildPlacementContext& BuildPlacementContextValue) const = 0;
+    virtual Point2D GetArmyAssemblyPoint(const FGameStateDescriptor& GameStateDescriptorValue,
+                                         const FBuildPlacementContext& BuildPlacementContextValue) const = 0;
+    virtual std::vector<FBuildPlacementSlot> GetStructurePlacementSlots(
+        const FGameStateDescriptor& GameStateDescriptorValue, ABILITY_ID StructureAbilityId,
+        const FBuildPlacementContext& BuildPlacementContextValue) const = 0;
 };
 
 }  // namespace sc2

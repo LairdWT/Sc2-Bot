@@ -5,6 +5,10 @@
 #include <string>
 #include <vector>
 
+#include "common/services/EBuildPlacementFootprintPolicy.h"
+#include "common/services/EBuildPlacementSlotType.h"
+#include "common/services/FBuildPlacementContext.h"
+#include "common/services/FBuildPlacementSlot.h"
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/services/FTerranBuildPlacementService.h"
 
@@ -13,29 +17,34 @@ namespace sc2
 namespace
 {
 
-bool Check(const bool Condition, bool& Success, const std::string& Message)
+bool Check(const bool ConditionValue, bool& SuccessValue, const std::string& MessageValue)
 {
-    if (!Condition)
+    if (!ConditionValue)
     {
-        Success = false;
-        std::cerr << "    " << Message << std::endl;
+        SuccessValue = false;
+        std::cerr << "    " << MessageValue << std::endl;
     }
 
-    return Condition;
+    return ConditionValue;
 }
 
 bool ArePointsEqual(const Point2D& LeftValue, const Point2D& RightValue)
 {
-    constexpr float CoordinateTolerance = 0.001f;
-    return std::fabs(LeftValue.x - RightValue.x) <= CoordinateTolerance &&
-           std::fabs(LeftValue.y - RightValue.y) <= CoordinateTolerance;
+    constexpr float CoordinateToleranceValue = 0.001f;
+    return std::fabs(LeftValue.x - RightValue.x) <= CoordinateToleranceValue &&
+           std::fabs(LeftValue.y - RightValue.y) <= CoordinateToleranceValue;
 }
 
-bool ContainsPoint(const std::vector<Point2D>& PointValues, const Point2D& TargetPointValue)
+bool ContainsSlot(const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue,
+                  const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
+                  const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
+                  const Point2D& BuildPointValue)
 {
-    for (const Point2D& PointValue : PointValues)
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
     {
-        if (ArePointsEqual(PointValue, TargetPointValue))
+        if (BuildPlacementSlotValue.SlotType == BuildPlacementSlotTypeValue &&
+            BuildPlacementSlotValue.FootprintPolicy == BuildPlacementFootprintPolicyValue &&
+            ArePointsEqual(BuildPlacementSlotValue.BuildPoint, BuildPointValue))
         {
             return true;
         }
@@ -51,47 +60,111 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     (void)ArgC;
     (void)ArgV;
 
-    bool Success = true;
+    bool SuccessValue = true;
 
     FGameStateDescriptor GameStateDescriptorValue;
-    const Point2D BaseLocationValue(50.0f, 50.0f);
+    FBuildPlacementContext BuildPlacementContextValue;
+    BuildPlacementContextValue.BaseLocation = Point2D(50.0f, 50.0f);
+    BuildPlacementContextValue.NaturalLocation = Point2D(70.0f, 50.0f);
     FTerranBuildPlacementService BuildPlacementServiceValue;
 
     const Point2D PrimaryAnchorValue =
-        BuildPlacementServiceValue.GetPrimaryStructureAnchor(GameStateDescriptorValue, BaseLocationValue);
-    Check(ArePointsEqual(PrimaryAnchorValue, BaseLocationValue), Success,
-          "Primary structure anchor should currently remain base-relative and deterministic.");
+        BuildPlacementServiceValue.GetPrimaryStructureAnchor(GameStateDescriptorValue, BuildPlacementContextValue);
+    Check(ArePointsEqual(PrimaryAnchorValue, Point2D(56.0f, 50.0f)), SuccessValue,
+          "Primary structure anchor should bias forward toward the natural approach.");
+    const Point2D ArmyAssemblyPointValue =
+        BuildPlacementServiceValue.GetArmyAssemblyPoint(GameStateDescriptorValue, BuildPlacementContextValue);
+    Check(ArePointsEqual(ArmyAssemblyPointValue, Point2D(64.0f, 50.0f)), SuccessValue,
+          "Army assembly should sit in front of the main wall toward the natural approach.");
 
-    const std::vector<Point2D> SupplyDepotCandidates =
-        BuildPlacementServiceValue.GetStructurePlacementCandidates(GameStateDescriptorValue,
-                                                                  ABILITY_ID::BUILD_SUPPLYDEPOT,
-                                                                  BaseLocationValue);
-    Check(SupplyDepotCandidates.size() == 12, Success,
-          "Supply depot placement should expose the full deterministic candidate set.");
-    Check(!SupplyDepotCandidates.empty() &&
-              ArePointsEqual(SupplyDepotCandidates.front(), Point2D(BaseLocationValue.x + 6.0f, BaseLocationValue.y + 4.0f)),
-          Success, "Supply depot placement should use the documented first candidate offset.");
-    Check(ContainsPoint(SupplyDepotCandidates, Point2D(BaseLocationValue.x - 6.0f, BaseLocationValue.y - 4.0f)), Success,
-          "Supply depot placement should search across multiple quadrants instead of only positive offsets.");
+    const std::vector<FBuildPlacementSlot> SupplyDepotSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
+                                                              ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                                              BuildPlacementContextValue);
+    Check(SupplyDepotSlotsValue.size() == 10U, SuccessValue,
+          "Supply depot placement should expose ramp, natural-approach, and support slots.");
+    Check(!SupplyDepotSlotsValue.empty() &&
+              SupplyDepotSlotsValue.front().SlotType == EBuildPlacementSlotType::MainRampDepotLeft,
+          SuccessValue, "The first supply depot should prefer the main-ramp depot slot.");
+    Check(!SupplyDepotSlotsValue.empty() &&
+              SupplyDepotSlotsValue.front().FootprintPolicy == EBuildPlacementFootprintPolicy::StructureOnly,
+          SuccessValue, "Supply depot slots should not reserve addon clearance.");
+    Check(ContainsSlot(SupplyDepotSlotsValue, EBuildPlacementSlotType::MainRampDepotRight,
+                       EBuildPlacementFootprintPolicy::StructureOnly, Point2D(57.0f, 47.0f)),
+          SuccessValue, "Supply depot placement should expose the opposite ramp depot slot for the wall.");
+    Check(ContainsSlot(SupplyDepotSlotsValue, EBuildPlacementSlotType::NaturalApproachDepot,
+                       EBuildPlacementFootprintPolicy::StructureOnly, Point2D(62.0f, 56.0f)),
+          SuccessValue, "Supply depot placement should include a natural-approach depot slot.");
 
-    const std::vector<Point2D> BarracksCandidates =
-        BuildPlacementServiceValue.GetStructurePlacementCandidates(GameStateDescriptorValue,
-                                                                  ABILITY_ID::BUILD_BARRACKS,
-                                                                  BaseLocationValue);
-    Check(BarracksCandidates.size() == 12, Success,
-          "Barracks placement should expose the full deterministic candidate set.");
-    Check(!BarracksCandidates.empty() &&
-              ArePointsEqual(BarracksCandidates.front(), Point2D(BaseLocationValue.x + 10.0f, BaseLocationValue.y + 8.0f)),
-          Success, "Barracks placement should use the documented first candidate offset.");
+    GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+        UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 1U;
+    const std::vector<FBuildPlacementSlot> SecondSupplyDepotSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
+                                                              ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                                              BuildPlacementContextValue);
+    Check(!SecondSupplyDepotSlotsValue.empty() &&
+              SecondSupplyDepotSlotsValue.front().SlotType == EBuildPlacementSlotType::MainRampDepotRight,
+          SuccessValue, "The second supply depot should close the opposite side of the main wall first.");
+    GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+        UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 0U;
 
-    const std::vector<Point2D> FallbackCandidates =
-        BuildPlacementServiceValue.GetStructurePlacementCandidates(GameStateDescriptorValue,
-                                                                  ABILITY_ID::INVALID,
-                                                                  BaseLocationValue);
-    Check(FallbackCandidates.size() == 1 && ArePointsEqual(FallbackCandidates.front(), BaseLocationValue), Success,
-          "Unsupported structure abilities should fall back to the primary anchor without random scatter.");
+    const std::vector<FBuildPlacementSlot> BarracksSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
+                                                              ABILITY_ID::BUILD_BARRACKS,
+                                                              BuildPlacementContextValue);
+    Check(BarracksSlotsValue.size() == 7U, SuccessValue,
+          "The first barracks should expose one wall barracks option plus addon-safe production slots.");
+    Check(!BarracksSlotsValue.empty() &&
+              BarracksSlotsValue.front().SlotType == EBuildPlacementSlotType::MainRampBarracksWithAddon,
+          SuccessValue, "The first barracks should prefer the ramp-facing barracks slot.");
+    Check(!BarracksSlotsValue.empty() &&
+              BarracksSlotsValue.front().FootprintPolicy ==
+                  EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+          SuccessValue, "Barracks slots should require addon clearance.");
+    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainRampBarracksWithAddon,
+                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(61.0f, 50.0f)),
+          SuccessValue, "Barracks placement should expose the center wall slot.");
+    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
+                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(70.0f, 58.0f)),
+          SuccessValue, "Barracks placement should include addon-safe interior production slots.");
 
-    return Success;
+    GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
+        UNIT_TYPEID::TERRAN_BARRACKS)] = 1U;
+    const std::vector<FBuildPlacementSlot> FollowUpBarracksSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
+                                                              ABILITY_ID::BUILD_BARRACKS,
+                                                              BuildPlacementContextValue);
+    Check(FollowUpBarracksSlotsValue.size() == 6U, SuccessValue,
+          "Follow-up barracks should skip the first ramp slot and use the production grid.");
+    Check(!FollowUpBarracksSlotsValue.empty() &&
+              FollowUpBarracksSlotsValue.front().SlotType == EBuildPlacementSlotType::MainProductionWithAddon,
+          SuccessValue, "Follow-up barracks should default directly to production-with-addon slots.");
+
+    const std::vector<FBuildPlacementSlot> FactorySlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
+                                                              ABILITY_ID::BUILD_FACTORY,
+                                                              BuildPlacementContextValue);
+    Check(FactorySlotsValue.size() == 6U, SuccessValue,
+          "Factory placement should use the addon-safe production grid.");
+    Check(!FactorySlotsValue.empty() &&
+              FactorySlotsValue.front().FootprintPolicy ==
+                  EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+          SuccessValue, "Factory slots should require addon clearance.");
+
+    const std::vector<FBuildPlacementSlot> FallbackSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
+                                                              ABILITY_ID::INVALID,
+                                                              BuildPlacementContextValue);
+    Check(FallbackSlotsValue.size() == 1U, SuccessValue,
+          "Unsupported structures should still produce one deterministic support slot.");
+    Check(!FallbackSlotsValue.empty() &&
+              FallbackSlotsValue.front().SlotType == EBuildPlacementSlotType::MainSupportStructure,
+          SuccessValue, "Unsupported structures should map to the support-structure slot type.");
+    Check(!FallbackSlotsValue.empty() &&
+              ArePointsEqual(FallbackSlotsValue.front().BuildPoint, PrimaryAnchorValue),
+          SuccessValue, "Unsupported structures should fall back to the primary anchor.");
+
+    return SuccessValue;
 }
 
 }  // namespace sc2
