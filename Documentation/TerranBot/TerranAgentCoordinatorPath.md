@@ -7,7 +7,7 @@ This document captures the current coordinator path implemented by `TerranAgent`
 - `L:\Sc2_Bot\examples\terran\terran.h`
 - `L:\Sc2_Bot\examples\terran\terran.cc`
 
-The goal is to keep the orchestration seam explicit. `TerranAgent` owns sequencing and execution, while builders, planners, schedulers, services, and telemetry types own focused domain work.
+`TerranAgent` is the orchestration seam. Builder, planner, scheduler, placement, and telemetry types own domain logic.
 
 ## Current Entry Points
 
@@ -19,21 +19,22 @@ The goal is to keep the orchestration seam explicit. `TerranAgent` owns sequenci
 - `OnUnitIdle(const Unit* UnitPtr)`
 - `OnUnitCreated(const Unit* UnitPtr)`
 
-`OnGameStart()` and `OnStep()` are the coordinator entry points. The two unit callbacks only feed recovery and rally bookkeeping.
+`OnGameStart()` and `OnStep()` are the coordinator entry points.
 
 ## Game Start Path
 
-`OnGameStart()` performs one-time coordinator setup in this order:
+`OnGameStart()` executes in this order:
 
 1. Reset `CurrentStep`.
-2. Cache `Observation()` into `ObservationPtr`.
-3. Query expansion locations through `search::CalculateExpansionLocations(ObservationPtr, Query())`.
-4. Reset long-lived runtime containers:
+2. Cache `Observation()` into `ObservationPtr` and return on null.
+3. Rebuild `ExpansionLocations` from `search::CalculateExpansionLocations(ObservationPtr, Query())`.
+4. Reset runtime state:
    - `GameStateDescriptor`
    - `ExecutionTelemetry`
    - `PendingProductionRallyStructureTags`
    - `CurrentWallGateState`
-5. Build one `FFrameContext` through `FFrameContext::Create(ObservationPtr, Query(), CurrentStep)`.
+   - `LastArmyExecutionOrderCount`
+5. Build `FFrameContext` through `FFrameContext::Create(ObservationPtr, Query(), CurrentStep)`.
 6. Call:
    - `UpdateAgentState(Frame)`
    - `InitializeRampWallDescriptor(Frame)`
@@ -41,133 +42,107 @@ The goal is to keep the orchestration seam explicit. `TerranAgent` owns sequenci
    - `RebuildGameStateDescriptor(Frame)`
    - `PrintAgentState()`
 
-The start path establishes descriptor and placement state before the first live step executes intent production.
-
 ## Per-Step Coordinator Order
 
-`OnStep()` is the authoritative frame pipeline. The current order is:
+`OnStep()` is the authoritative frame pipeline:
 
 1. Increment `CurrentStep`.
-2. Refresh `ObservationPtr` from `Observation()`.
-3. Create `FFrameContext`.
-4. Rebuild live state through `UpdateAgentState(Frame)`.
-5. Rebuild derived planning state through `RebuildGameStateDescriptor(Frame)`.
-6. Advance scheduler bookkeeping through `UpdateDispatchedSchedulerOrders(Frame)`.
-7. Reset `IntentBuffer`.
-8. Produce intents in this fixed order:
-   - `ProduceSchedulerOpeningIntents(Frame)`
+2. Refresh `ObservationPtr` and return on null.
+3. Build `FFrameContext`.
+4. `UpdateAgentState(Frame)`.
+5. `RebuildGameStateDescriptor(Frame)`.
+6. `UpdateDispatchedSchedulerOrders(Frame)`.
+7. `IntentBuffer.Reset()`.
+8. Run intent producers in this fixed order:
+   - `ProduceSchedulerIntents(Frame)`
+   - `ProduceProductionRallyIntents()`
    - `ProduceWallGateIntents(Frame)`
    - `ProduceWorkerHarvestIntents(Frame)`
    - `ProduceRecoveryIntents(Frame)`
-   - `ProduceArmyIntents(Frame)`
-9. Record frame execution telemetry through `UpdateExecutionTelemetry(Frame)`.
-10. Resolve intents through `IntentArbiter.Resolve(Frame, AgentState.UnitContainer, IntentBuffer)`.
-11. Execute only resolved intents through `ExecuteResolvedIntents(Frame, ResolvedIntents)`.
-12. Capture newly dispatched scheduler orders through `CaptureNewlyDispatchedSchedulerOrders(Frame)`.
-13. Print status every 120 steps.
+9. `UpdateExecutionTelemetry(Frame)`.
+10. `ResolvedIntents = IntentArbiter.Resolve(Frame, AgentState.UnitContainer, IntentBuffer)`.
+11. `ExecuteResolvedIntents(Frame, ResolvedIntents)`.
+12. `CaptureNewlyDispatchedSchedulerOrders(Frame)`.
+13. `PrintAgentState()` every 120 steps.
 
-This is the coordinator contract that future documentation and refactors should preserve unless the execution architecture is intentionally changed.
+## Descriptor And Planning Rebuild Path
 
-## Direct Domain Seams
+`RebuildGameStateDescriptor(const FFrameContext& Frame)` currently runs:
 
-`TerranAgent` currently composes these focused domain types directly:
+1. `GameStateDescriptorBuilder->RebuildGameStateDescriptor(...)` when configured.
+2. `StrategicDirector->UpdateGameStateDescriptor(GameStateDescriptor)`.
+3. `BuildPlanner->ProduceBuildPlan(GameStateDescriptor, GameStateDescriptor.BuildPlanning)`.
+4. `ArmyPlanner->ProduceArmyPlan(GameStateDescriptor, GameStateDescriptor.ArmyState)`.
+5. `UpdateRallyAnchor()`.
 
-- Descriptor rebuild:
-  - `FTerranGameStateDescriptorBuilder`
-  - `IGameStateDescriptorBuilder`
-- Strategic and planning seams:
-  - `FDefaultStrategicDirector`
-  - `IStrategicDirector`
-  - `FTerranTimingAttackBuildPlanner`
-  - `IBuildPlanner`
-  - `FTerranArmyPlanner`
-  - `IArmyPlanner`
-- Scheduling and expansion:
-  - `FCommandAuthorityProcessor`
-  - `FTerranEconomyProductionOrderExpander`
-  - `IEconomyProductionOrderExpander`
-  - `FIntentSchedulingService`
-- Placement and wall control:
-  - `FTerranRampWallController`
-  - `IWallGateController`
-  - `FTerranBuildPlacementService`
-  - `IBuildPlacementService`
-- Telemetry:
-  - `FAgentExecutionTelemetry`
-- Final execution seam:
-  - `FIntentBuffer`
-  - `FIntentArbiter`
-  - `FUnitIntent`
+This keeps descriptor rebuild ahead of all producer and scheduler stages.
 
-The coordinator owns ordering between these seams. The seams themselves own plan derivation, descriptor rebuild, queue draining, wall behavior, placement reasoning, and telemetry detail.
+## Scheduler Producer Path
 
-## Rebuild And Planning Path
+`ProduceSchedulerIntents(const FFrameContext& Frame)` performs scheduler-side production in this order:
 
-`RebuildGameStateDescriptor(const FFrameContext& Frame)` is the coordinator handoff into the planning stack.
+1. `CommandAuthorityProcessor.ProcessSchedulerStep(GameStateDescriptor)`.
+2. `CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor)` when available.
+3. `EconomyProductionOrderExpander->ExpandEconomyAndProductionOrders(...)`.
+4. Priority refresh.
+5. `ArmyOrderExpander->ExpandArmyOrders(...)`.
+6. `ArmyPlanner->ProduceArmyPlan(...)`.
+7. Priority refresh.
+8. `SquadOrderExpander->ExpandSquadOrders(...)`.
+9. Priority refresh.
+10. `UnitExecutionPlanner->ExpandUnitExecutionOrders(...)` and store `LastArmyExecutionOrderCount`.
+11. Final priority refresh.
+12. `IntentSchedulingService.DrainReadyIntents(...)` into `IntentBuffer`.
 
-The current order inside that function is:
+## Dispatched Scheduler Order Maintenance
 
-1. `GameStateDescriptorBuilder->RebuildGameStateDescriptor(...)`
-2. `StrategicDirector->UpdateGameStateDescriptor(GameStateDescriptor)`
-3. `BuildPlanner->ProduceBuildPlan(GameStateDescriptor, GameStateDescriptor.BuildPlanning)`
-4. `ArmyPlanner->ProduceArmyPlan(GameStateDescriptor, GameStateDescriptor.ArmyState)`
-5. `UpdateRallyAnchor()`
+`UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)` inspects `UnitExecution` orders in `Dispatched` lifecycle state and applies:
 
-That order matters:
+- `Completed` when observed completed count or in-construction count increases after dispatch snapshot.
+- `Completed` when producer confirmation detects matching active order/add-on/morph state.
+- `Aborted` when actor unit is missing after dispatch game loop.
+- `Aborted` when dispatch confirmation timeout exceeds `96` game loops.
 
-- descriptor rebuild happens before any strategic or planner mutation
-- strategic direction sets the high-level plan before build and army planners consume the descriptor
-- rally anchor selection happens after placement and planning state are available
+`CaptureNewlyDispatchedSchedulerOrders(const FFrameContext& Frame)` records first dispatch snapshots (`CurrentStep`, `Frame.GameLoop`, observed counts) for `UnitExecution` orders that are `Dispatched` with zero dispatch attempts.
 
-## Intent Production Responsibilities
+## Intent Arbiter Boundary
 
-The intent producers currently divide responsibility like this:
+`FIntentArbiter::Resolve(...)` is the arbitration boundary between production and command execution:
 
-- `ProduceSchedulerOpeningIntents(Frame)`
-  - advances `FCommandAuthorityProcessor`
-  - expands economy and production orders through `FTerranEconomyProductionOrderExpander`
-  - drains ready intents from `FIntentSchedulingService`
-- `ProduceWallGateIntents(Frame)`
-  - evaluates desired wall state
-  - emits wall open or close intents only on transitions
-  - records wall transition telemetry
-- `ProduceWorkerHarvestIntents(Frame)`
-  - balances refinery fill and relief work
-  - avoids conflicting with active scheduler orders and existing intents
-- `ProduceRecoveryIntents(Frame)`
-  - repairs idle worker behavior when no higher-priority intent exists
-- `ProduceArmyIntents(Frame)`
-  - handles production rally behavior
-  - can fall back to `AllMarinesAttack()`
+- select one winner per actor by higher `Priority`, then by `EIntentDomain` order for ties
+- preserve original buffer order for equal winners
+- validate actor and target existence
+- enforce one structure-build actor reservation in a resolve pass
+- for point targets: clamp to playable bounds and run optional placement/pathing validation when requested
 
-The coordinator does not send commands during these stages. It only fills `IntentBuffer`.
+Only resolved intents pass into execution.
 
-## Execution Boundary
+## Command Execution Boundary
 
-The execution boundary is explicit:
+`ExecuteResolvedIntents(...)` is the only stage that issues SC2 commands. It dispatches by `EIntentTargetKind`:
 
-- producers create `FUnitIntent` records
-- `FIntentArbiter` resolves conflicts and invalid combinations
-- `ExecuteResolvedIntents(...)` is the only step that issues final commands
+- `None` -> `Actions()->UnitCommand(actor, ability, queued)`
+- `Point` -> `Actions()->UnitCommand(actor, ability, point, queued)`
+- `Unit` -> `Actions()->UnitCommand(actor, ability, targetTag, queued)`
 
-This boundary is one of the most important architectural constraints in the current Terran bot. Future planning or service work should feed the intent seam rather than bypassing it.
+## Additional Producer Responsibilities
+
+- `ProduceProductionRallyIntents()`:
+  - refreshes rally commands on a `120`-step cadence and for newly created production structures
+  - uses `PendingProductionRallyStructureTags` to force one-time rally refresh on creation
+- `ProduceWallGateIntents(...)`:
+  - computes desired `EWallGateState` and emits transition-only gate intents
+  - records wall threat/open/close telemetry transitions
+- `ProduceWorkerHarvestIntents(...)`:
+  - balances refinery fill and gas relief using commitment checks and reservation maps
+  - avoids units with active intents, active scheduler orders, or construction commitments
+- `ProduceRecoveryIntents(...)`:
+  - repairs idle worker behavior by sending workers to minerals, falling back to enemy attack-move if no patch is found
 
 ## Runtime Invariants
 
-The current coordinator path relies on these invariants:
-
-- `ObservationPtr` must be valid before state update, descriptor rebuild, or execution work begins
-- `FFrameContext` is the per-frame transport for observation, query, raw observation, game info, camera, and loop values
-- descriptor rebuild happens before scheduler drain and planner-owned intent production
-- telemetry update happens before resolved intents are executed
-- `TerranAgent` owns orchestration order, not the detailed planning rules inside the composed services
-
-## Immediate Follow-On Documentation
-
-The next documentation deepening steps that branch directly from this coordinator path are:
-
-- `FTerranGameStateDescriptorBuilder` and the descriptor rebuild contract
-- `FCommandAuthorityProcessor` plus `FIntentSchedulingService`
-- `FTerranEconomyProductionOrderExpander`
-- `FTerranBuildPlacementService`
-- `FAgentExecutionTelemetry`
+- `ObservationPtr` must be valid before state rebuild, planning, and execution work.
+- `FFrameContext` is the authoritative per-frame transport.
+- Descriptor and planner rebuild occurs before all intent production.
+- Telemetry updates before arbitration and execution.
+- `TerranAgent` owns sequence only; composed services own domain decisions.

@@ -1,4 +1,4 @@
-﻿# Sc2 Bot API Refinement Ledger
+# Sc2 Bot API Refinement Ledger
 
 ## Purpose
 
@@ -17,14 +17,13 @@ The automation should:
 | --- | --- | --- | --- | --- | --- |
 | `SC2-API-TERRANAGENT-COORDINATOR-INTEGRATION` | `TerranAgentIntegration` | `L:\Sc2_Bot\Documentation\Sc2Api\TerranAgentApiIntegration.md` | `Completed` | `2026-03-14T02:16:10Z` | Bootstrap topic. Documented how `TerranAgent` uses `Agent`, `ObservationInterface`, `QueryInterface`, unit and order abstractions, feature-layer inputs, and the intent seam. |
 | `SC2-API-OBSERVATION-QUERY-FRAME-CONTEXT` | `ApiFrameAcquisition` | `L:\Sc2_Bot\Documentation\Sc2Api\ObservationAndFrameContext.md` | `Completed` | `2026-03-14T03:41:05Z` | Completed source-backed frame context mapping for `FFrameContext`, `ObservationInterface`, and `QueryInterface` across coordinator and downstream planner paths. |
-| `SC2-API-UNIT-ORDER-MODEL-BOUNDARIES` | `ApiUnitsAndOrders` | `L:\Sc2_Bot\Documentation\Sc2Api\UnitAndOrderModelBoundaries.md` | `Open` | `` | Document the exact `Unit`, `UnitOrder`, `Tag`, `ABILITY_ID`, and `UNIT_TYPEID` surfaces that matter for scheduler bookkeeping, recovery behavior, and resolved execution. |
-| `SC2-API-FEATURE-LAYER-USAGE-SURFACES` | `FeatureLayers` | `L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md` | `Open` | `` | Trace how raw feature-layer data enters `FAgentSpatialChannels` and identify where those surfaces still stop short of gameplay decision authority. |
-| `SC2-ECOSYSTEM-DETERMINISTIC-PLACEMENT-PATTERNS` | `EcosystemPlacement` | `L:\Sc2_Bot\Documentation\Ecosystem\DeterministicPlacementPatterns.md` | `Open` | `` | Compare proven deterministic placement approaches only after local placement-service review, then record what cleanly maps onto the current Terran placement seams. |
-| `SC2-ECOSYSTEM-SOA-STATE-ACCOUNTING` | `EcosystemDataOrientedDesign` | `L:\Sc2_Bot\Documentation\Ecosystem\SoAStateAccountingPatterns.md` | `Open` | `` | Compare other bot approaches to structure-of-arrays state accounting only when the result can sharpen local scheduler, telemetry, or state rebuild design. |
+| `SC2-API-UNIT-ORDER-MODEL-BOUNDARIES` | `ApiUnitsAndOrders` | `L:\Sc2_Bot\Documentation\Sc2Api\UnitAndOrderModelBoundaries.md` | `Completed` | `2026-03-14T05:40:16Z` | Completed source-backed boundary mapping for `Unit`, `UnitOrder`, `Tag`, `ABILITY_ID`, and `UNIT_TYPEID` across scheduler bookkeeping, worker-recovery classification, and resolved `ActionInterface::UnitCommand` execution. |
+| `SC2-API-FEATURE-LAYER-USAGE-SURFACES` | `FeatureLayers` | `L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md` | `Completed` | `2026-03-14T04:40:35Z` | Completed source-backed ingestion and authority-boundary mapping from `ObservationInterface::GetRawObservation()` to `FAgentSpatialChannels` and `FAgentSpatialMetrics`; logged open ambiguity `FL-001` for unused Terran draw-helper ownership. |
+| `SC2-ECOSYSTEM-DETERMINISTIC-PLACEMENT-PATTERNS` | `EcosystemPlacement` | `L:\Sc2_Bot\Documentation\Ecosystem\DeterministicPlacementPatterns.md` | `Completed` | `2026-03-14T06:40:54Z` | Completed local-source-first placement seam mapping. Confirmed authored layout registry preference, runtime anchor fallback, production-rail derivation, and ability-routed slot emission in `FTerranBuildPlacementService`; no new ambiguity opened. |
+| `SC2-ECOSYSTEM-SOA-STATE-ACCOUNTING` | `EcosystemDataOrientedDesign` | `L:\Sc2_Bot\Documentation\Ecosystem\SoAStateAccountingPatterns.md` | `Completed` | `2026-03-14T07:40:35Z` | Completed local-source SoA accounting map for `FTerranUnitContainer`, `FCommandAuthoritySchedulingState`, and `FBuildPlanningState` rebuild seam; no new ambiguity opened. |
+| `SC2-API-AGENT-EVENT-DISPATCH-ACTION-FLUSH` | `ApiEventDispatch` | `L:\Sc2_Bot\Documentation\Sc2Api\AgentEventDispatchAndActionFlushOrder.md` | `Completed` | `2026-03-14T08:40:18Z` | Completed source-backed callback and action ordering map across `CoordinatorImp::CallOnStep`, `ControlImp::IssueEvents`, `ActionImp::SendActions`, and `TerranAgent` callback-to-intent handoff; no new ambiguity opened. |
+| `SC2-API-ACTION-DISPATCH-EVENT-ORDERING` | `ApiActionDispatch` | `L:\Sc2_Bot\Documentation\Sc2Api\ActionDispatchAndEventOrdering.md` | `Completed` | `2026-03-14T08:40:58Z` | Added precise source-backed ordering boundaries between `IssueEvents`, `OnStep`, and `SendActions` for the Terran intent execution seam; no new ambiguity opened. |
 
 ## Promotion Rule
 
 If the same narrow topic family repeats enough times to justify reusable instructions, the automation may create or deepen one narrow Sc2 skill under `C:\Users\laird\.codex\skills` instead of continuing to accumulate broad narrative notes.
-
-
-

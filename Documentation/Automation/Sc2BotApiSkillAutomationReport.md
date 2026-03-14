@@ -1,18 +1,19 @@
-﻿# Sc2 Bot API Skill Automation Report
+# Sc2 Bot API Skill Automation Report
 
 ## Run Summary
 
-- RunTimeUtc: 2026-03-14T03:41:05Z
-- CompletedTopicId: SC2-API-OBSERVATION-QUERY-FRAME-CONTEXT
+- RunTimeUtc: 2026-03-14T08:40:58Z
+- CompletedTopicId: SC2-API-ACTION-DISPATCH-EVENT-ORDERING
 - UpdatedSurface:
-  - L:\Sc2_Bot\Documentation\Sc2Api\ObservationAndFrameContext.md
+  - L:\Sc2_Bot\Documentation\Sc2Api\ActionDispatchAndEventOrdering.md
 - ChangeSurface: Sc2ApiDoc
 
 ## Current Open Findings
 
-- None.
+- FL-001: Terran feature-layer draw helper ownership remains ambiguous because `DrawFeatureLayer1BPP`, `DrawFeatureLayerUnits8BPP`, and `DrawFeatureLayerHeightMap8BPP` are declared on `TerranAgent` but have no active call sites in `examples\terran`.
 
 ## Notes
 
-- Topic selection applied low-repetition scoring against open ledger topics and selected the lowest-penalty coordinator-surface candidate.
-- This pass stayed local-source-first and did not use external references.
+- Candidate set had no suitable open ledger topics; this run added one newly discovered coordinator-seam topic per automation rules.
+- Low-repetition scoring selected `SC2-API-ACTION-DISPATCH-EVENT-ORDERING` (penalty `0`).
+- This pass remained local-source-first and did not require external references.

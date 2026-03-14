@@ -2,7 +2,7 @@
 
 ## Run Summary
 
-- RunTimeUtc: 2026-03-14T02:16:10Z
+- RunTimeUtc: 2026-03-14T06:41:17Z
 - Scope:
   - `L:\Sc2_Bot\examples\common`
   - `L:\Sc2_Bot\examples\terran`
@@ -17,4 +17,5 @@
 
 ## Notes
 
-- The initial bootstrap pass documented the current `TerranAgent` coordinator order and the directly touched builder, planner, scheduling, placement, telemetry, and execution seams.
+- `TerranAgentCoordinatorPath.md` was aligned to current source names and ordering, including `ProduceSchedulerIntents`, `ProduceProductionRallyIntents`, scheduler dispatch lifecycle maintenance, and `FIntentArbiter::Resolve` validation rules.
+
