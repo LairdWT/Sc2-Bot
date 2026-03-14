@@ -1,6 +1,7 @@
 #include "common/build_orders/FOpeningPlanRegistry.h"
 
 #include <initializer_list>
+#include <string>
 
 namespace sc2
 {
@@ -14,6 +15,71 @@ FBuildPlacementSlotId CreatePlacementSlotId(const EBuildPlacementSlotType BuildP
     BuildPlacementSlotIdValue.SlotType = BuildPlacementSlotTypeValue;
     BuildPlacementSlotIdValue.Ordinal = SlotOrdinalValue;
     return BuildPlacementSlotIdValue;
+}
+
+ECommandTaskActionKind DetermineTaskActionKind(const AbilityID AbilityIdValue)
+{
+    switch (AbilityIdValue.ToType())
+    {
+        case ABILITY_ID::BUILD_COMMANDCENTER:
+            return ECommandTaskActionKind::Expand;
+        case ABILITY_ID::BUILD_REACTOR_BARRACKS:
+        case ABILITY_ID::BUILD_TECHLAB_BARRACKS:
+        case ABILITY_ID::BUILD_REACTOR_FACTORY:
+        case ABILITY_ID::BUILD_TECHLAB_FACTORY:
+        case ABILITY_ID::BUILD_REACTOR_STARPORT:
+        case ABILITY_ID::BUILD_TECHLAB_STARPORT:
+            return ECommandTaskActionKind::BuildAddon;
+        case ABILITY_ID::MORPH_ORBITALCOMMAND:
+            return ECommandTaskActionKind::MorphStructure;
+        case ABILITY_ID::TRAIN_SCV:
+        case ABILITY_ID::TRAIN_MARINE:
+        case ABILITY_ID::TRAIN_MARAUDER:
+        case ABILITY_ID::TRAIN_HELLION:
+        case ABILITY_ID::TRAIN_CYCLONE:
+        case ABILITY_ID::TRAIN_SIEGETANK:
+        case ABILITY_ID::TRAIN_WIDOWMINE:
+        case ABILITY_ID::TRAIN_MEDIVAC:
+        case ABILITY_ID::TRAIN_LIBERATOR:
+        case ABILITY_ID::TRAIN_VIKINGFIGHTER:
+            return ECommandTaskActionKind::TrainUnit;
+        case ABILITY_ID::RESEARCH_STIMPACK:
+        case ABILITY_ID::RESEARCH_COMBATSHIELD:
+        case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
+            return ECommandTaskActionKind::ResearchUpgrade;
+        default:
+            return ECommandTaskActionKind::BuildStructure;
+    }
+}
+
+ECommandTaskNeedKind DetermineTaskNeedKind(const ECommandTaskActionKind TaskActionKindValue)
+{
+    switch (TaskActionKindValue)
+    {
+        case ECommandTaskActionKind::BuildAddon:
+            return ECommandTaskNeedKind::AddOn;
+        case ECommandTaskActionKind::Expand:
+            return ECommandTaskNeedKind::Expansion;
+        case ECommandTaskActionKind::TrainUnit:
+            return ECommandTaskNeedKind::Unit;
+        case ECommandTaskActionKind::ResearchUpgrade:
+            return ECommandTaskNeedKind::Upgrade;
+        case ECommandTaskActionKind::BuildStructure:
+        case ECommandTaskActionKind::MorphStructure:
+            return ECommandTaskNeedKind::Structure;
+        case ECommandTaskActionKind::Unknown:
+        default:
+            return ECommandTaskNeedKind::Unknown;
+    }
+}
+
+std::string BuildReferenceClockTime(const uint64_t MinGameLoopValue)
+{
+    const uint64_t TotalSecondsValue = ((MinGameLoopValue * 5U) + 56U) / 112U;
+    const uint64_t MinutesValue = TotalSecondsValue / 60U;
+    const uint64_t SecondsValue = TotalSecondsValue % 60U;
+    return std::to_string(MinutesValue) + ":" + (SecondsValue < 10U ? "0" : "") + std::to_string(SecondsValue);
 }
 
 FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_t MinGameLoopValue,
@@ -30,20 +96,27 @@ FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_
                                        const UpgradeID UpgradeIdValue = UpgradeID(UPGRADE_ID::INVALID))
 {
     FOpeningPlanStep OpeningPlanStepValue;
-    OpeningPlanStepValue.StepId = StepIdValue;
-    OpeningPlanStepValue.MinGameLoop = MinGameLoopValue;
-    OpeningPlanStepValue.PriorityValue = PriorityValue;
-    OpeningPlanStepValue.AbilityId = AbilityIdValue;
-    OpeningPlanStepValue.ProducerUnitTypeId = ProducerUnitTypeIdValue;
-    OpeningPlanStepValue.ResultUnitTypeId = ResultUnitTypeIdValue;
-    OpeningPlanStepValue.TargetCount = TargetCountValue;
-    OpeningPlanStepValue.RequestedQueueCount = RequestedQueueCountValue;
-    OpeningPlanStepValue.ParallelGroupId = ParallelGroupIdValue;
-    OpeningPlanStepValue.UpgradeId = UpgradeIdValue;
-    OpeningPlanStepValue.PreferredPlacementSlotType = PreferredPlacementSlotTypeValue;
-    OpeningPlanStepValue.PreferredPlacementSlotId = PreferredPlacementSlotIdValue;
-    OpeningPlanStepValue.RequiredCompletedStepIds.assign(RequiredCompletedStepIdsValue.begin(),
-                                                         RequiredCompletedStepIdsValue.end());
+    FCommandTaskDescriptor& TaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
+    TaskDescriptorValue.TaskId = StepIdValue;
+    TaskDescriptorValue.PackageKind = ECommandTaskPackageKind::Opening;
+    TaskDescriptorValue.ActionKind = DetermineTaskActionKind(AbilityIdValue);
+    TaskDescriptorValue.NeedKind = DetermineTaskNeedKind(TaskDescriptorValue.ActionKind);
+    TaskDescriptorValue.CompletionKind = ECommandTaskCompletionKind::CountAtLeast;
+    TaskDescriptorValue.PriorityValue = PriorityValue;
+    TaskDescriptorValue.TriggerMinGameLoop = MinGameLoopValue;
+    TaskDescriptorValue.TriggerReferenceClockTime = BuildReferenceClockTime(MinGameLoopValue);
+    TaskDescriptorValue.TriggerRequiredCompletedTaskIds.assign(RequiredCompletedStepIdsValue.begin(),
+                                                               RequiredCompletedStepIdsValue.end());
+    TaskDescriptorValue.ActionAbilityId = AbilityIdValue;
+    TaskDescriptorValue.ActionProducerUnitTypeId = ProducerUnitTypeIdValue;
+    TaskDescriptorValue.ActionResultUnitTypeId = ResultUnitTypeIdValue;
+    TaskDescriptorValue.ActionUpgradeId = UpgradeIdValue;
+    TaskDescriptorValue.ActionTargetCount = TargetCountValue;
+    TaskDescriptorValue.ActionRequestedQueueCount = RequestedQueueCountValue;
+    TaskDescriptorValue.ParallelGroupId = ParallelGroupIdValue;
+    TaskDescriptorValue.ActionPreferredPlacementSlotType = PreferredPlacementSlotTypeValue;
+    TaskDescriptorValue.ActionPreferredPlacementSlotId = PreferredPlacementSlotIdValue;
+    TaskDescriptorValue.CompletionObservedCountAtLeast = TargetCountValue;
     return OpeningPlanStepValue;
 }
 

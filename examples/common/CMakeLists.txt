@@ -25,6 +25,7 @@ set(sc2_terran_bot_common_sources
     planning/EOrderLifecycleState.cc
     planning/EPlanningProcessorState.cc
     planning/EWallGateState.cc
+    planning/FCommandTaskDescriptor.cc
     planning/FCommandAuthoritySchedulingState.cc
     planning/FCommandAuthorityProcessor.cc
     planning/FDefaultStrategicDirector.cc

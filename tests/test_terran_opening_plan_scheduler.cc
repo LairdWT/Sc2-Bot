@@ -38,28 +38,30 @@ void CheckOpeningPlanStepMetadata(const FOpeningPlanStep& OpeningPlanStepValue, 
                                   const std::initializer_list<uint32_t>& ExpectedRequiredStepIdsValue,
                                   bool& SuccessValue, const std::string& StepLabelValue)
 {
-    Check(OpeningPlanStepValue.StepId == ExpectedStepIdValue, SuccessValue,
+    const FCommandTaskDescriptor& TaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
+
+    Check(TaskDescriptorValue.TaskId == ExpectedStepIdValue, SuccessValue,
           StepLabelValue + " should preserve the authored step identifier.");
-    Check(OpeningPlanStepValue.MinGameLoop == ExpectedMinGameLoopValue, SuccessValue,
+    Check(TaskDescriptorValue.TriggerMinGameLoop == ExpectedMinGameLoopValue, SuccessValue,
           StepLabelValue + " should preserve the authored frame trigger.");
-    Check(OpeningPlanStepValue.PriorityValue == ExpectedPriorityValue, SuccessValue,
+    Check(TaskDescriptorValue.PriorityValue == ExpectedPriorityValue, SuccessValue,
           StepLabelValue + " should preserve the authored priority.");
-    Check(OpeningPlanStepValue.AbilityId == ExpectedAbilityIdValue, SuccessValue,
+    Check(TaskDescriptorValue.ActionAbilityId == ExpectedAbilityIdValue, SuccessValue,
           StepLabelValue + " should preserve the authored ability.");
-    Check(OpeningPlanStepValue.ProducerUnitTypeId == ExpectedProducerUnitTypeIdValue, SuccessValue,
+    Check(TaskDescriptorValue.ActionProducerUnitTypeId == ExpectedProducerUnitTypeIdValue, SuccessValue,
           StepLabelValue + " should preserve the authored producer type.");
-    Check(OpeningPlanStepValue.ResultUnitTypeId == ExpectedResultUnitTypeIdValue, SuccessValue,
+    Check(TaskDescriptorValue.ActionResultUnitTypeId == ExpectedResultUnitTypeIdValue, SuccessValue,
           StepLabelValue + " should preserve the authored result type.");
-    Check(OpeningPlanStepValue.TargetCount == ExpectedTargetCountValue, SuccessValue,
+    Check(TaskDescriptorValue.ActionTargetCount == ExpectedTargetCountValue, SuccessValue,
           StepLabelValue + " should preserve the authored target count.");
-    Check(OpeningPlanStepValue.RequestedQueueCount == ExpectedRequestedQueueCountValue, SuccessValue,
+    Check(TaskDescriptorValue.ActionRequestedQueueCount == ExpectedRequestedQueueCountValue, SuccessValue,
           StepLabelValue + " should preserve the authored requested queue count.");
-    Check(OpeningPlanStepValue.ParallelGroupId == ExpectedParallelGroupIdValue, SuccessValue,
+    Check(TaskDescriptorValue.ParallelGroupId == ExpectedParallelGroupIdValue, SuccessValue,
           StepLabelValue + " should preserve the authored parallel-group binding.");
 
     const std::vector<uint32_t> ExpectedRequiredStepIdValues(ExpectedRequiredStepIdsValue.begin(),
                                                              ExpectedRequiredStepIdsValue.end());
-    Check(OpeningPlanStepValue.RequiredCompletedStepIds == ExpectedRequiredStepIdValues, SuccessValue,
+    Check(TaskDescriptorValue.TriggerRequiredCompletedTaskIds == ExpectedRequiredStepIdValues, SuccessValue,
           StepLabelValue + " should preserve the authored prerequisite steps.");
 }
 
@@ -108,42 +110,44 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
 
     const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
         FOpeningPlanRegistry::GetOpeningPlanDescriptor(EOpeningPlanId::TerranTwoBaseMMMFrameOpening);
-    Check(OpeningPlanDescriptorValue.Steps.size() == 32U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Steps.size() == 102U, SuccessValue,
           "Compiled opening-plan registry should expose the authored Terran opener steps.");
     Check(OpeningPlanDescriptorValue.Summary ==
-              "Two-base MMM opening package expressed in explicit game-loop steps through the first medivac, liberator, and siege tank.",
+              "Two-base MMM pressure package expressed in explicit game-loop steps through the 8:17 follow-up add-on wave.",
           SuccessValue, "Compiled opening-plan registry should preserve the authored summary.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetBaseCount == 2U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetBaseCount == 3U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored target base count.");
     Check(OpeningPlanDescriptorValue.Goals.TargetOrbitalCommandCount == 2U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored target orbital count.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetWorkerCount == 36U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetWorkerCount == 44U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored target worker count.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetRefineryCount == 2U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetRefineryCount == 4U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored refinery target.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetSupplyDepotCount == 4U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetSupplyDepotCount == 14U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored supply-depot target.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetBarracksCount == 2U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetBarracksCount == 5U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored barracks target.");
     Check(OpeningPlanDescriptorValue.Goals.TargetFactoryCount == 1U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored factory target.");
     Check(OpeningPlanDescriptorValue.Goals.TargetStarportCount == 1U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored starport target.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetBarracksReactorCount == 1U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetBarracksReactorCount == 2U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored barracks-reactor target.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetBarracksTechLabCount == 0U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetBarracksTechLabCount == 1U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored barracks-tech-lab target.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetFactoryTechLabCount == 1U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetFactoryTechLabCount == 2U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored factory-tech-lab target.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetStarportReactorCount == 0U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetStarportReactorCount == 1U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored starport-reactor target.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetMarineCount == 14U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetMarineCount == 36U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored marine target.");
+    Check(OpeningPlanDescriptorValue.Goals.TargetMarauderCount == 15U, SuccessValue,
+          "Compiled opening-plan registry should preserve the authored marauder target.");
     Check(OpeningPlanDescriptorValue.Goals.TargetHellionCount == 1U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored hellion target.");
     Check(OpeningPlanDescriptorValue.Goals.TargetCycloneCount == 1U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored cyclone target.");
-    Check(OpeningPlanDescriptorValue.Goals.TargetMedivacCount == 1U, SuccessValue,
+    Check(OpeningPlanDescriptorValue.Goals.TargetMedivacCount == 6U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored medivac target.");
     Check(OpeningPlanDescriptorValue.Goals.TargetLiberatorCount == 1U, SuccessValue,
           "Compiled opening-plan registry should preserve the authored liberator target.");
@@ -254,34 +258,47 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     CheckOpeningPlanStepMetadata(OpeningPlanDescriptorValue.Steps[31], 32U, 5824U, 61, ABILITY_ID::TRAIN_MARINE,
                                  UNIT_TYPEID::TERRAN_BARRACKS, UNIT_TYPEID::TERRAN_MARINE, 14U, 1U, 0U, {31U},
                                  SuccessValue, "Opening step 32");
-    Check(OpeningPlanDescriptorValue.Steps[0].PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotLeft,
+    Check(OpeningPlanDescriptorValue.Steps[0].TaskDescriptor.ActionPreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainRampDepotLeft,
           SuccessValue, "The first depot step should bind to the left ramp depot slot.");
-    Check(OpeningPlanDescriptorValue.Steps[1].PreferredPlacementSlotType ==
+    Check(OpeningPlanDescriptorValue.Steps[1].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainRampBarracksWithAddon,
           SuccessValue, "The first barracks step should bind to the ramp barracks slot.");
-    Check(OpeningPlanDescriptorValue.Steps[7].PreferredPlacementSlotType == EBuildPlacementSlotType::MainRampDepotRight,
+    Check(OpeningPlanDescriptorValue.Steps[7].TaskDescriptor.ActionPreferredPlacementSlotType ==
+              EBuildPlacementSlotType::MainRampDepotRight,
           SuccessValue, "The second wall depot step should bind to the right ramp depot slot.");
-    Check(OpeningPlanDescriptorValue.Steps[8].PreferredPlacementSlotType ==
+    Check(OpeningPlanDescriptorValue.Steps[8].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainFactoryWithAddon,
           SuccessValue, "The first factory step should bind to the first authored main factory slot.");
-    Check(OpeningPlanDescriptorValue.Steps[8].PreferredPlacementSlotId.SlotType ==
+    Check(OpeningPlanDescriptorValue.Steps[8].TaskDescriptor.ActionPreferredPlacementSlotId.SlotType ==
                   EBuildPlacementSlotType::MainFactoryWithAddon &&
-              OpeningPlanDescriptorValue.Steps[8].PreferredPlacementSlotId.Ordinal == 0U,
+              OpeningPlanDescriptorValue.Steps[8].TaskDescriptor.ActionPreferredPlacementSlotId.Ordinal == 0U,
           SuccessValue, "The first factory step should bind to main factory slot ordinal zero.");
-    Check(OpeningPlanDescriptorValue.Steps[13].PreferredPlacementSlotType ==
+    Check(OpeningPlanDescriptorValue.Steps[13].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainStarportWithAddon,
           SuccessValue, "The first starport step should bind to the first authored main starport slot.");
-    Check(OpeningPlanDescriptorValue.Steps[13].PreferredPlacementSlotId.SlotType ==
+    Check(OpeningPlanDescriptorValue.Steps[13].TaskDescriptor.ActionPreferredPlacementSlotId.SlotType ==
                   EBuildPlacementSlotType::MainStarportWithAddon &&
-              OpeningPlanDescriptorValue.Steps[13].PreferredPlacementSlotId.Ordinal == 0U,
+              OpeningPlanDescriptorValue.Steps[13].TaskDescriptor.ActionPreferredPlacementSlotId.Ordinal == 0U,
           SuccessValue, "The first starport step should bind to main starport slot ordinal zero.");
-    Check(OpeningPlanDescriptorValue.Steps[25].PreferredPlacementSlotType ==
+    Check(OpeningPlanDescriptorValue.Steps[25].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainBarracksWithAddon,
           SuccessValue, "The second barracks step should bind to the first authored main barracks slot.");
-    Check(OpeningPlanDescriptorValue.Steps[25].PreferredPlacementSlotId.SlotType ==
+    Check(OpeningPlanDescriptorValue.Steps[25].TaskDescriptor.ActionPreferredPlacementSlotId.SlotType ==
                   EBuildPlacementSlotType::MainBarracksWithAddon &&
-              OpeningPlanDescriptorValue.Steps[25].PreferredPlacementSlotId.Ordinal == 0U,
+              OpeningPlanDescriptorValue.Steps[25].TaskDescriptor.ActionPreferredPlacementSlotId.Ordinal == 0U,
           SuccessValue, "The second barracks step should bind to main barracks slot ordinal zero.");
+    Check(OpeningPlanDescriptorValue.Steps[0].TaskDescriptor.PackageKind == ECommandTaskPackageKind::Opening,
+          SuccessValue, "Opening steps should preserve the standardized Opening package kind.");
+    Check(OpeningPlanDescriptorValue.Steps[0].TaskDescriptor.NeedKind == ECommandTaskNeedKind::Structure,
+          SuccessValue, "Structure tasks should preserve the standardized structure need kind.");
+    Check(OpeningPlanDescriptorValue.Steps[3].TaskDescriptor.NeedKind == ECommandTaskNeedKind::Unit, SuccessValue,
+          "Unit-training steps should preserve the standardized unit need kind.");
+    Check(OpeningPlanDescriptorValue.Steps[37].TaskDescriptor.ActionKind == ECommandTaskActionKind::ResearchUpgrade,
+          SuccessValue, "Research steps should preserve the standardized research action kind.");
+    Check(OpeningPlanDescriptorValue.Steps[37].TaskDescriptor.CompletionKind ==
+              ECommandTaskCompletionKind::CountAtLeast,
+          SuccessValue, "Opening steps should preserve the standardized count-at-least completion kind.");
 
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;

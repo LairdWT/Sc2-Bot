@@ -17,8 +17,8 @@ private:
     void SeedReadyStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue) const;
     void EnsureStrategicChildOrders(FGameStateDescriptor& GameStateDescriptorValue) const;
     void EnsureWorkerGoalOrder(FGameStateDescriptor& GameStateDescriptorValue) const;
-    bool AreRequiredStepsCompleted(const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
-                                   const FOpeningPlanStep& OpeningPlanStepValue) const;
+    bool AreRequiredTasksCompleted(const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+                                   const FCommandTaskDescriptor& CommandTaskDescriptorValue) const;
     bool DoesOrderTargetMatchObservedState(const FGameStateDescriptor& GameStateDescriptorValue,
                                            const FCommandOrderRecord& CommandOrderRecordValue) const;
     uint32_t GetObservedCountForOrder(const FBuildPlanningState& BuildPlanningStateValue,

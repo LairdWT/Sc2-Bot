@@ -162,13 +162,14 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
 
     for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
     {
-        if (!OpeningPlanExecutionStateValue.IsStepCompleted(OpeningPlanStepValue.StepId))
+        const FCommandTaskDescriptor& CommandTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
+        if (!OpeningPlanExecutionStateValue.IsStepCompleted(CommandTaskDescriptorValue.TaskId))
         {
             continue;
         }
 
         uint32_t StrategicOrderIdValue = 0U;
-        if (!OpeningPlanExecutionStateValue.TryGetPlanOrderId(OpeningPlanStepValue.StepId, StrategicOrderIdValue))
+        if (!OpeningPlanExecutionStateValue.TryGetPlanOrderId(CommandTaskDescriptorValue.TaskId, StrategicOrderIdValue))
         {
             continue;
         }
@@ -187,7 +188,7 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
             continue;
         }
 
-        OpeningPlanExecutionStateValue.MarkStepIncomplete(OpeningPlanStepValue.StepId);
+        OpeningPlanExecutionStateValue.MarkStepIncomplete(CommandTaskDescriptorValue.TaskId);
         CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(StrategicOrderIdValue, EOrderLifecycleState::Queued);
         CommandAuthoritySchedulingStateValue.ClearOrderDeferralState(StrategicOrderIdValue);
         if (OpeningPlanExecutionStateValue.LifecycleState == EOpeningPlanLifecycleState::Completed)
@@ -198,26 +199,28 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
 
     for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
     {
-        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningPlanStepValue.StepId))
+        const FCommandTaskDescriptor& CommandTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(CommandTaskDescriptorValue.TaskId))
         {
             continue;
         }
 
         FCommandOrderRecord CompletionProbeValue;
-        CompletionProbeValue.ResultUnitTypeId = OpeningPlanStepValue.ResultUnitTypeId;
-        CompletionProbeValue.UpgradeId = OpeningPlanStepValue.UpgradeId;
-        CompletionProbeValue.TargetCount = OpeningPlanStepValue.TargetCount;
-        CompletionProbeValue.PreferredPlacementSlotType = OpeningPlanStepValue.PreferredPlacementSlotType;
-        CompletionProbeValue.PreferredPlacementSlotId = OpeningPlanStepValue.PreferredPlacementSlotId;
+        CompletionProbeValue.ResultUnitTypeId = CommandTaskDescriptorValue.ActionResultUnitTypeId;
+        CompletionProbeValue.UpgradeId = CommandTaskDescriptorValue.ActionUpgradeId;
+        CompletionProbeValue.TargetCount = CommandTaskDescriptorValue.CompletionObservedCountAtLeast;
+        CompletionProbeValue.PreferredPlacementSlotType =
+            CommandTaskDescriptorValue.ActionPreferredPlacementSlotType;
+        CompletionProbeValue.PreferredPlacementSlotId = CommandTaskDescriptorValue.ActionPreferredPlacementSlotId;
         if (!DoesOrderTargetMatchObservedState(GameStateDescriptorValue, CompletionProbeValue))
         {
             continue;
         }
 
-        OpeningPlanExecutionStateValue.MarkStepCompleted(OpeningPlanStepValue.StepId);
+        OpeningPlanExecutionStateValue.MarkStepCompleted(CommandTaskDescriptorValue.TaskId);
 
         uint32_t StrategicOrderIdValue = 0U;
-        if (OpeningPlanExecutionStateValue.TryGetPlanOrderId(OpeningPlanStepValue.StepId, StrategicOrderIdValue))
+        if (OpeningPlanExecutionStateValue.TryGetPlanOrderId(CommandTaskDescriptorValue.TaskId, StrategicOrderIdValue))
         {
             GameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(StrategicOrderIdValue,
                                                                                            EOrderLifecycleState::Completed);
@@ -278,40 +281,43 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(FGameStateDescriptor& 
     uint32_t SeededOrderCountValue = 0U;
     for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
     {
+        const FCommandTaskDescriptor& CommandTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
         if (SeededOrderCountValue >= CommandAuthoritySchedulingStateValue.MaxStrategicOrdersPerStep)
         {
             return;
         }
-        if (OpeningPlanExecutionStateValue.HasSeededStep(OpeningPlanStepValue.StepId) ||
-            OpeningPlanExecutionStateValue.IsStepCompleted(OpeningPlanStepValue.StepId))
+        if (OpeningPlanExecutionStateValue.HasSeededStep(CommandTaskDescriptorValue.TaskId) ||
+            OpeningPlanExecutionStateValue.IsStepCompleted(CommandTaskDescriptorValue.TaskId))
         {
             continue;
         }
-        if (GameStateDescriptorValue.CurrentGameLoop < OpeningPlanStepValue.MinGameLoop)
+        if (GameStateDescriptorValue.CurrentGameLoop < CommandTaskDescriptorValue.TriggerMinGameLoop)
         {
             return;
         }
-        if (!AreRequiredStepsCompleted(OpeningPlanExecutionStateValue, OpeningPlanStepValue))
+        if (!AreRequiredTasksCompleted(OpeningPlanExecutionStateValue, CommandTaskDescriptorValue))
         {
             continue;
         }
 
         FCommandOrderRecord StrategicOrderValue = FCommandOrderRecord::CreateNoTarget(
-            ECommandAuthorityLayer::StrategicDirector, NullTag, OpeningPlanStepValue.AbilityId,
-            OpeningPlanStepValue.PriorityValue, EIntentDomain::StructureBuild, OpeningPlanStepValue.MinGameLoop);
-        StrategicOrderValue.PlanStepId = OpeningPlanStepValue.StepId;
-        StrategicOrderValue.TargetCount = OpeningPlanStepValue.TargetCount;
-        StrategicOrderValue.RequestedQueueCount = OpeningPlanStepValue.RequestedQueueCount;
-        StrategicOrderValue.ProducerUnitTypeId = OpeningPlanStepValue.ProducerUnitTypeId;
-        StrategicOrderValue.ResultUnitTypeId = OpeningPlanStepValue.ResultUnitTypeId;
-        StrategicOrderValue.UpgradeId = OpeningPlanStepValue.UpgradeId;
-        StrategicOrderValue.PreferredPlacementSlotType = OpeningPlanStepValue.PreferredPlacementSlotType;
-        StrategicOrderValue.PreferredPlacementSlotId = OpeningPlanStepValue.PreferredPlacementSlotId;
+            ECommandAuthorityLayer::StrategicDirector, NullTag, CommandTaskDescriptorValue.ActionAbilityId,
+            CommandTaskDescriptorValue.PriorityValue, EIntentDomain::StructureBuild,
+            CommandTaskDescriptorValue.TriggerMinGameLoop);
+        StrategicOrderValue.PlanStepId = CommandTaskDescriptorValue.TaskId;
+        StrategicOrderValue.TargetCount = CommandTaskDescriptorValue.ActionTargetCount;
+        StrategicOrderValue.RequestedQueueCount = CommandTaskDescriptorValue.ActionRequestedQueueCount;
+        StrategicOrderValue.ProducerUnitTypeId = CommandTaskDescriptorValue.ActionProducerUnitTypeId;
+        StrategicOrderValue.ResultUnitTypeId = CommandTaskDescriptorValue.ActionResultUnitTypeId;
+        StrategicOrderValue.UpgradeId = CommandTaskDescriptorValue.ActionUpgradeId;
+        StrategicOrderValue.PreferredPlacementSlotType =
+            CommandTaskDescriptorValue.ActionPreferredPlacementSlotType;
+        StrategicOrderValue.PreferredPlacementSlotId = CommandTaskDescriptorValue.ActionPreferredPlacementSlotId;
         StrategicOrderValue.IntentDomain = DetermineIntentDomain(StrategicOrderValue);
 
         const uint32_t StrategicOrderIdValue =
             CommandAuthoritySchedulingStateValue.EnqueueOrder(StrategicOrderValue);
-        OpeningPlanExecutionStateValue.RecordSeededStep(OpeningPlanStepValue.StepId, StrategicOrderIdValue);
+        OpeningPlanExecutionStateValue.RecordSeededStep(CommandTaskDescriptorValue.TaskId, StrategicOrderIdValue);
         ++SeededOrderCountValue;
     }
 }
@@ -389,10 +395,11 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
     }
 }
 
-bool FCommandAuthorityProcessor::AreRequiredStepsCompleted(
-    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue, const FOpeningPlanStep& OpeningPlanStepValue) const
+bool FCommandAuthorityProcessor::AreRequiredTasksCompleted(
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+    const FCommandTaskDescriptor& CommandTaskDescriptorValue) const
 {
-    for (const uint32_t RequiredStepIdValue : OpeningPlanStepValue.RequiredCompletedStepIds)
+    for (const uint32_t RequiredStepIdValue : CommandTaskDescriptorValue.TriggerRequiredCompletedTaskIds)
     {
         if (!OpeningPlanExecutionStateValue.IsStepCompleted(RequiredStepIdValue))
         {
