@@ -18,6 +18,7 @@ void FArmyDomainState::Reset()
     PrimaryArmyDisengageSupplyThreshold = 20;
     ArmyGoals.clear();
     ArmyPostures.clear();
+    ArmyMissions.clear();
     EnsurePrimaryArmyExists();
 }
 
@@ -30,6 +31,10 @@ void FArmyDomainState::EnsurePrimaryArmyExists()
     while (ArmyPostures.size() < MinimumArmyCount)
     {
         ArmyPostures.push_back(EArmyPosture::Assemble);
+    }
+    while (ArmyMissions.size() < MinimumArmyCount)
+    {
+        ArmyMissions.push_back(FArmyMissionDescriptor());
     }
 
     ActiveArmyCount = static_cast<uint32_t>(ArmyGoals.size());

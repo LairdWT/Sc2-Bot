@@ -12,6 +12,7 @@ void FGameStateDescriptor::Reset()
 {
     CurrentStep = 0;
     CurrentGameLoop = 0;
+    GoalSet.Reset();
     MacroState.Reset();
     ArmyState.Reset();
     BuildPlanning.Reset();

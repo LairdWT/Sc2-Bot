@@ -4,6 +4,7 @@
 
 #include "common/descriptors/EGamePlan.h"
 #include "common/descriptors/EMacroPhase.h"
+#include "common/descriptors/EProductionFocus.h"
 
 namespace sc2
 {
@@ -16,6 +17,7 @@ struct FMacroStateDescriptor
     uint32_t DesiredBaseCount;
     uint32_t ActiveBaseCount;
     uint32_t DesiredArmyCount;
+    EProductionFocus PrimaryProductionFocus;
     uint32_t WorkerCount;
     uint32_t ArmyUnitCount;
     uint32_t ArmySupply;

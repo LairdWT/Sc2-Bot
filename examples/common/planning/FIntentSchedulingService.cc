@@ -86,7 +86,7 @@ void FIntentSchedulingService::AppendCommandOrderToIntentBuffer(const FCommandOr
         case EIntentTargetKind::None:
             IntentBufferValue.Add(FUnitIntent::CreateNoTarget(CommandOrderRecordValue.ActorTag,
                                                               CommandOrderRecordValue.AbilityId,
-                                                              CommandOrderRecordValue.PriorityValue,
+                                                              CommandOrderRecordValue.EffectivePriorityValue,
                                                               CommandOrderRecordValue.IntentDomain,
                                                               CommandOrderRecordValue.Queued));
             break;
@@ -94,7 +94,7 @@ void FIntentSchedulingService::AppendCommandOrderToIntentBuffer(const FCommandOr
             IntentBufferValue.Add(FUnitIntent::CreatePointTarget(CommandOrderRecordValue.ActorTag,
                                                                  CommandOrderRecordValue.AbilityId,
                                                                  CommandOrderRecordValue.TargetPoint,
-                                                                 CommandOrderRecordValue.PriorityValue,
+                                                                 CommandOrderRecordValue.EffectivePriorityValue,
                                                                  CommandOrderRecordValue.IntentDomain,
                                                                  CommandOrderRecordValue.RequiresPathingValidation,
                                                                  CommandOrderRecordValue.RequiresPlacementValidation,
@@ -104,7 +104,7 @@ void FIntentSchedulingService::AppendCommandOrderToIntentBuffer(const FCommandOr
             IntentBufferValue.Add(FUnitIntent::CreateUnitTarget(CommandOrderRecordValue.ActorTag,
                                                                 CommandOrderRecordValue.AbilityId,
                                                                 CommandOrderRecordValue.TargetUnitTag,
-                                                                CommandOrderRecordValue.PriorityValue,
+                                                                CommandOrderRecordValue.EffectivePriorityValue,
                                                                 CommandOrderRecordValue.IntentDomain,
                                                                 CommandOrderRecordValue.Queued));
             break;

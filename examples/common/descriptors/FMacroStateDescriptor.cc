@@ -16,6 +16,7 @@ void FMacroStateDescriptor::Reset()
     DesiredBaseCount = 1;
     ActiveBaseCount = 0;
     DesiredArmyCount = 1;
+    PrimaryProductionFocus = EProductionFocus::Recovery;
     WorkerCount = 0;
     ArmyUnitCount = 0;
     ArmySupply = 0;

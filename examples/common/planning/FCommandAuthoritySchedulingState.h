@@ -1,11 +1,13 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
 
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/ECommandPriorityTier.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentDomain.h"
 #include "common/planning/EIntentPlaybackState.h"
@@ -56,9 +58,15 @@ public:
 
     std::vector<uint32_t> OrderIds;
     std::vector<uint32_t> ParentOrderIds;
+    std::vector<uint32_t> SourceGoalIds;
     std::vector<ECommandAuthorityLayer> SourceLayers;
     std::vector<EOrderLifecycleState> LifecycleStates;
-    std::vector<int> PriorityValues;
+    std::vector<ECommandTaskPackageKind> TaskPackageKinds;
+    std::vector<ECommandTaskNeedKind> TaskNeedKinds;
+    std::vector<ECommandTaskType> TaskTypes;
+    std::vector<int> BasePriorityValues;
+    std::vector<int> EffectivePriorityValues;
+    std::vector<ECommandPriorityTier> PriorityTiers;
     std::vector<EIntentDomain> IntentDomains;
     std::vector<uint64_t> CreationSteps;
     std::vector<uint64_t> DeadlineSteps;
@@ -99,11 +107,18 @@ public:
     std::vector<size_t> SquadOrderIndices;
     std::vector<size_t> ReadyIntentIndices;
     std::vector<size_t> CompletedOrderIndices;
+    std::array<std::vector<size_t>, CommandPriorityTierCountValue> StrategicQueues;
+    std::array<std::vector<size_t>, CommandPriorityTierCountValue> PlanningQueues;
+    std::array<std::vector<size_t>, CommandPriorityTierCountValue> ArmyQueues;
+    std::array<std::vector<size_t>, CommandPriorityTierCountValue> SquadQueues;
+    std::array<std::array<std::vector<size_t>, IntentDomainCountValue>, CommandPriorityTierCountValue>
+        ReadyIntentQueues;
 
 private:
     void RebuildProcessorState();
     void RebuildPlaybackState();
     void AppendQueuedOrderIndex(size_t OrderIndexValue);
+    void SortDerivedQueues();
 };
 
 }  // namespace sc2

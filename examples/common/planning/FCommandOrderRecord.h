@@ -2,6 +2,9 @@
 
 #include <cstdint>
 
+#include "common/planning/ECommandPriorityTier.h"
+#include "common/planning/ECommandTaskType.h"
+#include "common/planning/FCommandTaskDescriptor.h"
 #include "common/planning/ECommandAuthorityLayer.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentDomain.h"
@@ -24,14 +27,15 @@ public:
     void Reset();
 
     static FCommandOrderRecord CreateNoTarget(ECommandAuthorityLayer SourceLayerValue, Tag ActorTagValue,
-                                              AbilityID AbilityIdValue, int PriorityValue, EIntentDomain IntentDomainValue,
-                                              uint64_t CreationStepValue, uint64_t DeadlineStepValue = 0U,
-                                              uint32_t ParentOrderIdValue = 0U, int32_t OwningArmyIndexValue = -1,
-                                              int32_t OwningSquadIndexValue = -1, bool QueuedValue = false);
+                                              AbilityID AbilityIdValue, int BasePriorityValue,
+                                              EIntentDomain IntentDomainValue, uint64_t CreationStepValue,
+                                              uint64_t DeadlineStepValue = 0U, uint32_t ParentOrderIdValue = 0U,
+                                              int32_t OwningArmyIndexValue = -1, int32_t OwningSquadIndexValue = -1,
+                                              bool QueuedValue = false);
 
     static FCommandOrderRecord CreatePointTarget(ECommandAuthorityLayer SourceLayerValue, Tag ActorTagValue,
                                                  AbilityID AbilityIdValue, const Point2D& TargetPointValue,
-                                                 int PriorityValue, EIntentDomain IntentDomainValue,
+                                                 int BasePriorityValue, EIntentDomain IntentDomainValue,
                                                  uint64_t CreationStepValue, uint64_t DeadlineStepValue = 0U,
                                                  uint32_t ParentOrderIdValue = 0U, int32_t OwningArmyIndexValue = -1,
                                                  int32_t OwningSquadIndexValue = -1,
@@ -40,7 +44,7 @@ public:
                                                  bool QueuedValue = false);
 
     static FCommandOrderRecord CreateUnitTarget(ECommandAuthorityLayer SourceLayerValue, Tag ActorTagValue,
-                                                AbilityID AbilityIdValue, Tag TargetUnitTagValue, int PriorityValue,
+                                                AbilityID AbilityIdValue, Tag TargetUnitTagValue, int BasePriorityValue,
                                                 EIntentDomain IntentDomainValue, uint64_t CreationStepValue,
                                                 uint64_t DeadlineStepValue = 0U, uint32_t ParentOrderIdValue = 0U,
                                                 int32_t OwningArmyIndexValue = -1,
@@ -49,9 +53,15 @@ public:
 public:
     uint32_t OrderId;
     uint32_t ParentOrderId;
+    uint32_t SourceGoalId;
     ECommandAuthorityLayer SourceLayer;
     EOrderLifecycleState LifecycleState;
-    int PriorityValue;
+    ECommandTaskPackageKind TaskPackageKind;
+    ECommandTaskNeedKind TaskNeedKind;
+    ECommandTaskType TaskType;
+    int BasePriorityValue;
+    int EffectivePriorityValue;
+    ECommandPriorityTier PriorityTier;
     EIntentDomain IntentDomain;
     uint64_t CreationStep;
     uint64_t DeadlineStep;

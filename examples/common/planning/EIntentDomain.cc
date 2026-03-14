@@ -5,6 +5,25 @@
 namespace sc2
 {
 
+size_t GetIntentDomainIndex(const EIntentDomain IntentDomainValue)
+{
+    switch (IntentDomainValue)
+    {
+        case EIntentDomain::Recovery:
+            return 0U;
+        case EIntentDomain::StructureBuild:
+            return 1U;
+        case EIntentDomain::StructureControl:
+            return 2U;
+        case EIntentDomain::UnitProduction:
+            return 3U;
+        case EIntentDomain::ArmyCombat:
+            return 4U;
+        default:
+            return IntentDomainCountValue - 1U;
+    }
+}
+
 int GetIntentDomainOrder(const EIntentDomain IntentDomainValue)
 {
     switch (IntentDomainValue)

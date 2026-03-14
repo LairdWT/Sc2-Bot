@@ -15,7 +15,9 @@ void FCommandTaskDescriptor::Reset()
     NeedKind = ECommandTaskNeedKind::Unknown;
     ActionKind = ECommandTaskActionKind::Unknown;
     CompletionKind = ECommandTaskCompletionKind::Unknown;
-    PriorityValue = 0;
+    TaskType = ECommandTaskType::Unknown;
+    BasePriorityValue = 0;
+    SourceGoalId = 0U;
     TriggerMinGameLoop = 0U;
     TriggerMinSupplyUsed = 0U;
     TriggerMaxSupplyUsed = 0U;

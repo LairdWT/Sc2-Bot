@@ -14,9 +14,15 @@ void FCommandOrderRecord::Reset()
 {
     OrderId = 0U;
     ParentOrderId = 0U;
+    SourceGoalId = 0U;
     SourceLayer = ECommandAuthorityLayer::Agent;
     LifecycleState = EOrderLifecycleState::Queued;
-    PriorityValue = 0;
+    TaskPackageKind = ECommandTaskPackageKind::Unknown;
+    TaskNeedKind = ECommandTaskNeedKind::Unknown;
+    TaskType = ECommandTaskType::Unknown;
+    BasePriorityValue = 0;
+    EffectivePriorityValue = 0;
+    PriorityTier = ECommandPriorityTier::Normal;
     IntentDomain = EIntentDomain::Recovery;
     CreationStep = 0U;
     DeadlineStep = 0U;
@@ -51,7 +57,7 @@ void FCommandOrderRecord::Reset()
 
 FCommandOrderRecord FCommandOrderRecord::CreateNoTarget(const ECommandAuthorityLayer SourceLayerValue,
                                                         const Tag ActorTagValue, const AbilityID AbilityIdValue,
-                                                        const int PriorityValue, const EIntentDomain IntentDomainValue,
+                                                        const int BasePriorityValue, const EIntentDomain IntentDomainValue,
                                                         const uint64_t CreationStepValue,
                                                         const uint64_t DeadlineStepValue,
                                                         const uint32_t ParentOrderIdValue,
@@ -62,7 +68,8 @@ FCommandOrderRecord FCommandOrderRecord::CreateNoTarget(const ECommandAuthorityL
     CommandOrderRecordValue.SourceLayer = SourceLayerValue;
     CommandOrderRecordValue.ActorTag = ActorTagValue;
     CommandOrderRecordValue.AbilityId = AbilityIdValue;
-    CommandOrderRecordValue.PriorityValue = PriorityValue;
+    CommandOrderRecordValue.BasePriorityValue = BasePriorityValue;
+    CommandOrderRecordValue.EffectivePriorityValue = BasePriorityValue;
     CommandOrderRecordValue.IntentDomain = IntentDomainValue;
     CommandOrderRecordValue.CreationStep = CreationStepValue;
     CommandOrderRecordValue.DeadlineStep = DeadlineStepValue;
@@ -75,13 +82,13 @@ FCommandOrderRecord FCommandOrderRecord::CreateNoTarget(const ECommandAuthorityL
 
 FCommandOrderRecord FCommandOrderRecord::CreatePointTarget(
     const ECommandAuthorityLayer SourceLayerValue, const Tag ActorTagValue, const AbilityID AbilityIdValue,
-    const Point2D& TargetPointValue, const int PriorityValue, const EIntentDomain IntentDomainValue,
+    const Point2D& TargetPointValue, const int BasePriorityValue, const EIntentDomain IntentDomainValue,
     const uint64_t CreationStepValue, const uint64_t DeadlineStepValue, const uint32_t ParentOrderIdValue,
     const int32_t OwningArmyIndexValue, const int32_t OwningSquadIndexValue,
     const bool RequiresPathingValidationValue, const bool RequiresPlacementValidationValue, const bool QueuedValue)
 {
     FCommandOrderRecord CommandOrderRecordValue = CreateNoTarget(SourceLayerValue, ActorTagValue, AbilityIdValue,
-                                                                 PriorityValue, IntentDomainValue, CreationStepValue,
+                                                                 BasePriorityValue, IntentDomainValue, CreationStepValue,
                                                                  DeadlineStepValue, ParentOrderIdValue,
                                                                  OwningArmyIndexValue, OwningSquadIndexValue,
                                                                  QueuedValue);
@@ -94,7 +101,7 @@ FCommandOrderRecord FCommandOrderRecord::CreatePointTarget(
 
 FCommandOrderRecord FCommandOrderRecord::CreateUnitTarget(const ECommandAuthorityLayer SourceLayerValue,
                                                           const Tag ActorTagValue, const AbilityID AbilityIdValue,
-                                                          const Tag TargetUnitTagValue, const int PriorityValue,
+                                                          const Tag TargetUnitTagValue, const int BasePriorityValue,
                                                           const EIntentDomain IntentDomainValue,
                                                           const uint64_t CreationStepValue,
                                                           const uint64_t DeadlineStepValue,
@@ -103,7 +110,7 @@ FCommandOrderRecord FCommandOrderRecord::CreateUnitTarget(const ECommandAuthorit
                                                           const int32_t OwningSquadIndexValue, const bool QueuedValue)
 {
     FCommandOrderRecord CommandOrderRecordValue = CreateNoTarget(SourceLayerValue, ActorTagValue, AbilityIdValue,
-                                                                 PriorityValue, IntentDomainValue, CreationStepValue,
+                                                                 BasePriorityValue, IntentDomainValue, CreationStepValue,
                                                                  DeadlineStepValue, ParentOrderIdValue,
                                                                  OwningArmyIndexValue, OwningSquadIndexValue,
                                                                  QueuedValue);

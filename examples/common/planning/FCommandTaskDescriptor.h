@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "common/planning/ECommandTaskType.h"
 #include "common/services/FBuildPlacementSlotId.h"
 #include "sc2api/sc2_gametypes.h"
 #include "sc2api/sc2_typeenums.h"
@@ -65,7 +66,9 @@ public:
     ECommandTaskNeedKind NeedKind;
     ECommandTaskActionKind ActionKind;
     ECommandTaskCompletionKind CompletionKind;
-    int PriorityValue;
+    ECommandTaskType TaskType;
+    int BasePriorityValue;
+    uint32_t SourceGoalId;
     uint64_t TriggerMinGameLoop;
     uint32_t TriggerMinSupplyUsed;
     uint32_t TriggerMaxSupplyUsed;

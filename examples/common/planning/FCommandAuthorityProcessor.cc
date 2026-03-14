@@ -11,6 +11,11 @@ constexpr uint32_t WorkerGoalStepIdValue = 9000U;
 
 EIntentDomain DetermineIntentDomain(const FCommandOrderRecord& CommandOrderRecordValue)
 {
+    if (CommandOrderRecordValue.TaskType == ECommandTaskType::ArmyMission)
+    {
+        return EIntentDomain::ArmyCombat;
+    }
+
     switch (CommandOrderRecordValue.AbilityId.ToType())
     {
         case ABILITY_ID::TRAIN_SCV:
@@ -130,11 +135,6 @@ void FCommandAuthorityProcessor::ProcessSchedulerStep(FGameStateDescriptor& Game
 {
     InitializeOpeningPlan(GameStateDescriptorValue);
     UpdateCompletedOpeningSteps(GameStateDescriptorValue);
-    if (GameStateDescriptorValue.OpeningPlanExecutionState.LifecycleState == EOpeningPlanLifecycleState::Completed)
-    {
-        return;
-    }
-
     SeedReadyStrategicOrders(GameStateDescriptorValue);
     EnsureWorkerGoalOrder(GameStateDescriptorValue);
     EnsureStrategicChildOrders(GameStateDescriptorValue);
@@ -302,8 +302,12 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(FGameStateDescriptor& 
 
         FCommandOrderRecord StrategicOrderValue = FCommandOrderRecord::CreateNoTarget(
             ECommandAuthorityLayer::StrategicDirector, NullTag, CommandTaskDescriptorValue.ActionAbilityId,
-            CommandTaskDescriptorValue.PriorityValue, EIntentDomain::StructureBuild,
+            CommandTaskDescriptorValue.BasePriorityValue, EIntentDomain::StructureBuild,
             CommandTaskDescriptorValue.TriggerMinGameLoop);
+        StrategicOrderValue.TaskPackageKind = CommandTaskDescriptorValue.PackageKind;
+        StrategicOrderValue.TaskNeedKind = CommandTaskDescriptorValue.NeedKind;
+        StrategicOrderValue.TaskType = CommandTaskDescriptorValue.TaskType;
+        StrategicOrderValue.SourceGoalId = CommandTaskDescriptorValue.SourceGoalId;
         StrategicOrderValue.PlanStepId = CommandTaskDescriptorValue.TaskId;
         StrategicOrderValue.TargetCount = CommandTaskDescriptorValue.ActionTargetCount;
         StrategicOrderValue.RequestedQueueCount = CommandTaskDescriptorValue.ActionRequestedQueueCount;
@@ -347,6 +351,9 @@ void FCommandAuthorityProcessor::EnsureWorkerGoalOrder(FGameStateDescriptor& Gam
     FCommandOrderRecord WorkerGoalOrderValue = FCommandOrderRecord::CreateNoTarget(
         ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::TRAIN_SCV, 110, EIntentDomain::UnitProduction,
         0U);
+    WorkerGoalOrderValue.TaskPackageKind = ECommandTaskPackageKind::Macro;
+    WorkerGoalOrderValue.TaskNeedKind = ECommandTaskNeedKind::Unit;
+    WorkerGoalOrderValue.TaskType = ECommandTaskType::WorkerProduction;
     WorkerGoalOrderValue.PlanStepId = WorkerGoalStepIdValue;
     WorkerGoalOrderValue.TargetCount = OpeningPlanDescriptorValue.Goals.TargetWorkerCount;
     WorkerGoalOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_COMMANDCENTER;
@@ -381,8 +388,14 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
 
         FCommandOrderRecord EconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
             ECommandAuthorityLayer::EconomyAndProduction, NullTag, StrategicOrderValue.AbilityId,
-            StrategicOrderValue.PriorityValue, StrategicOrderValue.IntentDomain,
+            StrategicOrderValue.BasePriorityValue, StrategicOrderValue.IntentDomain,
             GameStateDescriptorValue.CurrentGameLoop, 0U, StrategicOrderValue.OrderId);
+        EconomyOrderValue.SourceGoalId = StrategicOrderValue.SourceGoalId;
+        EconomyOrderValue.TaskPackageKind = StrategicOrderValue.TaskPackageKind;
+        EconomyOrderValue.TaskNeedKind = StrategicOrderValue.TaskNeedKind;
+        EconomyOrderValue.TaskType = StrategicOrderValue.TaskType;
+        EconomyOrderValue.EffectivePriorityValue = StrategicOrderValue.EffectivePriorityValue;
+        EconomyOrderValue.PriorityTier = StrategicOrderValue.PriorityTier;
         EconomyOrderValue.PlanStepId = StrategicOrderValue.PlanStepId;
         EconomyOrderValue.TargetCount = StrategicOrderValue.TargetCount;
         EconomyOrderValue.RequestedQueueCount = StrategicOrderValue.RequestedQueueCount;

@@ -74,6 +74,61 @@ ECommandTaskNeedKind DetermineTaskNeedKind(const ECommandTaskActionKind TaskActi
     }
 }
 
+ECommandTaskType DetermineTaskType(const AbilityID AbilityIdValue, const UNIT_TYPEID ResultUnitTypeIdValue)
+{
+    switch (AbilityIdValue.ToType())
+    {
+        case ABILITY_ID::TRAIN_SCV:
+            return ECommandTaskType::WorkerProduction;
+        case ABILITY_ID::BUILD_SUPPLYDEPOT:
+            return ECommandTaskType::Supply;
+        case ABILITY_ID::BUILD_COMMANDCENTER:
+            return ECommandTaskType::Expansion;
+        case ABILITY_ID::BUILD_REFINERY:
+            return ECommandTaskType::Refinery;
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+            return ECommandTaskType::ProductionStructure;
+        case ABILITY_ID::BUILD_ENGINEERINGBAY:
+            return ECommandTaskType::TechStructure;
+        case ABILITY_ID::BUILD_BUNKER:
+            return ECommandTaskType::StaticDefense;
+        case ABILITY_ID::BUILD_REACTOR_BARRACKS:
+        case ABILITY_ID::BUILD_TECHLAB_BARRACKS:
+        case ABILITY_ID::BUILD_REACTOR_FACTORY:
+        case ABILITY_ID::BUILD_TECHLAB_FACTORY:
+        case ABILITY_ID::BUILD_REACTOR_STARPORT:
+        case ABILITY_ID::BUILD_TECHLAB_STARPORT:
+            return ECommandTaskType::AddOn;
+        case ABILITY_ID::TRAIN_MARINE:
+        case ABILITY_ID::TRAIN_MARAUDER:
+        case ABILITY_ID::TRAIN_HELLION:
+        case ABILITY_ID::TRAIN_CYCLONE:
+        case ABILITY_ID::TRAIN_SIEGETANK:
+        case ABILITY_ID::TRAIN_WIDOWMINE:
+        case ABILITY_ID::TRAIN_MEDIVAC:
+        case ABILITY_ID::TRAIN_LIBERATOR:
+        case ABILITY_ID::TRAIN_VIKINGFIGHTER:
+            return ECommandTaskType::UnitProduction;
+        case ABILITY_ID::RESEARCH_STIMPACK:
+        case ABILITY_ID::RESEARCH_COMBATSHIELD:
+        case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
+            return ECommandTaskType::UpgradeResearch;
+        default:
+            break;
+    }
+
+    switch (ResultUnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_BUNKER:
+            return ECommandTaskType::StaticDefense;
+        default:
+            return ECommandTaskType::Unknown;
+    }
+}
+
 std::string BuildReferenceClockTime(const uint64_t MinGameLoopValue)
 {
     const uint64_t TotalSecondsValue = ((MinGameLoopValue * 5U) + 56U) / 112U;
@@ -102,7 +157,8 @@ FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_
     TaskDescriptorValue.ActionKind = DetermineTaskActionKind(AbilityIdValue);
     TaskDescriptorValue.NeedKind = DetermineTaskNeedKind(TaskDescriptorValue.ActionKind);
     TaskDescriptorValue.CompletionKind = ECommandTaskCompletionKind::CountAtLeast;
-    TaskDescriptorValue.PriorityValue = PriorityValue;
+    TaskDescriptorValue.TaskType = DetermineTaskType(AbilityIdValue, ResultUnitTypeIdValue);
+    TaskDescriptorValue.BasePriorityValue = PriorityValue;
     TaskDescriptorValue.TriggerMinGameLoop = MinGameLoopValue;
     TaskDescriptorValue.TriggerReferenceClockTime = BuildReferenceClockTime(MinGameLoopValue);
     TaskDescriptorValue.TriggerRequiredCompletedTaskIds.assign(RequiredCompletedStepIdsValue.begin(),

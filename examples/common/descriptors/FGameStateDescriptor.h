@@ -7,6 +7,7 @@
 #include "common/build_planning/FBuildPlanningState.h"
 #include "common/descriptors/FObservedRampWallState.h"
 #include "common/descriptors/FMacroStateDescriptor.h"
+#include "common/goals/FAgentGoalSetDescriptor.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
 #include "common/services/FMainBaseLayoutDescriptor.h"
 #include "common/services/FRampWallDescriptor.h"
@@ -19,6 +20,7 @@ struct FGameStateDescriptor
 {
     uint64_t CurrentStep;
     uint64_t CurrentGameLoop;
+    FAgentGoalSetDescriptor GoalSet;
     FMacroStateDescriptor MacroState;
     FArmyDomainState ArmyState;
     FBuildPlanningState BuildPlanning;

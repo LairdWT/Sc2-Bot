@@ -471,21 +471,19 @@ int GetEffectiveEconomyOrderPriority(const FCommandOrderRecord& EconomyOrderValu
                                      const FBuildPlanningState& BuildPlanningStateValue,
                                      const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue)
 {
-    int EffectivePriorityValue = EconomyOrderValue.PriorityValue;
-    if (BuildPlanningStateValue.AvailableSupply <= 1U)
-    {
-        if (IsSupplyDepotResultUnitType(EconomyOrderValue.ResultUnitTypeId))
-        {
-            EffectivePriorityValue += 1000;
-        }
-        else if (EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SCV &&
-                 HasOutstandingSupplyDepotDemand(CommandAuthoritySchedulingStateValue, BuildPlanningStateValue))
-        {
-            EffectivePriorityValue -= 1000;
-        }
-    }
+    (void)BuildPlanningStateValue;
+    (void)CommandAuthoritySchedulingStateValue;
+    return EconomyOrderValue.EffectivePriorityValue;
+}
 
-    return EffectivePriorityValue;
+void CopyTaskMetadataToChildOrder(const FCommandOrderRecord& SourceOrderValue, FCommandOrderRecord& ChildOrderValue)
+{
+    ChildOrderValue.SourceGoalId = SourceOrderValue.SourceGoalId;
+    ChildOrderValue.TaskPackageKind = SourceOrderValue.TaskPackageKind;
+    ChildOrderValue.TaskNeedKind = SourceOrderValue.TaskNeedKind;
+    ChildOrderValue.TaskType = SourceOrderValue.TaskType;
+    ChildOrderValue.EffectivePriorityValue = SourceOrderValue.EffectivePriorityValue;
+    ChildOrderValue.PriorityTier = SourceOrderValue.PriorityTier;
 }
 
 FBuildPlacementContext CreateBuildPlacementContext(const Point2D& BaseLocationValue,
@@ -1403,10 +1401,11 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 UnitExecutionOrderValue = FCommandOrderRecord::CreatePointTarget(
                     ECommandAuthorityLayer::UnitExecution, WorkerUnitValue->tag, EconomyOrderValue.AbilityId,
-                    SelectedBuildPlacementSlotValue.BuildPoint, EconomyOrderValue.PriorityValue,
+                    SelectedBuildPlacementSlotValue.BuildPoint, EconomyOrderValue.BasePriorityValue,
                     EIntentDomain::StructureBuild,
                     GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId, -1, -1, false, true,
                     false);
+                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
                 UnitExecutionOrderValue.PreferredPlacementSlotType = EconomyOrderValue.PreferredPlacementSlotType;
                 UnitExecutionOrderValue.PreferredPlacementSlotId = EconomyOrderValue.PreferredPlacementSlotId;
                 CommandAuthoritySchedulingStateValue.SetOrderReservedPlacementSlot(EconomyOrderValue.OrderId,
@@ -1504,8 +1503,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                         UnitExecutionOrderValue = FCommandOrderRecord::CreateUnitTarget(
                             ECommandAuthorityLayer::UnitExecution, WorkerUnitValue->tag, EconomyOrderValue.AbilityId,
-                            GeyserUnitValue->tag, EconomyOrderValue.PriorityValue, EIntentDomain::StructureBuild,
+                            GeyserUnitValue->tag, EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
                             GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                        CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
                         CreatedOrderValue = true;
                         break;
                     }
@@ -1567,9 +1567,10 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 UnitExecutionOrderValue = FCommandOrderRecord::CreatePointTarget(
                     ECommandAuthorityLayer::UnitExecution, WorkerUnitValue->tag, EconomyOrderValue.AbilityId,
-                    ExpansionLocationValue, EconomyOrderValue.PriorityValue, EIntentDomain::StructureBuild,
+                    ExpansionLocationValue, EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
                     GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId, -1, -1, false, true,
                     false);
+                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
                 CreatedOrderValue = true;
                 break;
             }
@@ -1615,8 +1616,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
                     ECommandAuthorityLayer::UnitExecution, TownHallUnitValue->tag, EconomyOrderValue.AbilityId,
-                    EconomyOrderValue.PriorityValue, EIntentDomain::StructureBuild,
+                    EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
                     GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
                 CreatedOrderValue = true;
                 break;
             }
@@ -1670,8 +1672,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
                     ECommandAuthorityLayer::UnitExecution, BarracksUnitValue->tag, EconomyOrderValue.AbilityId,
-                    EconomyOrderValue.PriorityValue, EIntentDomain::StructureBuild,
+                    EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
                     GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
                 CreatedOrderValue = true;
                 break;
             }
@@ -1724,8 +1727,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
                     ECommandAuthorityLayer::UnitExecution, FactoryUnitValue->tag, EconomyOrderValue.AbilityId,
-                    EconomyOrderValue.PriorityValue, EIntentDomain::StructureBuild,
+                    EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
                     GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
                 CreatedOrderValue = true;
                 break;
             }
@@ -1772,8 +1776,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
                     ECommandAuthorityLayer::UnitExecution, StarportUnitValue->tag, EconomyOrderValue.AbilityId,
-                    EconomyOrderValue.PriorityValue, EIntentDomain::StructureBuild,
+                    EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
                     GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
                 CreatedOrderValue = true;
                 break;
             }
@@ -1850,8 +1855,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                     UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
                         ECommandAuthorityLayer::UnitExecution, ProducerUnitValue->tag, EconomyOrderValue.AbilityId,
-                        EconomyOrderValue.PriorityValue, EIntentDomain::UnitProduction,
+                        EconomyOrderValue.BasePriorityValue, EIntentDomain::UnitProduction,
                         GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                    CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
                     UnitExecutionOrderValue.Queued = !ProducerUnitValue->orders.empty();
                     CreatedOrderValue = true;
                     break;

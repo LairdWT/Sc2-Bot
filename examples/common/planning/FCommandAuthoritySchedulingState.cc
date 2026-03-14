@@ -22,9 +22,15 @@ void FCommandAuthoritySchedulingState::Reset()
 
     OrderIds.clear();
     ParentOrderIds.clear();
+    SourceGoalIds.clear();
     SourceLayers.clear();
     LifecycleStates.clear();
-    PriorityValues.clear();
+    TaskPackageKinds.clear();
+    TaskNeedKinds.clear();
+    TaskTypes.clear();
+    BasePriorityValues.clear();
+    EffectivePriorityValues.clear();
+    PriorityTiers.clear();
     IntentDomains.clear();
     CreationSteps.clear();
     DeadlineSteps.clear();
@@ -65,15 +71,44 @@ void FCommandAuthoritySchedulingState::Reset()
     SquadOrderIndices.clear();
     ReadyIntentIndices.clear();
     CompletedOrderIndices.clear();
+    for (std::vector<size_t>& StrategicQueueValue : StrategicQueues)
+    {
+        StrategicQueueValue.clear();
+    }
+    for (std::vector<size_t>& PlanningQueueValue : PlanningQueues)
+    {
+        PlanningQueueValue.clear();
+    }
+    for (std::vector<size_t>& ArmyQueueValue : ArmyQueues)
+    {
+        ArmyQueueValue.clear();
+    }
+    for (std::vector<size_t>& SquadQueueValue : SquadQueues)
+    {
+        SquadQueueValue.clear();
+    }
+    for (std::array<std::vector<size_t>, IntentDomainCountValue>& TierQueueGroupValue : ReadyIntentQueues)
+    {
+        for (std::vector<size_t>& ReadyQueueValue : TierQueueGroupValue)
+        {
+            ReadyQueueValue.clear();
+        }
+    }
 }
 
 void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
 {
     OrderIds.reserve(OrderCapacityValue);
     ParentOrderIds.reserve(OrderCapacityValue);
+    SourceGoalIds.reserve(OrderCapacityValue);
     SourceLayers.reserve(OrderCapacityValue);
     LifecycleStates.reserve(OrderCapacityValue);
-    PriorityValues.reserve(OrderCapacityValue);
+    TaskPackageKinds.reserve(OrderCapacityValue);
+    TaskNeedKinds.reserve(OrderCapacityValue);
+    TaskTypes.reserve(OrderCapacityValue);
+    BasePriorityValues.reserve(OrderCapacityValue);
+    EffectivePriorityValues.reserve(OrderCapacityValue);
+    PriorityTiers.reserve(OrderCapacityValue);
     IntentDomains.reserve(OrderCapacityValue);
     CreationSteps.reserve(OrderCapacityValue);
     DeadlineSteps.reserve(OrderCapacityValue);
@@ -124,9 +159,15 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     const size_t OrderIndexValue = OrderIds.size();
     OrderIds.push_back(StoredOrderValue.OrderId);
     ParentOrderIds.push_back(StoredOrderValue.ParentOrderId);
+    SourceGoalIds.push_back(StoredOrderValue.SourceGoalId);
     SourceLayers.push_back(StoredOrderValue.SourceLayer);
     LifecycleStates.push_back(StoredOrderValue.LifecycleState);
-    PriorityValues.push_back(StoredOrderValue.PriorityValue);
+    TaskPackageKinds.push_back(StoredOrderValue.TaskPackageKind);
+    TaskNeedKinds.push_back(StoredOrderValue.TaskNeedKind);
+    TaskTypes.push_back(StoredOrderValue.TaskType);
+    BasePriorityValues.push_back(StoredOrderValue.BasePriorityValue);
+    EffectivePriorityValues.push_back(StoredOrderValue.EffectivePriorityValue);
+    PriorityTiers.push_back(StoredOrderValue.PriorityTier);
     IntentDomains.push_back(StoredOrderValue.IntentDomain);
     CreationSteps.push_back(StoredOrderValue.CreationStep);
     DeadlineSteps.push_back(StoredOrderValue.DeadlineStep);
@@ -233,9 +274,15 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
 
     CommandOrderRecordValue.OrderId = OrderIds[OrderIndexValue];
     CommandOrderRecordValue.ParentOrderId = ParentOrderIds[OrderIndexValue];
+    CommandOrderRecordValue.SourceGoalId = SourceGoalIds[OrderIndexValue];
     CommandOrderRecordValue.SourceLayer = SourceLayers[OrderIndexValue];
     CommandOrderRecordValue.LifecycleState = LifecycleStates[OrderIndexValue];
-    CommandOrderRecordValue.PriorityValue = PriorityValues[OrderIndexValue];
+    CommandOrderRecordValue.TaskPackageKind = TaskPackageKinds[OrderIndexValue];
+    CommandOrderRecordValue.TaskNeedKind = TaskNeedKinds[OrderIndexValue];
+    CommandOrderRecordValue.TaskType = TaskTypes[OrderIndexValue];
+    CommandOrderRecordValue.BasePriorityValue = BasePriorityValues[OrderIndexValue];
+    CommandOrderRecordValue.EffectivePriorityValue = EffectivePriorityValues[OrderIndexValue];
+    CommandOrderRecordValue.PriorityTier = PriorityTiers[OrderIndexValue];
     CommandOrderRecordValue.IntentDomain = IntentDomains[OrderIndexValue];
     CommandOrderRecordValue.CreationStep = CreationSteps[OrderIndexValue];
     CommandOrderRecordValue.DeadlineStep = DeadlineSteps[OrderIndexValue];
@@ -380,6 +427,29 @@ void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
     SquadOrderIndices.clear();
     ReadyIntentIndices.clear();
     CompletedOrderIndices.clear();
+    for (std::vector<size_t>& StrategicQueueValue : StrategicQueues)
+    {
+        StrategicQueueValue.clear();
+    }
+    for (std::vector<size_t>& PlanningQueueValue : PlanningQueues)
+    {
+        PlanningQueueValue.clear();
+    }
+    for (std::vector<size_t>& ArmyQueueValue : ArmyQueues)
+    {
+        ArmyQueueValue.clear();
+    }
+    for (std::vector<size_t>& SquadQueueValue : SquadQueues)
+    {
+        SquadQueueValue.clear();
+    }
+    for (std::array<std::vector<size_t>, IntentDomainCountValue>& TierQueueGroupValue : ReadyIntentQueues)
+    {
+        for (std::vector<size_t>& ReadyQueueValue : TierQueueGroupValue)
+        {
+            ReadyQueueValue.clear();
+        }
+    }
 
     for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
     {
@@ -390,9 +460,12 @@ void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
                 break;
             case EOrderLifecycleState::Preprocessing:
                 PlanningProcessIndices.push_back(OrderIndexValue);
+                PlanningQueues[GetCommandPriorityTierIndex(PriorityTiers[OrderIndexValue])].push_back(OrderIndexValue);
                 break;
             case EOrderLifecycleState::Ready:
-                ReadyIntentIndices.push_back(OrderIndexValue);
+                ReadyIntentQueues[GetCommandPriorityTierIndex(PriorityTiers[OrderIndexValue])]
+                                 [GetIntentDomainIndex(IntentDomains[OrderIndexValue])]
+                                     .push_back(OrderIndexValue);
                 break;
             case EOrderLifecycleState::Completed:
             case EOrderLifecycleState::Aborted:
@@ -406,6 +479,7 @@ void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
         }
     }
 
+    SortDerivedQueues();
     RebuildProcessorState();
     RebuildPlaybackState();
 }
@@ -454,26 +528,92 @@ void FCommandAuthoritySchedulingState::RebuildPlaybackState()
 
 void FCommandAuthoritySchedulingState::AppendQueuedOrderIndex(const size_t OrderIndexValue)
 {
+    const size_t PriorityTierIndexValue = GetCommandPriorityTierIndex(PriorityTiers[OrderIndexValue]);
     switch (SourceLayers[OrderIndexValue])
     {
         case ECommandAuthorityLayer::Agent:
         case ECommandAuthorityLayer::StrategicDirector:
-            StrategicOrderIndices.push_back(OrderIndexValue);
+            StrategicQueues[PriorityTierIndexValue].push_back(OrderIndexValue);
             break;
         case ECommandAuthorityLayer::EconomyAndProduction:
-            PlanningProcessIndices.push_back(OrderIndexValue);
+            PlanningQueues[PriorityTierIndexValue].push_back(OrderIndexValue);
             break;
         case ECommandAuthorityLayer::Army:
-            ArmyOrderIndices.push_back(OrderIndexValue);
+            ArmyQueues[PriorityTierIndexValue].push_back(OrderIndexValue);
             break;
         case ECommandAuthorityLayer::Squad:
-            SquadOrderIndices.push_back(OrderIndexValue);
+            SquadQueues[PriorityTierIndexValue].push_back(OrderIndexValue);
             break;
         case ECommandAuthorityLayer::UnitExecution:
-            PlanningProcessIndices.push_back(OrderIndexValue);
+            PlanningQueues[PriorityTierIndexValue].push_back(OrderIndexValue);
             break;
         default:
             break;
+    }
+}
+
+void FCommandAuthoritySchedulingState::SortDerivedQueues()
+{
+    const auto OrderPriorityComparatorValue =
+        [this](const size_t LeftOrderIndexValue, const size_t RightOrderIndexValue)
+        {
+            if (EffectivePriorityValues[LeftOrderIndexValue] != EffectivePriorityValues[RightOrderIndexValue])
+            {
+                return EffectivePriorityValues[LeftOrderIndexValue] > EffectivePriorityValues[RightOrderIndexValue];
+            }
+            if (GetIntentDomainOrder(IntentDomains[LeftOrderIndexValue]) !=
+                GetIntentDomainOrder(IntentDomains[RightOrderIndexValue]))
+            {
+                return GetIntentDomainOrder(IntentDomains[LeftOrderIndexValue]) <
+                       GetIntentDomainOrder(IntentDomains[RightOrderIndexValue]);
+            }
+            if (CreationSteps[LeftOrderIndexValue] != CreationSteps[RightOrderIndexValue])
+            {
+                return CreationSteps[LeftOrderIndexValue] < CreationSteps[RightOrderIndexValue];
+            }
+            return OrderIds[LeftOrderIndexValue] < OrderIds[RightOrderIndexValue];
+        };
+
+    StrategicOrderIndices.clear();
+    PlanningProcessIndices.clear();
+    ArmyOrderIndices.clear();
+    SquadOrderIndices.clear();
+    ReadyIntentIndices.clear();
+
+    for (size_t PriorityTierIndexValue = 0U; PriorityTierIndexValue < CommandPriorityTierCountValue;
+         ++PriorityTierIndexValue)
+    {
+        std::stable_sort(StrategicQueues[PriorityTierIndexValue].begin(), StrategicQueues[PriorityTierIndexValue].end(),
+                         OrderPriorityComparatorValue);
+        StrategicOrderIndices.insert(StrategicOrderIndices.end(), StrategicQueues[PriorityTierIndexValue].begin(),
+                                     StrategicQueues[PriorityTierIndexValue].end());
+
+        std::stable_sort(PlanningQueues[PriorityTierIndexValue].begin(), PlanningQueues[PriorityTierIndexValue].end(),
+                         OrderPriorityComparatorValue);
+        PlanningProcessIndices.insert(PlanningProcessIndices.end(), PlanningQueues[PriorityTierIndexValue].begin(),
+                                      PlanningQueues[PriorityTierIndexValue].end());
+
+        std::stable_sort(ArmyQueues[PriorityTierIndexValue].begin(), ArmyQueues[PriorityTierIndexValue].end(),
+                         OrderPriorityComparatorValue);
+        ArmyOrderIndices.insert(ArmyOrderIndices.end(), ArmyQueues[PriorityTierIndexValue].begin(),
+                                ArmyQueues[PriorityTierIndexValue].end());
+
+        std::stable_sort(SquadQueues[PriorityTierIndexValue].begin(), SquadQueues[PriorityTierIndexValue].end(),
+                         OrderPriorityComparatorValue);
+        SquadOrderIndices.insert(SquadOrderIndices.end(), SquadQueues[PriorityTierIndexValue].begin(),
+                                 SquadQueues[PriorityTierIndexValue].end());
+
+        for (size_t IntentDomainIndexValue = 0U; IntentDomainIndexValue < IntentDomainCountValue;
+             ++IntentDomainIndexValue)
+        {
+            std::stable_sort(ReadyIntentQueues[PriorityTierIndexValue][IntentDomainIndexValue].begin(),
+                             ReadyIntentQueues[PriorityTierIndexValue][IntentDomainIndexValue].end(),
+                             OrderPriorityComparatorValue);
+            ReadyIntentIndices.insert(
+                ReadyIntentIndices.end(),
+                ReadyIntentQueues[PriorityTierIndexValue][IntentDomainIndexValue].begin(),
+                ReadyIntentQueues[PriorityTierIndexValue][IntentDomainIndexValue].end());
+        }
     }
 }
 
