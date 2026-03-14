@@ -320,6 +320,114 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
     Check(!AbortedEconomyChildOrderValue.ReservedPlacementSlotId.IsValid(), SuccessValue,
           "Aborted child orders should release their reserved placement-slot claims.");
 
+    {
+        FCommandAuthoritySchedulingState BucketedSchedulingStateValue;
+
+        FCommandOrderRecord CriticalStrategicOrderValue = FCommandOrderRecord::CreateNoTarget(
+            ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::INVALID, 500,
+            EIntentDomain::Recovery, 30U);
+        CriticalStrategicOrderValue.PriorityTier = ECommandPriorityTier::Critical;
+        CriticalStrategicOrderValue.EffectivePriorityValue = 2500;
+        const uint32_t CriticalStrategicOrderIdValue =
+            IntentSchedulingServiceValue.SubmitOrder(BucketedSchedulingStateValue, CriticalStrategicOrderValue);
+
+        FCommandOrderRecord LowStrategicOrderValue = FCommandOrderRecord::CreateNoTarget(
+            ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::INVALID, 100,
+            EIntentDomain::Recovery, 31U);
+        LowStrategicOrderValue.PriorityTier = ECommandPriorityTier::Low;
+        LowStrategicOrderValue.EffectivePriorityValue = 100;
+        const uint32_t LowStrategicOrderIdValue =
+            IntentSchedulingServiceValue.SubmitOrder(BucketedSchedulingStateValue, LowStrategicOrderValue);
+
+        FCommandOrderRecord HighArmyOrderValue = FCommandOrderRecord::CreateNoTarget(
+            ECommandAuthorityLayer::Army, NullTag, ABILITY_ID::INVALID, 300, EIntentDomain::ArmyCombat, 32U);
+        HighArmyOrderValue.PriorityTier = ECommandPriorityTier::High;
+        HighArmyOrderValue.EffectivePriorityValue = 1800;
+        const uint32_t HighArmyOrderIdValue =
+            IntentSchedulingServiceValue.SubmitOrder(BucketedSchedulingStateValue, HighArmyOrderValue);
+
+        FCommandOrderRecord ReadyCriticalArmyIntentOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::UnitExecution, 801U, ABILITY_ID::ATTACK_ATTACK, Point2D(60.0f, 20.0f), 200,
+            EIntentDomain::ArmyCombat, 33U, 0U, HighArmyOrderIdValue, 0, 0, true, false, false);
+        ReadyCriticalArmyIntentOrderValue.PriorityTier = ECommandPriorityTier::Critical;
+        ReadyCriticalArmyIntentOrderValue.EffectivePriorityValue = 2400;
+        const uint32_t ReadyCriticalArmyIntentOrderIdValue =
+            IntentSchedulingServiceValue.SubmitOrder(BucketedSchedulingStateValue, ReadyCriticalArmyIntentOrderValue);
+
+        FCommandOrderRecord ReadyLowStructureIntentOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::UnitExecution, 802U, ABILITY_ID::SMART, Point2D(18.0f, 18.0f), 50,
+            EIntentDomain::StructureBuild, 34U, 0U, LowStrategicOrderIdValue, -1, -1, false, false, false);
+        ReadyLowStructureIntentOrderValue.PriorityTier = ECommandPriorityTier::Low;
+        ReadyLowStructureIntentOrderValue.EffectivePriorityValue = 120;
+        const uint32_t ReadyLowStructureIntentOrderIdValue =
+            IntentSchedulingServiceValue.SubmitOrder(BucketedSchedulingStateValue, ReadyLowStructureIntentOrderValue);
+
+        size_t CriticalStrategicOrderIndexValue = 0U;
+        size_t LowStrategicOrderIndexValue = 0U;
+        size_t HighArmyOrderIndexValue = 0U;
+        size_t ReadyCriticalArmyIntentOrderIndexValue = 0U;
+        size_t ReadyLowStructureIntentOrderIndexValue = 0U;
+        Check(BucketedSchedulingStateValue.TryGetOrderIndex(CriticalStrategicOrderIdValue,
+                                                            CriticalStrategicOrderIndexValue),
+              SuccessValue, "Bucketed scheduling test should index the critical strategic order.");
+        Check(BucketedSchedulingStateValue.TryGetOrderIndex(LowStrategicOrderIdValue, LowStrategicOrderIndexValue),
+              SuccessValue, "Bucketed scheduling test should index the low strategic order.");
+        Check(BucketedSchedulingStateValue.TryGetOrderIndex(HighArmyOrderIdValue, HighArmyOrderIndexValue),
+              SuccessValue, "Bucketed scheduling test should index the high army order.");
+        Check(BucketedSchedulingStateValue.TryGetOrderIndex(ReadyCriticalArmyIntentOrderIdValue,
+                                                            ReadyCriticalArmyIntentOrderIndexValue),
+              SuccessValue, "Bucketed scheduling test should index the critical ready-intent order.");
+        Check(BucketedSchedulingStateValue.TryGetOrderIndex(ReadyLowStructureIntentOrderIdValue,
+                                                            ReadyLowStructureIntentOrderIndexValue),
+              SuccessValue, "Bucketed scheduling test should index the low ready-intent order.");
+
+        IntentSchedulingServiceValue.UpdateOrderLifecycleState(
+            BucketedSchedulingStateValue, ReadyCriticalArmyIntentOrderIdValue, EOrderLifecycleState::Ready);
+        IntentSchedulingServiceValue.UpdateOrderLifecycleState(
+            BucketedSchedulingStateValue, ReadyLowStructureIntentOrderIdValue, EOrderLifecycleState::Ready);
+
+        Check(BucketedSchedulingStateValue.StrategicQueues[GetCommandPriorityTierIndex(
+                  ECommandPriorityTier::Critical)].size() == 1U,
+              SuccessValue, "Critical strategic orders should route into the critical strategic queue.");
+        Check(BucketedSchedulingStateValue.StrategicQueues[GetCommandPriorityTierIndex(ECommandPriorityTier::Low)].size() ==
+                  1U,
+              SuccessValue, "Low strategic orders should route into the low strategic queue.");
+        Check(BucketedSchedulingStateValue.ArmyQueues[GetCommandPriorityTierIndex(ECommandPriorityTier::High)].size() ==
+                  1U,
+              SuccessValue, "High-priority army orders should route into the high army queue.");
+        Check(BucketedSchedulingStateValue.ReadyIntentQueues[GetCommandPriorityTierIndex(ECommandPriorityTier::Critical)]
+                                                           [GetIntentDomainIndex(EIntentDomain::ArmyCombat)]
+                                                               .size() == 1U,
+              SuccessValue, "Critical ready intents should route into the critical ArmyCombat ready-intent queue.");
+        Check(BucketedSchedulingStateValue.ReadyIntentQueues[GetCommandPriorityTierIndex(ECommandPriorityTier::Low)]
+                                                           [GetIntentDomainIndex(EIntentDomain::StructureBuild)]
+                                                               .size() == 1U,
+              SuccessValue, "Low ready intents should route into the low StructureBuild ready-intent queue.");
+        Check(BucketedSchedulingStateValue.StrategicOrderIndices.front() == CriticalStrategicOrderIndexValue,
+              SuccessValue, "Derived strategic order views should list critical-tier work before lower tiers.");
+        Check(BucketedSchedulingStateValue.StrategicOrderIndices.back() == LowStrategicOrderIndexValue, SuccessValue,
+              "Derived strategic order views should keep lower-tier work after higher tiers.");
+        Check(BucketedSchedulingStateValue.ArmyOrderIndices.front() == HighArmyOrderIndexValue, SuccessValue,
+              "Derived army order views should preserve the high-tier army order.");
+        Check(BucketedSchedulingStateValue.ReadyIntentIndices.front() == ReadyCriticalArmyIntentOrderIndexValue,
+              SuccessValue, "Ready-intent draining order should start from the highest-priority ready queue.");
+        Check(BucketedSchedulingStateValue.ReadyIntentIndices.back() == ReadyLowStructureIntentOrderIndexValue,
+              SuccessValue, "Ready-intent draining order should leave lower-tier ready work until later.");
+
+        FIntentBuffer BucketedIntentBufferValue;
+        BucketedSchedulingStateValue.MaxUnitIntentsPerStep = 8U;
+        const uint32_t BucketedDrainCountValue =
+            IntentSchedulingServiceValue.DrainReadyIntents(BucketedSchedulingStateValue, BucketedIntentBufferValue, 35U);
+        Check(BucketedDrainCountValue == 2U, SuccessValue,
+              "Bucketed ready-intent draining should dispatch all available work when budget allows.");
+        Check(BucketedIntentBufferValue.Intents.size() == 2U, SuccessValue,
+              "Bucketed ready-intent draining should append both ready intents.");
+        Check(BucketedIntentBufferValue.Intents.front().ActorTag == 801U, SuccessValue,
+              "Critical ready intents should drain before lower-priority ready intents.");
+        Check(BucketedIntentBufferValue.Intents.back().ActorTag == 802U, SuccessValue,
+              "Lower-priority ready intents should drain after higher-priority ready intents.");
+    }
+
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.CommandAuthoritySchedulingState = CommandAuthoritySchedulingStateValue;
     GameStateDescriptorValue.Reset();

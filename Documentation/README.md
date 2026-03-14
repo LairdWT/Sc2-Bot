@@ -1,11 +1,14 @@
 # Documentation
 
-This folder contains bot-owned architecture and planning references for the Terran bot work in this repository.
+This folder contains bot-owned architecture and planning references for the Terran bot work in this repository, plus source-backed API integration notes, ecosystem leverage notes, and automation artifacts that keep those documents current.
 
 ## Scope
 
 - These documents apply to code we own under `examples/common` and `examples/terran`.
 - The shipped StarCraft II API and upstream third-party code under `src` and `thirdparty` are not refactor targets for this plan.
+- `Documentation/Sc2Api` documents how our owned Terran code uses the checked-in API.
+- `Documentation/Ecosystem` records external leverage notes that may inform our design goals, but those notes do not override local source behavior.
+- `Documentation/Automation` stores ledgers and generated reports for the documentation-deepening automations.
 - The root [CodingStandards.md](../CodingStandards.md) remains the governing standard for all future implementation work.
 
 ## Guiding Principles
@@ -19,6 +22,7 @@ This folder contains bot-owned architecture and planning references for the Terr
 
 ## Reference Index
 
+### Owned Terran Architecture
 - [TerranBot/ArchitectureOverview.md](TerranBot/ArchitectureOverview.md)
 - [TerranBot/GameStateDescriptors.md](TerranBot/GameStateDescriptors.md)
 - [TerranBot/ArmyAndSquadDomain.md](TerranBot/ArmyAndSquadDomain.md)
@@ -28,6 +32,20 @@ This folder contains bot-owned architecture and planning references for the Terr
 - [TerranBot/TelemetryAndGameRecordStore.md](TerranBot/TelemetryAndGameRecordStore.md)
 - [TerranBot/ExecutionRoadmap.md](TerranBot/ExecutionRoadmap.md)
 - [TerranBot/ImplementationBacklog.md](TerranBot/ImplementationBacklog.md)
+- [TerranBot/TerranAgentCoordinatorPath.md](TerranBot/TerranAgentCoordinatorPath.md)
+
+### Source-Backed API Integration
+- [Sc2Api/README.md](Sc2Api/README.md)
+- [Sc2Api/TerranAgentApiIntegration.md](Sc2Api/TerranAgentApiIntegration.md)
+
+### External Leverage Notes
+- [Ecosystem/README.md](Ecosystem/README.md)
+
+### Automation Artifacts
+- [Automation/README.md](Automation/README.md)
+- [Automation/Sc2BotTerranDocumentationAutomationReport.md](Automation/Sc2BotTerranDocumentationAutomationReport.md)
+- [Automation/Sc2BotApiRefinementLedger.md](Automation/Sc2BotApiRefinementLedger.md)
+- [Automation/Sc2BotApiSkillAutomationReport.md](Automation/Sc2BotApiSkillAutomationReport.md)
 
 ## Current Intent
 

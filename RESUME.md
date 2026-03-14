@@ -64,18 +64,30 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
   - squad expansion
   - unit-execution planning
   - ready-intent draining
+- Production-structure rally refresh is now executed directly from `TerranAgent::OnStep()` on the live path instead of being hidden behind the removed legacy combat helper.
+- The dead `EnsureWorkerGoalOrder(...)` special case was removed from `FCommandAuthorityProcessor`; worker demand is now expected to flow through goals instead of an opener-specific extra order.
 - `FTerranArmyPlanner` now derives primary army posture from the current army mission descriptor instead of only the legacy game-plan switch.
+- The dormant marine-only fallback helpers were removed from `TerranAgent`:
+  - `ProduceArmyIntents(...)`
+  - `AssembleCombatUnitsAtRallyPoint()`
+  - `AllMarinesAttack()`
+  - `ShouldLaunchMarineAttack()`
+  - the old point-randomization helper tied only to that path
 - Live debug output now prints:
   - production focus
   - active goals by horizon
   - primary army mission descriptor
   - derived queue occupancy by priority tier
   - current army execution order count per step
+- `test_command_authority_scheduling` now explicitly validates:
+  - per-tier strategic and army queue routing
+  - per-tier and per-domain ready-intent queue routing
+  - ready-intent drain order honoring priority tiers before lower-priority work
 
 ### Current In-Progress Implementation State
 - `cmd /c Build.bat --target tutorial` passes with the concrete army pipeline wired in.
 - `cmd /c BuildAllTests.bat` passes after the goal-driven test updates and the new army-pipeline coverage.
-- The legacy direct `ProduceArmyIntents(...)` path is no longer called from `TerranAgent::OnStep()`. The live army-control path is now scheduler-owned.
+- The legacy direct combat path is no longer present in `TerranAgent`. The live army-control path is scheduler-owned.
 - Focused validation that currently passes for this slice:
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranArmyOrderPipeline' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranPlanners' --timeout 180`
@@ -84,29 +96,24 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 180`
 - Remaining work in this slice:
-  - remove or quarantine the now-dormant direct Terran combat helpers so the old marine-only path cannot accidentally re-enter live control
   - extend goal-driven runtime package seeding so the opener is only initial scheduler input and the follow-up macro packages remain on the same descriptor surface
   - live-validate that the new sweep and cleanup logic actually finishes games against hidden enemy expansions
 
 ### Commit Scope For This Checkpoint
-- Commit the current scheduler-goal refactor files plus `RESUME.md`.
-- Do not include the unrelated `Documentation/*` modifications or untracked documentation artifacts in this checkpoint commit.
+- Commit the current scheduler-goal refactor files, the current `Documentation/*` updates, and `RESUME.md`.
+- Continue to exclude `.codex/` and any other non-project local tooling artifacts from the checkpoint commit.
 
 ### Immediate Next Steps After This Commit
-1. Remove or quarantine the dormant direct Terran combat helpers and any remaining legacy combat-only target selection that is no longer authoritative.
-2. Continue the goal-driven scheduler work by expanding runtime-triggered strategic task packages on top of the same descriptor surface.
-3. Live-validate the scheduler-owned army path through the stock visible launch script once the legacy combat helpers are fully isolated.
-4. Keep unrelated documentation artifacts out of the next gameplay commit unless the user explicitly asks for them.
+1. Continue the goal-driven scheduler work by expanding runtime-triggered strategic task packages on top of the same descriptor surface.
+2. Live-validate the scheduler-owned army path through the stock visible launch script against a full match to confirm sweep and cleanup behavior.
+3. Keep only project documentation in the gameplay commit and continue excluding local tooling artifacts such as `.codex/`.
 
 ## Current Worktree State Before The Next Commit
 Modified:
-- `tests/CMakeLists.txt`
-- `tests/all_tests.cc`
-- `tests/test_terran_descriptor_pipeline.cc`
-- `tests/test_terran_opening_plan_scheduler.cc`
-- `tests/test_terran_planners.cc`
-- `examples/common/CMakeLists.txt`
-- `examples/common/planning/FTerranArmyPlanner.cc`
+- `Documentation/README.md`
+- `examples/common/planning/FCommandAuthorityProcessor.cc`
+- `examples/common/planning/FCommandAuthorityProcessor.h`
+- `tests/test_command_authority_scheduling.cc`
 - `examples/terran/terran.cc`
 - `examples/terran/terran.h`
 - `RESUME.md`
@@ -117,13 +124,6 @@ Untracked:
 - `Documentation/Ecosystem/`
 - `Documentation/Sc2Api/`
 - `Documentation/TerranBot/TerranAgentCoordinatorPath.md`
-- `tests/test_terran_army_order_pipeline.cc`
-- `tests/test_terran_army_order_pipeline.h`
-- `examples/common/planning/FTerranArmyOrderExpander.cc`
-- `examples/common/planning/FTerranArmyUnitExecutionPlanner.cc`
-- `examples/common/planning/FTerranArmyUnitExecutionPlanner.h`
-- `examples/common/planning/FTerranSquadOrderExpander.cc`
-- `examples/common/planning/FTerranSquadOrderExpander.h`
 
 ## What Has Already Been Implemented
 

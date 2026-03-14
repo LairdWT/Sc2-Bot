@@ -45,40 +45,6 @@ AbilityID GetProductionStructureRallyAbility(const UNIT_TYPEID UnitTypeIdValue)
     }
 }
 
-bool DoesArmyPostureUseAssemblyPoint(const EArmyPosture ArmyPostureValue)
-{
-    switch (ArmyPostureValue)
-    {
-        case EArmyPosture::Assemble:
-        case EArmyPosture::Hold:
-        case EArmyPosture::Regroup:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool IsAssemblyCombatUnitType(const UNIT_TYPEID UnitTypeIdValue)
-{
-    switch (UnitTypeIdValue)
-    {
-        case UNIT_TYPEID::TERRAN_MARINE:
-        case UNIT_TYPEID::TERRAN_MARAUDER:
-        case UNIT_TYPEID::TERRAN_HELLION:
-        case UNIT_TYPEID::TERRAN_HELLIONTANK:
-        case UNIT_TYPEID::TERRAN_CYCLONE:
-        case UNIT_TYPEID::TERRAN_SIEGETANK:
-        case UNIT_TYPEID::TERRAN_WIDOWMINE:
-        case UNIT_TYPEID::TERRAN_MEDIVAC:
-        case UNIT_TYPEID::TERRAN_LIBERATOR:
-        case UNIT_TYPEID::TERRAN_VIKINGFIGHTER:
-        case UNIT_TYPEID::TERRAN_VIKINGASSAULT:
-            return true;
-        default:
-            return false;
-    }
-}
-
 bool IsWallDepotUnitType(const UNIT_TYPEID UnitTypeIdValue)
 {
     switch (UnitTypeIdValue)
@@ -665,6 +631,7 @@ void TerranAgent::OnStep()
 
     IntentBuffer.Reset();
     ProduceSchedulerIntents(Frame);
+    ProduceProductionRallyIntents();
     ProduceWallGateIntents(Frame);
     ProduceWorkerHarvestIntents(Frame);
     ProduceRecoveryIntents(Frame);
@@ -1407,63 +1374,6 @@ void TerranAgent::ProduceProductionRallyIntents()
     }
 }
 
-void TerranAgent::ProduceArmyIntents(const FFrameContext& Frame)
-{
-    (void)Frame;
-
-    ProduceProductionRallyIntents();
-    if (ShouldLaunchMarineAttack())
-    {
-        AllMarinesAttack();
-        return;
-    }
-
-    AssembleCombatUnitsAtRallyPoint();
-}
-
-void TerranAgent::AssembleCombatUnitsAtRallyPoint()
-{
-    if (GameStateDescriptor.ArmyState.ArmyPostures.empty())
-    {
-        return;
-    }
-
-    const EArmyPosture PrimaryArmyPostureValue = GameStateDescriptor.ArmyState.ArmyPostures.front();
-    if (!DoesArmyPostureUseAssemblyPoint(PrimaryArmyPostureValue))
-    {
-        return;
-    }
-
-    constexpr float AssemblyRadiusSquaredValue = 36.0f;
-
-    for (const Unit* ControlledUnitValue : AgentState.UnitContainer.ControlledUnits)
-    {
-        if (ControlledUnitValue == nullptr || ControlledUnitValue->build_progress < 1.0f)
-        {
-            continue;
-        }
-
-        if (!IsAssemblyCombatUnitType(ControlledUnitValue->unit_type.ToType()) ||
-            IntentBuffer.HasIntentForActor(ControlledUnitValue->tag))
-        {
-            continue;
-        }
-
-        if (DistanceSquared2D(Point2D(ControlledUnitValue->pos), BarracksRally) <= AssemblyRadiusSquaredValue)
-        {
-            continue;
-        }
-
-        if (!ShouldRefreshArmyOrder(*ControlledUnitValue, ABILITY_ID::MOVE_MOVE, BarracksRally))
-        {
-            continue;
-        }
-
-        IntentBuffer.Add(FUnitIntent::CreatePointTarget(ControlledUnitValue->tag, ABILITY_ID::MOVE_MOVE,
-                                                        BarracksRally, 35, EIntentDomain::ArmyCombat, true));
-    }
-}
-
 void TerranAgent::ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents)
 {
     (void)Frame;
@@ -1564,38 +1474,6 @@ void TerranAgent::CaptureNewlyDispatchedSchedulerOrders(const FFrameContext& Fra
         CommandAuthoritySchedulingStateValue.SetOrderDispatchState(
             CommandOrderRecordValue.OrderId, CurrentStep, Frame.GameLoop, GetObservedCountForOrder(CommandOrderRecordValue),
             GetObservedInConstructionCountForOrder(CommandOrderRecordValue));
-    }
-}
-
-void TerranAgent::AllMarinesAttack()
-{
-    if (!ObservationPtr)
-    {
-        return;
-    }
-
-    const Units Marines = ObservationPtr->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_MARINE));
-    const bool HasEnemyContact = AgentState.SpatialMetrics.Map.HasEnemy || AgentState.SpatialMetrics.Minimap.HasEnemy;
-    const Point2D EnemyTarget = GetEnemyTargetLocation();
-
-    for (const Unit* Marine : Marines)
-    {
-        if (!Marine || Marine->build_progress < 1.0f)
-        {
-            continue;
-        }
-
-        const bool UseDirectAttack = HasEnemyContact || (CurrentStep % 3 != 1);
-        const Point2D Target = UseDirectAttack ? GetRandomPointNear(EnemyTarget, 15.0f, 15.0f)
-                                               : GetRandomPointNear(EnemyTarget, 20.0f, 5.0f);
-        const AbilityID Ability = UseDirectAttack ? ABILITY_ID::ATTACK_ATTACK : ABILITY_ID::MOVE_MOVE;
-        if (!ShouldRefreshArmyOrder(*Marine, Ability, Target))
-        {
-            continue;
-        }
-
-        IntentBuffer.Add(FUnitIntent::CreatePointTarget(Marine->tag, Ability, Target, 50,
-                                                        EIntentDomain::ArmyCombat, true));
     }
 }
 
@@ -1751,42 +1629,6 @@ bool TerranAgent::HasProducerConfirmedDispatchedOrder(const FCommandOrderRecord&
     return false;
 }
 
-bool TerranAgent::ShouldRefreshArmyOrder(const Unit& UnitValue, const ABILITY_ID AbilityValue,
-                                         const Point2D& TargetPointValue) const
-{
-    if (UnitValue.orders.empty())
-    {
-        return true;
-    }
-
-    const UnitOrder& CurrentOrderValue = UnitValue.orders.front();
-    if (CurrentOrderValue.ability_id != AbilityValue)
-    {
-        return true;
-    }
-
-    constexpr float OrderRefreshDistanceSquared = 64.0f;
-    return DistanceSquared2D(CurrentOrderValue.target_pos, TargetPointValue) > OrderRefreshDistanceSquared;
-}
-
-bool TerranAgent::ShouldLaunchMarineAttack() const
-{
-    if (GameStateDescriptor.ArmyState.ArmyPostures.empty())
-    {
-        return false;
-    }
-
-    const EArmyPosture PrimaryArmyPostureValue = GameStateDescriptor.ArmyState.ArmyPostures.front();
-    if (PrimaryArmyPostureValue != EArmyPosture::Advance && PrimaryArmyPostureValue != EArmyPosture::Engage)
-    {
-        return false;
-    }
-
-    const bool HasEnemyContact = AgentState.SpatialMetrics.Map.HasEnemy || AgentState.SpatialMetrics.Minimap.HasEnemy;
-    const uint64_t Cadence = HasEnemyContact ? 6 : 12;
-    return Cadence > 0 && (CurrentStep % Cadence) == 0;
-}
-
 const Unit* TerranAgent::FindNearestMineralPatch(const Point2D& Origin)
 {
     float NearestDistance = std::numeric_limits<float>::max();
@@ -1825,13 +1667,6 @@ Point2D TerranAgent::GetEnemyTargetLocation() const
     }
 
     return Point2D();
-}
-
-Point2D TerranAgent::GetRandomPointNear(const Point2D& Origin, float XRadius, float YRadius) const
-{
-    const float SignedXOffset = ((GetRandomScalar() * 2.0f) - 1.0f) * XRadius;
-    const float SignedYOffset = ((GetRandomScalar() * 2.0f) - 1.0f) * YRadius;
-    return Point2D(Origin.x + SignedXOffset, Origin.y + SignedYOffset);
 }
 
 }  // namespace sc2

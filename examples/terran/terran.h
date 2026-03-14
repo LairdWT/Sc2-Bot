@@ -69,27 +69,19 @@ public:
     void ProduceWallGateIntents(const FFrameContext& Frame);
     void ProduceWorkerHarvestIntents(const FFrameContext& Frame);
     void ProduceProductionRallyIntents();
-    void ProduceArmyIntents(const FFrameContext& Frame);
-    void AssembleCombatUnitsAtRallyPoint();
     void UpdateExecutionTelemetry(const FFrameContext& Frame);
     void ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents);
     void UpdateDispatchedSchedulerOrders(const FFrameContext& Frame);
     void CaptureNewlyDispatchedSchedulerOrders(const FFrameContext& Frame);
-
-    void AllMarinesAttack();
 
     uint32_t CountOrdersAndIntentsForAbility(ABILITY_ID AbilityIdValue) const;
     uint32_t GetObservedCountForOrder(const FCommandOrderRecord& CommandOrderRecordValue) const;
     uint32_t GetObservedInConstructionCountForOrder(const FCommandOrderRecord& CommandOrderRecordValue) const;
     bool HasProducerConfirmedDispatchedOrder(const FCommandOrderRecord& CommandOrderRecordValue,
                                              const Unit* ActorUnitValue) const;
-    bool ShouldLaunchMarineAttack() const;
-
-    bool ShouldRefreshArmyOrder(const Unit& UnitValue, ABILITY_ID AbilityValue, const Point2D& TargetPointValue) const;
 
     const Unit* FindNearestMineralPatch(const Point2D& Origin);
     Point2D GetEnemyTargetLocation() const;
-    Point2D GetRandomPointNear(const Point2D& Origin, float XRadius, float YRadius) const;
 
     Units NeutralUnits;
     Point2D BarracksRally;

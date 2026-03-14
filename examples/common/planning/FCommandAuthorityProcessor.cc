@@ -8,8 +8,6 @@ namespace sc2
 namespace
 {
 
-constexpr uint32_t WorkerGoalStepIdValue = 9000U;
-
 EIntentDomain DetermineIntentDomain(const FCommandOrderRecord& CommandOrderRecordValue)
 {
     if (CommandOrderRecordValue.TaskType == ECommandTaskType::ArmyMission)
@@ -768,42 +766,6 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(FGameStateDescrip
             CommandAuthoritySchedulingStateValue.EnqueueOrder(GoalOrderValue);
         }
     }
-}
-
-void FCommandAuthorityProcessor::EnsureWorkerGoalOrder(FGameStateDescriptor& GameStateDescriptorValue) const
-{
-    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
-        FOpeningPlanRegistry::GetOpeningPlanDescriptor(GameStateDescriptorValue.OpeningPlanExecutionState.ActivePlanId);
-    FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
-        GameStateDescriptorValue.CommandAuthoritySchedulingState;
-
-    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size(); ++OrderIndexValue)
-    {
-        if (CommandAuthoritySchedulingStateValue.PlanStepIds[OrderIndexValue] == WorkerGoalStepIdValue &&
-            CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue] != EOrderLifecycleState::Completed &&
-            CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue] != EOrderLifecycleState::Expired)
-        {
-            return;
-        }
-    }
-
-    if (OpeningPlanDescriptorValue.Goals.TargetWorkerCount == 0U)
-    {
-        return;
-    }
-
-    FCommandOrderRecord WorkerGoalOrderValue = FCommandOrderRecord::CreateNoTarget(
-        ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::TRAIN_SCV, 110, EIntentDomain::UnitProduction,
-        0U);
-    WorkerGoalOrderValue.TaskPackageKind = ECommandTaskPackageKind::Macro;
-    WorkerGoalOrderValue.TaskNeedKind = ECommandTaskNeedKind::Unit;
-    WorkerGoalOrderValue.TaskType = ECommandTaskType::WorkerProduction;
-    WorkerGoalOrderValue.PlanStepId = WorkerGoalStepIdValue;
-    WorkerGoalOrderValue.TargetCount = OpeningPlanDescriptorValue.Goals.TargetWorkerCount;
-    WorkerGoalOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_COMMANDCENTER;
-    WorkerGoalOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
-    WorkerGoalOrderValue.IntentDomain = EIntentDomain::UnitProduction;
-    CommandAuthoritySchedulingStateValue.EnqueueOrder(WorkerGoalOrderValue);
 }
 
 void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor& GameStateDescriptorValue) const
