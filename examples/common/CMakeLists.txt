@@ -1,7 +1,9 @@
 set(sc2_terran_bot_common_sources
     armies/EArmyGoal.cc
+    armies/EArmyMissionType.cc
     armies/EArmyPosture.cc
     armies/FArmyDomainState.cc
+    armies/FArmyMissionDescriptor.cc
     build_orders/EOpeningPlanId.cc
     build_orders/EOpeningPlanLifecycleState.cc
     build_orders/FOpeningPlanDescriptor.cc
@@ -12,16 +14,26 @@ set(sc2_terran_bot_common_sources
     build_planning/FBuildPlanningState.cc
     descriptors/EObservedWallSlotState.cc
     descriptors/EGamePlan.cc
+    descriptors/EProductionFocus.cc
     descriptors/FObservedRampWallState.cc
     descriptors/EMacroPhase.cc
     descriptors/FTerranGameStateDescriptorBuilder.cc
     descriptors/FGameStateDescriptor.cc
     descriptors/FMacroStateDescriptor.cc
+    goals/EGoalDomain.cc
+    goals/EGoalHorizon.cc
+    goals/EGoalStatus.cc
+    goals/EGoalType.cc
+    goals/FAgentGoalSetDescriptor.cc
+    goals/FGoalDescriptor.cc
     descriptors/IGameStateDescriptorBuilder.cc
     planning/ECommandAuthorityLayer.cc
+    planning/ECommandPriorityTier.cc
     planning/ECommandOrderDeferralReason.cc
+    planning/ECommandTaskType.cc
     planning/EIntentDomain.cc
     planning/EIntentPlaybackState.cc
+    planning/EUnitTacticalBehavior.cc
     planning/EOrderLifecycleState.cc
     planning/EPlanningProcessorState.cc
     planning/EWallGateState.cc
@@ -30,6 +42,8 @@ set(sc2_terran_bot_common_sources
     planning/FCommandAuthorityProcessor.cc
     planning/FDefaultStrategicDirector.cc
     planning/FCommandOrderRecord.cc
+    planning/FTacticalBehaviorScore.cc
+    planning/FTerranCommandTaskPriorityService.cc
     planning/FTerranRampWallController.cc
     planning/FTerranEconomyProductionOrderExpander.cc
     planning/FTerranArmyPlanner.cc
@@ -37,6 +51,7 @@ set(sc2_terran_bot_common_sources
     planning/IArmyPlanner.cc
     planning/IArmyOrderExpander.cc
     planning/IBuildPlanner.cc
+    planning/ICommandTaskPriorityService.cc
     planning/IEconomyProductionOrderExpander.cc
     planning/FIntentSchedulingService.cc
     planning/IIntentSchedulingService.cc

@@ -15,6 +15,7 @@ private:
     void InitializeOpeningPlan(FGameStateDescriptor& GameStateDescriptorValue) const;
     void UpdateCompletedOpeningSteps(FGameStateDescriptor& GameStateDescriptorValue) const;
     void SeedReadyStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue) const;
+    void SeedGoalDrivenStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue) const;
     void EnsureStrategicChildOrders(FGameStateDescriptor& GameStateDescriptorValue) const;
     void EnsureWorkerGoalOrder(FGameStateDescriptor& GameStateDescriptorValue) const;
     bool AreRequiredTasksCompleted(const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,

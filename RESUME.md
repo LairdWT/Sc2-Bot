@@ -3,6 +3,8 @@
 You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building placement effort.
 
 ## Immediate User Requests
+- Commit the current goal-driven scheduler and army-control refactor work to git before continuing.
+- Keep `RESUME.md` current with the new goal, priority-tier, and army-pipeline state.
 - Preserve the current placement and natural-expansion success in git before further changes.
 - Keep `RESUME.md` current.
 - Preserve the user-approved live launch path: only `cmd /c LaunchTerranEasyComputerMatch.bat`.
@@ -20,21 +22,78 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 - Comments must be objective and informative.
 - Do not revert unrelated user changes.
 
+## Latest Scheduler Refactor Checkpoint
+
+### Current Slice
+- The active slice is the user-approved "Goal-Driven Scheduler, Bucketed Queues, And Scheduler-Owned Army Control" refactor.
+- The current work is focused on making goals authoritative, priority tiers explicit, and army control flow through scheduler layers instead of direct `TerranAgent` combat helpers.
+
+### What Was Added In This Slice
+- `FDefaultStrategicDirector` now rebuilds `GoalSet` first and derives macro intent from those goals:
+  - immediate goals for defense, workers, and supply
+  - near-term goals for expansion, refinery count, production capacity, tech unlocks, and upgrades
+  - strategic goals for army production, pressure, cleanup, and scouting
+- `FTerranTimingAttackBuildPlanner` no longer drives live behavior from frame thresholds. It now projects desired counts from the active goal set.
+- `FCommandAuthorityProcessor` now seeds strategic orders from active goals instead of relying only on opener seeding:
+  - worker production
+  - supply
+  - expansions
+  - production structures
+  - tech unlocks
+  - upgrades
+  - army-production goals
+- Strategic `ArmyMission` tasks now produce `Army`-layer child orders instead of going through the economy child path.
+- The scheduler interfaces were widened so army, squad, and unit-execution expansion stages can consume frame state, agent state, rally data, and the authoritative scheduling store:
+  - `IArmyOrderExpander`
+  - `ISquadOrderExpander`
+  - `IUnitExecutionPlanner`
+- A new concrete Terran army expander header now exists:
+  - `examples/common/planning/FTerranArmyOrderExpander.h`
+- `examples/common/CMakeLists.txt` now includes the new goal, priority-tier, army-mission, and tactical-behavior translation units that had previously been present but not compiled.
+- `FTacticalBehaviorScore.h` now includes the missing SC2 type definitions required for `Tag` support.
+
+### Current In-Progress Implementation State
+- `cmd /c Build.bat --target tutorial` passed after the goal-seeding refactor and interface changes.
+- The concrete Terran army pipeline is not yet complete:
+  - `FTerranArmyOrderExpander.cc` still needs to be implemented
+  - `FTerranSquadOrderExpander` still needs to be created
+  - `FTerranArmyUnitExecutionPlanner` still needs to be created
+  - `TerranAgent` still needs to be rewired to use the scheduler-owned army path
+  - the direct combat helpers in `TerranAgent` are still the live path until that wiring is finished
+- Focused tests for the new goal-driven and army-layer behavior have not been added yet in this slice.
+
+### Commit Scope For This Checkpoint
+- Commit the current scheduler-goal refactor files plus `RESUME.md`.
+- Do not include the unrelated `Documentation/*` modifications or untracked documentation artifacts in this checkpoint commit.
+
+### Immediate Next Steps After This Commit
+1. Implement `FTerranArmyOrderExpander.cc`.
+2. Add `FTerranSquadOrderExpander` and `FTerranArmyUnitExecutionPlanner`.
+3. Wire the concrete army pipeline into `TerranAgent`.
+4. Retire the direct Terran combat path from the live execution flow.
+5. Add focused validation for goal seeding, tiered queues, and army mission propagation.
+
 ## Current Worktree State Before The Next Commit
 Modified:
 - `examples/common/CMakeLists.txt`
-- `examples/common/build_orders/FOpeningPlanRegistry.cc`
-- `examples/common/build_orders/FOpeningPlanStep.cc`
-- `examples/common/build_orders/FOpeningPlanStep.h`
 - `examples/common/planning/FCommandAuthorityProcessor.cc`
 - `examples/common/planning/FCommandAuthorityProcessor.h`
-- `tests/test_terran_opening_plan_scheduler.cc`
+- `examples/common/planning/FDefaultStrategicDirector.cc`
+- `examples/common/planning/FDefaultStrategicDirector.h`
+- `examples/common/planning/FTacticalBehaviorScore.h`
+- `examples/common/planning/FTerranTimingAttackBuildPlanner.cc`
+- `examples/common/planning/IArmyOrderExpander.h`
+- `examples/common/planning/ISquadOrderExpander.h`
+- `examples/common/planning/IUnitExecutionPlanner.h`
 - `RESUME.md`
 
 Untracked:
 - `.codex/` (do not commit)
-- `examples/common/planning/FCommandTaskDescriptor.cc`
-- `examples/common/planning/FCommandTaskDescriptor.h`
+- `Documentation/Automation/`
+- `Documentation/Ecosystem/`
+- `Documentation/Sc2Api/`
+- `Documentation/TerranBot/TerranAgentCoordinatorPath.md`
+- `examples/common/planning/FTerranArmyOrderExpander.h`
 
 ## What Has Already Been Implemented
 
