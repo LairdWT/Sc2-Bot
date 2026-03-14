@@ -27,6 +27,7 @@
 #include "test_terran_descriptor_pipeline.h"
 #include "test_terran_build_placement_service.h"
 #include "test_terran_economic_models.h"
+#include "test_terran_army_order_pipeline.h"
 #include "test_terran_bot_scaffolding.h"
 #include "test_terran_opening_plan_scheduler.h"
 #include "test_terran_economy_production_order_expander.h"
@@ -108,6 +109,7 @@ int main(int argc, char* argv[])
     TEST(sc2::TestObservationInterface);
     TEST(sc2::TestSingularityFramework);
     TEST(sc2::TestTerranEconomicModels);
+    TEST(sc2::TestTerranArmyOrderPipeline);
     TEST(sc2::TestAgentExecutionTelemetry);
     TEST(sc2::TestCommandAuthorityScheduling);
     TEST(sc2::TestTerranBuildPlacementService);

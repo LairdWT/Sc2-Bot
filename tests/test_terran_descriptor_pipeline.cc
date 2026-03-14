@@ -9,6 +9,9 @@
 #include "common/descriptors/EMacroPhase.h"
 #include "common/descriptors/FTerranGameStateDescriptorBuilder.h"
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/goals/EGoalStatus.h"
+#include "common/goals/EGoalType.h"
+#include "common/goals/FGoalDescriptor.h"
 #include "common/planning/FDefaultStrategicDirector.h"
 
 namespace sc2
@@ -25,6 +28,20 @@ bool Check(const bool ConditionValue, bool& SuccessValue, const std::string& Mes
     }
 
     return ConditionValue;
+}
+
+bool HasGoalOfType(const std::vector<FGoalDescriptor>& GoalDescriptorsValue, const EGoalType GoalTypeValue,
+                   const EGoalStatus GoalStatusValue)
+{
+    for (const FGoalDescriptor& GoalDescriptorValue : GoalDescriptorsValue)
+    {
+        if (GoalDescriptorValue.GoalType == GoalTypeValue && GoalDescriptorValue.GoalStatus == GoalStatusValue)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void ConfigureOpeningState(FAgentState& AgentStateValue)
@@ -155,9 +172,12 @@ bool TestTerranDescriptorPipeline(int ArgC, char** ArgV)
               "Two-base bio should remain on the timing-attack plan.");
         Check(GameStateDescriptorValue.MacroState.DesiredBaseCount == 3U, SuccessValue,
               "The timing-attack plan should target a third base after the two-base setup.");
+        Check(HasGoalOfType(GameStateDescriptorValue.GoalSet.StrategicGoals, EGoalType::PressureEnemy,
+                            EGoalStatus::Active),
+              SuccessValue, "The strategic goal set should include an active PressureEnemy goal in timing states.");
         Check(!GameStateDescriptorValue.ArmyState.ArmyGoals.empty() &&
-                  GameStateDescriptorValue.ArmyState.ArmyGoals.front() == EArmyGoal::TimingAttack,
-              SuccessValue, "The primary army should switch to TimingAttack when the bio core is ready.");
+                  GameStateDescriptorValue.ArmyState.ArmyGoals.front() == EArmyGoal::HoldBase,
+              SuccessValue, "The primary army goal should still reflect the active immediate HoldOwnedBase goal.");
     }
 
     {
@@ -176,9 +196,12 @@ bool TestTerranDescriptorPipeline(int ArgC, char** ArgV)
               "Large macro states should request a second army anchor.");
         Check(GameStateDescriptorValue.ArmyState.ActiveArmyCount >= 2U, SuccessValue,
               "The army domain should expand to the requested minimum army count.");
+        Check(HasGoalOfType(GameStateDescriptorValue.GoalSet.StrategicGoals, EGoalType::ScoutExpansionLocations,
+                            EGoalStatus::Active),
+              SuccessValue, "Macro strategic goals should include active map sweep intent.");
         Check(!GameStateDescriptorValue.ArmyState.ArmyGoals.empty() &&
-                  GameStateDescriptorValue.ArmyState.ArmyGoals.front() == EArmyGoal::MapControl,
-              SuccessValue, "The primary macro army should take the map-control goal.");
+                  GameStateDescriptorValue.ArmyState.ArmyGoals.front() == EArmyGoal::HoldBase,
+              SuccessValue, "Immediate HoldOwnedBase should remain the primary derived army goal in macro states.");
         Check(GameStateDescriptorValue.ArmyState.ArmyGoals.size() > 1U &&
                   GameStateDescriptorValue.ArmyState.ArmyGoals[1] == EArmyGoal::HoldBase,
               SuccessValue, "The second army anchor should default to HoldBase.");

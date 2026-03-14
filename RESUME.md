@@ -47,44 +47,68 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
   - `IArmyOrderExpander`
   - `ISquadOrderExpander`
   - `IUnitExecutionPlanner`
-- A new concrete Terran army expander header now exists:
+- The concrete Terran army pipeline now exists as separate scheduler-owned components:
   - `examples/common/planning/FTerranArmyOrderExpander.h`
+  - `examples/common/planning/FTerranArmyOrderExpander.cc`
+  - `examples/common/planning/FTerranSquadOrderExpander.h`
+  - `examples/common/planning/FTerranSquadOrderExpander.cc`
+  - `examples/common/planning/FTerranArmyUnitExecutionPlanner.h`
+  - `examples/common/planning/FTerranArmyUnitExecutionPlanner.cc`
 - `examples/common/CMakeLists.txt` now includes the new goal, priority-tier, army-mission, and tactical-behavior translation units that had previously been present but not compiled.
 - `FTacticalBehaviorScore.h` now includes the missing SC2 type definitions required for `Tag` support.
+- `TerranAgent` now routes the live scheduler path through:
+  - command-authority processing
+  - task-priority refresh
+  - economy expansion
+  - army mission expansion
+  - squad expansion
+  - unit-execution planning
+  - ready-intent draining
+- `FTerranArmyPlanner` now derives primary army posture from the current army mission descriptor instead of only the legacy game-plan switch.
+- Live debug output now prints:
+  - production focus
+  - active goals by horizon
+  - primary army mission descriptor
+  - derived queue occupancy by priority tier
+  - current army execution order count per step
 
 ### Current In-Progress Implementation State
-- `cmd /c Build.bat --target tutorial` passed after the goal-seeding refactor and interface changes.
-- The concrete Terran army pipeline is not yet complete:
-  - `FTerranArmyOrderExpander.cc` still needs to be implemented
-  - `FTerranSquadOrderExpander` still needs to be created
-  - `FTerranArmyUnitExecutionPlanner` still needs to be created
-  - `TerranAgent` still needs to be rewired to use the scheduler-owned army path
-  - the direct combat helpers in `TerranAgent` are still the live path until that wiring is finished
-- Focused tests for the new goal-driven and army-layer behavior have not been added yet in this slice.
+- `cmd /c Build.bat --target tutorial` passes with the concrete army pipeline wired in.
+- `cmd /c BuildAllTests.bat` passes after the goal-driven test updates and the new army-pipeline coverage.
+- The legacy direct `ProduceArmyIntents(...)` path is no longer called from `TerranAgent::OnStep()`. The live army-control path is now scheduler-owned.
+- Focused validation that currently passes for this slice:
+  - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranArmyOrderPipeline' --timeout 180`
+  - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranPlanners' --timeout 180`
+  - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestCommandAuthorityScheduling' --timeout 180`
+  - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranDescriptorPipeline' --timeout 180`
+  - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 180`
+  - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 180`
+- Remaining work in this slice:
+  - remove or quarantine the now-dormant direct Terran combat helpers so the old marine-only path cannot accidentally re-enter live control
+  - extend goal-driven runtime package seeding so the opener is only initial scheduler input and the follow-up macro packages remain on the same descriptor surface
+  - live-validate that the new sweep and cleanup logic actually finishes games against hidden enemy expansions
 
 ### Commit Scope For This Checkpoint
 - Commit the current scheduler-goal refactor files plus `RESUME.md`.
 - Do not include the unrelated `Documentation/*` modifications or untracked documentation artifacts in this checkpoint commit.
 
 ### Immediate Next Steps After This Commit
-1. Implement `FTerranArmyOrderExpander.cc`.
-2. Add `FTerranSquadOrderExpander` and `FTerranArmyUnitExecutionPlanner`.
-3. Wire the concrete army pipeline into `TerranAgent`.
-4. Retire the direct Terran combat path from the live execution flow.
-5. Add focused validation for goal seeding, tiered queues, and army mission propagation.
+1. Remove or quarantine the dormant direct Terran combat helpers and any remaining legacy combat-only target selection that is no longer authoritative.
+2. Continue the goal-driven scheduler work by expanding runtime-triggered strategic task packages on top of the same descriptor surface.
+3. Live-validate the scheduler-owned army path through the stock visible launch script once the legacy combat helpers are fully isolated.
+4. Keep unrelated documentation artifacts out of the next gameplay commit unless the user explicitly asks for them.
 
 ## Current Worktree State Before The Next Commit
 Modified:
+- `tests/CMakeLists.txt`
+- `tests/all_tests.cc`
+- `tests/test_terran_descriptor_pipeline.cc`
+- `tests/test_terran_opening_plan_scheduler.cc`
+- `tests/test_terran_planners.cc`
 - `examples/common/CMakeLists.txt`
-- `examples/common/planning/FCommandAuthorityProcessor.cc`
-- `examples/common/planning/FCommandAuthorityProcessor.h`
-- `examples/common/planning/FDefaultStrategicDirector.cc`
-- `examples/common/planning/FDefaultStrategicDirector.h`
-- `examples/common/planning/FTacticalBehaviorScore.h`
-- `examples/common/planning/FTerranTimingAttackBuildPlanner.cc`
-- `examples/common/planning/IArmyOrderExpander.h`
-- `examples/common/planning/ISquadOrderExpander.h`
-- `examples/common/planning/IUnitExecutionPlanner.h`
+- `examples/common/planning/FTerranArmyPlanner.cc`
+- `examples/terran/terran.cc`
+- `examples/terran/terran.h`
 - `RESUME.md`
 
 Untracked:
@@ -93,7 +117,13 @@ Untracked:
 - `Documentation/Ecosystem/`
 - `Documentation/Sc2Api/`
 - `Documentation/TerranBot/TerranAgentCoordinatorPath.md`
-- `examples/common/planning/FTerranArmyOrderExpander.h`
+- `tests/test_terran_army_order_pipeline.cc`
+- `tests/test_terran_army_order_pipeline.h`
+- `examples/common/planning/FTerranArmyOrderExpander.cc`
+- `examples/common/planning/FTerranArmyUnitExecutionPlanner.cc`
+- `examples/common/planning/FTerranArmyUnitExecutionPlanner.h`
+- `examples/common/planning/FTerranSquadOrderExpander.cc`
+- `examples/common/planning/FTerranSquadOrderExpander.h`
 
 ## What Has Already Been Implemented
 

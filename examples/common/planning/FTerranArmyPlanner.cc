@@ -1,6 +1,7 @@
 #include "common/planning/FTerranArmyPlanner.h"
 
 #include "common/armies/EArmyGoal.h"
+#include "common/armies/EArmyMissionType.h"
 #include "common/armies/EArmyPosture.h"
 #include "common/armies/FArmyDomainState.h"
 #include "common/descriptors/EGamePlan.h"
@@ -32,8 +33,27 @@ void FTerranArmyPlanner::ProduceArmyPlan(const FGameStateDescriptor& GameStateDe
 EArmyPosture FTerranArmyPlanner::DeterminePrimaryArmyPosture(
     const FGameStateDescriptor& GameStateDescriptorValue, const FArmyDomainState& ArmyDomainStateValue) const
 {
-    const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
+    if (!ArmyDomainStateValue.ArmyMissions.empty())
+    {
+        switch (ArmyDomainStateValue.ArmyMissions.front().MissionType)
+        {
+            case EArmyMissionType::DefendOwnedBase:
+                return EArmyPosture::Hold;
+            case EArmyMissionType::AssembleAtRally:
+                return EArmyPosture::Assemble;
+            case EArmyMissionType::PressureKnownEnemyBase:
+            case EArmyMissionType::ClearKnownEnemyStructures:
+                return EArmyPosture::Engage;
+            case EArmyMissionType::SweepExpansionLocations:
+                return EArmyPosture::Advance;
+            case EArmyMissionType::Regroup:
+                return EArmyPosture::Regroup;
+            default:
+                break;
+        }
+    }
 
+    const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
     switch (MacroStateDescriptorValue.ActiveGamePlan)
     {
         case EGamePlan::Recovery:

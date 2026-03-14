@@ -43,10 +43,13 @@ set(sc2_terran_bot_common_sources
     planning/FDefaultStrategicDirector.cc
     planning/FCommandOrderRecord.cc
     planning/FTacticalBehaviorScore.cc
+    planning/FTerranArmyOrderExpander.cc
+    planning/FTerranArmyUnitExecutionPlanner.cc
     planning/FTerranCommandTaskPriorityService.cc
     planning/FTerranRampWallController.cc
     planning/FTerranEconomyProductionOrderExpander.cc
     planning/FTerranArmyPlanner.cc
+    planning/FTerranSquadOrderExpander.cc
     planning/FTerranTimingAttackBuildPlanner.cc
     planning/IArmyPlanner.cc
     planning/IArmyOrderExpander.cc

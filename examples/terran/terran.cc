@@ -114,6 +114,70 @@ void PrintMainLayoutSlotFamily(const char* LabelPtrValue,
     }
 }
 
+void PrintGoalList(const char* LabelPtrValue, const std::vector<FGoalDescriptor>& GoalDescriptorsValue)
+{
+    std::cout << LabelPtrValue << ": ";
+    if (GoalDescriptorsValue.empty())
+    {
+        std::cout << "None";
+        return;
+    }
+
+    for (size_t GoalIndexValue = 0U; GoalIndexValue < GoalDescriptorsValue.size(); ++GoalIndexValue)
+    {
+        if (GoalIndexValue > 0U)
+        {
+            std::cout << " | ";
+        }
+
+        const FGoalDescriptor& GoalDescriptorValue = GoalDescriptorsValue[GoalIndexValue];
+        std::cout << GoalDescriptorValue.GoalId << ":" << ToString(GoalDescriptorValue.GoalType)
+                  << "=" << GoalDescriptorValue.TargetCount;
+    }
+}
+
+void PrintPriorityTierQueueSummary(const char* LabelPtrValue,
+                                   const std::array<std::vector<size_t>, CommandPriorityTierCountValue>& QueueGroupValue)
+{
+    std::cout << LabelPtrValue << ": ";
+    for (size_t PriorityTierIndexValue = 0U; PriorityTierIndexValue < CommandPriorityTierCountValue;
+         ++PriorityTierIndexValue)
+    {
+        if (PriorityTierIndexValue > 0U)
+        {
+            std::cout << " | ";
+        }
+
+        const ECommandPriorityTier CommandPriorityTierValue = static_cast<ECommandPriorityTier>(PriorityTierIndexValue);
+        std::cout << ToString(CommandPriorityTierValue) << " " << QueueGroupValue[PriorityTierIndexValue].size();
+    }
+}
+
+void PrintReadyIntentQueueSummary(
+    const std::array<std::array<std::vector<size_t>, IntentDomainCountValue>, CommandPriorityTierCountValue>&
+        QueueGroupValue)
+{
+    std::cout << "ReadyIntents: ";
+    for (size_t PriorityTierIndexValue = 0U; PriorityTierIndexValue < CommandPriorityTierCountValue;
+         ++PriorityTierIndexValue)
+    {
+        if (PriorityTierIndexValue > 0U)
+        {
+            std::cout << " | ";
+        }
+
+        uint32_t TierIntentCountValue = 0U;
+        for (size_t IntentDomainIndexValue = 0U; IntentDomainIndexValue < IntentDomainCountValue; ++IntentDomainIndexValue)
+        {
+            TierIntentCountValue +=
+                static_cast<uint32_t>(QueueGroupValue[PriorityTierIndexValue][IntentDomainIndexValue].size());
+        }
+
+        const ECommandPriorityTier CommandPriorityTierValue = static_cast<ECommandPriorityTier>(PriorityTierIndexValue);
+        std::cout << ToString(CommandPriorityTierValue) << " " << TierIntentCountValue;
+    }
+}
+
 bool IsProductionRailStructureType(const UNIT_TYPEID UnitTypeIdValue)
 {
     switch (UnitTypeIdValue)
@@ -572,6 +636,7 @@ void TerranAgent::OnGameStart()
     ExecutionTelemetry.Reset();
     PendingProductionRallyStructureTags.clear();
     CurrentWallGateState = EWallGateState::Unavailable;
+    LastArmyExecutionOrderCount = 0U;
 
     const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
     UpdateAgentState(Frame);
@@ -599,11 +664,10 @@ void TerranAgent::OnStep()
     UpdateDispatchedSchedulerOrders(Frame);
 
     IntentBuffer.Reset();
-    ProduceSchedulerOpeningIntents(Frame);
+    ProduceSchedulerIntents(Frame);
     ProduceWallGateIntents(Frame);
     ProduceWorkerHarvestIntents(Frame);
     ProduceRecoveryIntents(Frame);
-    ProduceArmyIntents(Frame);
     UpdateExecutionTelemetry(Frame);
 
     ResolvedIntents = IntentArbiter.Resolve(Frame, AgentState.UnitContainer, IntentBuffer);
@@ -783,7 +847,8 @@ void TerranAgent::PrintAgentState()
               << " | Phase: " << ToString(GameStateDescriptor.MacroState.ActiveMacroPhase)
               << " | Bases: " << GameStateDescriptor.MacroState.ActiveBaseCount << "/"
               << GameStateDescriptor.MacroState.DesiredBaseCount
-              << " | Desired Armies: " << GameStateDescriptor.MacroState.DesiredArmyCount << "\n";
+              << " | Desired Armies: " << GameStateDescriptor.MacroState.DesiredArmyCount
+              << " | Focus: " << ToString(GameStateDescriptor.MacroState.PrimaryProductionFocus) << "\n";
     std::cout << "Build Targets: "
               << "Workers " << GameStateDescriptor.BuildPlanning.DesiredWorkerCount
               << " | Orbitals " << GameStateDescriptor.BuildPlanning.DesiredOrbitalCommandCount
@@ -794,6 +859,12 @@ void TerranAgent::PrintAgentState()
               << " | Starport " << GameStateDescriptor.BuildPlanning.DesiredStarportCount
               << " | Marines " << GameStateDescriptor.BuildPlanning.DesiredMarineCount
               << " | Needs " << GameStateDescriptor.BuildPlanning.ActiveNeedCount << "\n";
+    PrintGoalList("Immediate Goals", GameStateDescriptor.GoalSet.ImmediateGoals);
+    std::cout << std::endl;
+    PrintGoalList("Near Goals", GameStateDescriptor.GoalSet.NearTermGoals);
+    std::cout << std::endl;
+    PrintGoalList("Strategic Goals", GameStateDescriptor.GoalSet.StrategicGoals);
+    std::cout << std::endl;
     std::cout << "Army Goals: ";
     if (GameStateDescriptor.ArmyState.ArmyGoals.empty())
     {
@@ -831,6 +902,32 @@ void TerranAgent::PrintAgentState()
             std::cout << ToString(GameStateDescriptor.ArmyState.ArmyPostures[ArmyIndexValue]);
         }
     }
+    std::cout << std::endl;
+    std::cout << "Army Mission: ";
+    if (GameStateDescriptor.ArmyState.ArmyMissions.empty())
+    {
+        std::cout << "None";
+    }
+    else
+    {
+        const FArmyMissionDescriptor& ArmyMissionDescriptorValue = GameStateDescriptor.ArmyState.ArmyMissions.front();
+        std::cout << ToString(ArmyMissionDescriptorValue.MissionType)
+                  << " | Goal " << ArmyMissionDescriptorValue.SourceGoalId
+                  << " | Objective (" << ArmyMissionDescriptorValue.ObjectivePoint.x
+                  << ", " << ArmyMissionDescriptorValue.ObjectivePoint.y << ")"
+                  << " | Search " << ArmyMissionDescriptorValue.SearchExpansionOrdinal
+                  << " | OrdersThisStep " << LastArmyExecutionOrderCount;
+    }
+    std::cout << std::endl;
+    PrintPriorityTierQueueSummary("StrategicQueues", GameStateDescriptor.CommandAuthoritySchedulingState.StrategicQueues);
+    std::cout << std::endl;
+    PrintPriorityTierQueueSummary("PlanningQueues", GameStateDescriptor.CommandAuthoritySchedulingState.PlanningQueues);
+    std::cout << std::endl;
+    PrintPriorityTierQueueSummary("ArmyQueues", GameStateDescriptor.CommandAuthoritySchedulingState.ArmyQueues);
+    std::cout << std::endl;
+    PrintPriorityTierQueueSummary("SquadQueues", GameStateDescriptor.CommandAuthoritySchedulingState.SquadQueues);
+    std::cout << std::endl;
+    PrintReadyIntentQueueSummary(GameStateDescriptor.CommandAuthoritySchedulingState.ReadyIntentQueues);
     std::cout << std::endl;
     PrintWallState();
     const FMainBaseLayoutDescriptor& MainBaseLayoutDescriptorValue = GameStateDescriptor.MainBaseLayoutDescriptor;
@@ -1073,13 +1170,60 @@ void TerranAgent::ProduceRecoveryIntents(const FFrameContext& Frame)
     }
 }
 
-void TerranAgent::ProduceSchedulerOpeningIntents(const FFrameContext& Frame)
+void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
 {
     CommandAuthorityProcessor.ProcessSchedulerStep(GameStateDescriptor);
+    if (CommandTaskPriorityService != nullptr)
+    {
+        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+    }
+
     if (EconomyProductionOrderExpander != nullptr && BuildPlacementService != nullptr)
     {
         EconomyProductionOrderExpander->ExpandEconomyAndProductionOrders(
             Frame, AgentState, GameStateDescriptor, IntentBuffer, *BuildPlacementService, ExpansionLocations);
+    }
+    if (CommandTaskPriorityService != nullptr)
+    {
+        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+    }
+
+    if (ArmyOrderExpander != nullptr)
+    {
+        ArmyOrderExpander->ExpandArmyOrders(Frame, AgentState, GameStateDescriptor, ExpansionLocations, BarracksRally,
+                                            GameStateDescriptor.CommandAuthoritySchedulingState);
+    }
+    if (ArmyPlanner != nullptr)
+    {
+        ArmyPlanner->ProduceArmyPlan(GameStateDescriptor, GameStateDescriptor.ArmyState);
+    }
+    if (CommandTaskPriorityService != nullptr)
+    {
+        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+    }
+
+    if (SquadOrderExpander != nullptr)
+    {
+        SquadOrderExpander->ExpandSquadOrders(Frame, AgentState, GameStateDescriptor, BarracksRally,
+                                              GameStateDescriptor.CommandAuthoritySchedulingState);
+    }
+    if (CommandTaskPriorityService != nullptr)
+    {
+        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+    }
+
+    if (UnitExecutionPlanner != nullptr)
+    {
+        LastArmyExecutionOrderCount = UnitExecutionPlanner->ExpandUnitExecutionOrders(
+            Frame, AgentState, GameStateDescriptor, BarracksRally, GameStateDescriptor.CommandAuthoritySchedulingState);
+    }
+    else
+    {
+        LastArmyExecutionOrderCount = 0U;
+    }
+    if (CommandTaskPriorityService != nullptr)
+    {
+        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
     }
 
     IntentSchedulingService.DrainReadyIntents(GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,

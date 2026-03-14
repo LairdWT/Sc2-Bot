@@ -11,16 +11,24 @@
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/logging.h"
 #include "common/planning/FTerranArmyPlanner.h"
+#include "common/planning/FTerranArmyOrderExpander.h"
+#include "common/planning/FTerranArmyUnitExecutionPlanner.h"
 #include "common/planning/FTerranRampWallController.h"
+#include "common/planning/FTerranCommandTaskPriorityService.h"
 #include "common/planning/FTerranEconomyProductionOrderExpander.h"
+#include "common/planning/FTerranSquadOrderExpander.h"
 #include "common/planning/FTerranTimingAttackBuildPlanner.h"
 #include "common/planning/FCommandAuthorityProcessor.h"
 #include "common/planning/FDefaultStrategicDirector.h"
 #include "common/planning/IArmyPlanner.h"
+#include "common/planning/IArmyOrderExpander.h"
 #include "common/planning/IBuildPlanner.h"
+#include "common/planning/ICommandTaskPriorityService.h"
 #include "common/planning/IEconomyProductionOrderExpander.h"
 #include "common/planning/FIntentSchedulingService.h"
+#include "common/planning/ISquadOrderExpander.h"
 #include "common/planning/IStrategicDirector.h"
+#include "common/planning/IUnitExecutionPlanner.h"
 #include "common/render_settings.h"
 #include "common/services/FTerranBuildPlacementService.h"
 #include "common/services/IBuildPlacementService.h"
@@ -57,7 +65,7 @@ public:
     FBuildPlacementContext CreateBuildPlacementContext() const;
 
     void ProduceRecoveryIntents(const FFrameContext& Frame);
-    void ProduceSchedulerOpeningIntents(const FFrameContext& Frame);
+    void ProduceSchedulerIntents(const FFrameContext& Frame);
     void ProduceWallGateIntents(const FFrameContext& Frame);
     void ProduceWorkerHarvestIntents(const FFrameContext& Frame);
     void ProduceProductionRallyIntents();
@@ -121,7 +129,15 @@ private:
     const IBuildPlanner* BuildPlanner{&DefaultBuildPlanner};
     FTerranArmyPlanner DefaultArmyPlanner;
     const IArmyPlanner* ArmyPlanner{&DefaultArmyPlanner};
+    FTerranCommandTaskPriorityService DefaultCommandTaskPriorityService;
+    const ICommandTaskPriorityService* CommandTaskPriorityService{&DefaultCommandTaskPriorityService};
     FCommandAuthorityProcessor CommandAuthorityProcessor;
+    FTerranArmyOrderExpander DefaultArmyOrderExpander;
+    const IArmyOrderExpander* ArmyOrderExpander{&DefaultArmyOrderExpander};
+    FTerranSquadOrderExpander DefaultSquadOrderExpander;
+    const ISquadOrderExpander* SquadOrderExpander{&DefaultSquadOrderExpander};
+    FTerranArmyUnitExecutionPlanner DefaultUnitExecutionPlanner;
+    const IUnitExecutionPlanner* UnitExecutionPlanner{&DefaultUnitExecutionPlanner};
     FTerranEconomyProductionOrderExpander DefaultEconomyProductionOrderExpander;
     const IEconomyProductionOrderExpander* EconomyProductionOrderExpander{&DefaultEconomyProductionOrderExpander};
     FTerranRampWallController DefaultWallGateController;
@@ -133,6 +149,7 @@ private:
     std::unordered_set<Tag> PendingProductionRallyStructureTags;
     FAgentExecutionTelemetry ExecutionTelemetry;
     EWallGateState CurrentWallGateState{EWallGateState::Unavailable};
+    uint32_t LastArmyExecutionOrderCount{0U};
 };
 
 }  // namespace sc2

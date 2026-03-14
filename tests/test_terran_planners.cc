@@ -4,12 +4,18 @@
 #include <string>
 
 #include "common/armies/EArmyGoal.h"
+#include "common/armies/EArmyMissionType.h"
 #include "common/armies/EArmyPosture.h"
 #include "common/armies/FArmyDomainState.h"
 #include "common/build_planning/FBuildPlanningState.h"
 #include "common/descriptors/EGamePlan.h"
 #include "common/descriptors/EMacroPhase.h"
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/goals/EGoalDomain.h"
+#include "common/goals/EGoalHorizon.h"
+#include "common/goals/EGoalStatus.h"
+#include "common/goals/EGoalType.h"
+#include "common/goals/FGoalDescriptor.h"
 #include "common/planning/FTerranArmyPlanner.h"
 #include "common/planning/FTerranTimingAttackBuildPlanner.h"
 
@@ -17,12 +23,6 @@ namespace sc2
 {
 namespace
 {
-
-uint64_t ConvertClockTimeToGameLoops(const uint32_t MinutesValue, const uint32_t SecondsValue)
-{
-    const uint64_t TotalSecondsValue = (static_cast<uint64_t>(MinutesValue) * 60U) + SecondsValue;
-    return ((TotalSecondsValue * 112U) + 2U) / 5U;
-}
 
 bool Check(const bool ConditionValue, bool& SuccessValue, const std::string& MessageValue)
 {
@@ -35,28 +35,55 @@ bool Check(const bool ConditionValue, bool& SuccessValue, const std::string& Mes
     return ConditionValue;
 }
 
-FGameStateDescriptor CreateOpeningDescriptor(const uint64_t CurrentGameLoopValue)
+FGoalDescriptor CreateGoalDescriptor(const uint32_t GoalIdValue, const EGoalDomain GoalDomainValue,
+                                     const EGoalHorizon GoalHorizonValue, const EGoalType GoalTypeValue,
+                                     const EGoalStatus GoalStatusValue, const int BasePriorityValue,
+                                     const uint32_t TargetCountValue = 0U,
+                                     const UNIT_TYPEID TargetUnitTypeIdValue = UNIT_TYPEID::INVALID,
+                                     const UpgradeID TargetUpgradeIdValue = UpgradeID(UPGRADE_ID::INVALID))
+{
+    FGoalDescriptor GoalDescriptorValue;
+    GoalDescriptorValue.GoalId = GoalIdValue;
+    GoalDescriptorValue.GoalDomain = GoalDomainValue;
+    GoalDescriptorValue.GoalHorizon = GoalHorizonValue;
+    GoalDescriptorValue.GoalType = GoalTypeValue;
+    GoalDescriptorValue.GoalStatus = GoalStatusValue;
+    GoalDescriptorValue.BasePriorityValue = BasePriorityValue;
+    GoalDescriptorValue.TargetCount = TargetCountValue;
+    GoalDescriptorValue.TargetUnitTypeId = TargetUnitTypeIdValue;
+    GoalDescriptorValue.TargetUpgradeId = TargetUpgradeIdValue;
+    return GoalDescriptorValue;
+}
+
+FGameStateDescriptor CreateGoalDrivenOpeningDescriptor()
 {
     FGameStateDescriptor GameStateDescriptorValue;
-    GameStateDescriptorValue.CurrentGameLoop = CurrentGameLoopValue;
     GameStateDescriptorValue.MacroState.ActiveGamePlan = EGamePlan::TimingAttack;
     GameStateDescriptorValue.MacroState.ActiveMacroPhase = EMacroPhase::Opening;
-    GameStateDescriptorValue.MacroState.CurrentGameLoop = CurrentGameLoopValue;
     GameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
     GameStateDescriptorValue.MacroState.WorkerCount = 16U;
     GameStateDescriptorValue.MacroState.ArmyUnitCount = 6U;
     GameStateDescriptorValue.MacroState.ArmySupply = 6U;
     GameStateDescriptorValue.MacroState.BarracksCount = 1U;
+    GameStateDescriptorValue.GoalSet.ImmediateGoals.push_back(CreateGoalDescriptor(
+        100U, EGoalDomain::Economy, EGoalHorizon::Immediate, EGoalType::MaintainSupply, EGoalStatus::Active, 200,
+        1U, UNIT_TYPEID::TERRAN_SUPPLYDEPOT));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        110U, EGoalDomain::Economy, EGoalHorizon::NearTerm, EGoalType::BuildProductionCapacity,
+        EGoalStatus::Active, 180, 1U, UNIT_TYPEID::TERRAN_REFINERY));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        120U, EGoalDomain::Production, EGoalHorizon::NearTerm, EGoalType::BuildProductionCapacity,
+        EGoalStatus::Active, 190, 1U, UNIT_TYPEID::TERRAN_BARRACKS));
+    GameStateDescriptorValue.ArmyState.EnsurePrimaryArmyExists();
+    GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::AssembleAtRally;
     return GameStateDescriptorValue;
 }
 
-FGameStateDescriptor CreateMidGameTimingDescriptor()
+FGameStateDescriptor CreateGoalDrivenTimingDescriptor()
 {
     FGameStateDescriptor GameStateDescriptorValue;
-    GameStateDescriptorValue.CurrentGameLoop = ConvertClockTimeToGameLoops(5U, 10U);
     GameStateDescriptorValue.MacroState.ActiveGamePlan = EGamePlan::TimingAttack;
     GameStateDescriptorValue.MacroState.ActiveMacroPhase = EMacroPhase::MidGame;
-    GameStateDescriptorValue.MacroState.CurrentGameLoop = GameStateDescriptorValue.CurrentGameLoop;
     GameStateDescriptorValue.MacroState.ActiveBaseCount = 2U;
     GameStateDescriptorValue.MacroState.WorkerCount = 38U;
     GameStateDescriptorValue.MacroState.ArmyUnitCount = 28U;
@@ -64,11 +91,34 @@ FGameStateDescriptor CreateMidGameTimingDescriptor()
     GameStateDescriptorValue.MacroState.BarracksCount = 2U;
     GameStateDescriptorValue.MacroState.FactoryCount = 1U;
     GameStateDescriptorValue.MacroState.StarportCount = 1U;
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        200U, EGoalDomain::Economy, EGoalHorizon::NearTerm, EGoalType::ExpandBaseCount, EGoalStatus::Active, 180,
+        2U));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        210U, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology, EGoalStatus::Active, 170,
+        1U, UNIT_TYPEID::TERRAN_BARRACKSREACTOR));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        211U, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology, EGoalStatus::Active, 165,
+        1U, UNIT_TYPEID::TERRAN_FACTORYTECHLAB));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        220U, EGoalDomain::Production, EGoalHorizon::NearTerm, EGoalType::BuildProductionCapacity,
+        EGoalStatus::Active, 175, 1U, UNIT_TYPEID::TERRAN_FACTORY));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        221U, EGoalDomain::Production, EGoalHorizon::NearTerm, EGoalType::BuildProductionCapacity,
+        EGoalStatus::Active, 170, 1U, UNIT_TYPEID::TERRAN_STARPORT));
+    GameStateDescriptorValue.GoalSet.StrategicGoals.push_back(CreateGoalDescriptor(
+        300U, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy, EGoalStatus::Active, 160, 1U,
+        UNIT_TYPEID::TERRAN_HELLION));
+    GameStateDescriptorValue.GoalSet.StrategicGoals.push_back(CreateGoalDescriptor(
+        301U, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy, EGoalStatus::Active, 155, 1U,
+        UNIT_TYPEID::TERRAN_MEDIVAC));
+    GameStateDescriptorValue.ArmyState.EnsurePrimaryArmyExists();
     GameStateDescriptorValue.ArmyState.ArmyGoals.front() = EArmyGoal::TimingAttack;
+    GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::PressureKnownEnemyBase;
     return GameStateDescriptorValue;
 }
 
-FGameStateDescriptor CreateMacroDescriptor()
+FGameStateDescriptor CreateGoalDrivenMacroDescriptor()
 {
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.MacroState.ActiveGamePlan = EGamePlan::Macro;
@@ -80,9 +130,22 @@ FGameStateDescriptor CreateMacroDescriptor()
     GameStateDescriptorValue.MacroState.BarracksCount = 4U;
     GameStateDescriptorValue.MacroState.FactoryCount = 2U;
     GameStateDescriptorValue.MacroState.StarportCount = 1U;
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        400U, EGoalDomain::Economy, EGoalHorizon::NearTerm, EGoalType::ExpandBaseCount, EGoalStatus::Active, 180,
+        4U));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        410U, EGoalDomain::Economy, EGoalHorizon::NearTerm, EGoalType::SaturateWorkers, EGoalStatus::Active, 170,
+        66U));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        420U, EGoalDomain::Production, EGoalHorizon::NearTerm, EGoalType::BuildProductionCapacity,
+        EGoalStatus::Active, 160, 5U, UNIT_TYPEID::TERRAN_BARRACKS));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        421U, EGoalDomain::Production, EGoalHorizon::NearTerm, EGoalType::BuildProductionCapacity,
+        EGoalStatus::Active, 150, 2U, UNIT_TYPEID::TERRAN_STARPORT));
     GameStateDescriptorValue.ArmyState.MinimumArmyCount = 2U;
     GameStateDescriptorValue.ArmyState.EnsurePrimaryArmyExists();
     GameStateDescriptorValue.ArmyState.ArmyGoals.front() = EArmyGoal::MapControl;
+    GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::SweepExpansionLocations;
     return GameStateDescriptorValue;
 }
 
@@ -99,99 +162,74 @@ bool TestTerranPlanners(int ArgC, char** ArgV)
     FTerranArmyPlanner ArmyPlannerValue;
 
     {
-        FGameStateDescriptor GameStateDescriptorValue =
-            CreateOpeningDescriptor(ConvertClockTimeToGameLoops(0U, 42U));
+        FGameStateDescriptor GameStateDescriptorValue = CreateGoalDrivenOpeningDescriptor();
         FBuildPlanningState BuildPlanningStateValue;
         BuildPlannerValue.ProduceBuildPlan(GameStateDescriptorValue, BuildPlanningStateValue);
 
         Check(BuildPlanningStateValue.DesiredSupplyDepotCount == 1U, SuccessValue,
-              "Early opener should target the first supply depot.");
+              "Goal-driven opening should project the requested first supply depot.");
         Check(BuildPlanningStateValue.DesiredBarracksCount == 1U, SuccessValue,
-              "Early opener should target the first barracks.");
+              "Goal-driven opening should project the requested first barracks.");
         Check(BuildPlanningStateValue.DesiredRefineryCount == 1U, SuccessValue,
-              "Early opener should target the first refinery.");
-        Check(BuildPlanningStateValue.DesiredOrbitalCommandCount == 0U, SuccessValue,
-              "Orbital command should not be targeted before its opener frame.");
+              "Goal-driven opening should project the requested first refinery.");
+        Check(BuildPlanningStateValue.DesiredOrbitalCommandCount == 1U, SuccessValue,
+              "Goal-driven opening should preserve orbital intent for the active main-base town hall.");
 
         ArmyPlannerValue.ProduceArmyPlan(GameStateDescriptorValue, GameStateDescriptorValue.ArmyState);
         Check(!GameStateDescriptorValue.ArmyState.ArmyPostures.empty() &&
                   GameStateDescriptorValue.ArmyState.ArmyPostures.front() == EArmyPosture::Assemble,
-              SuccessValue, "Opening army posture should assemble instead of engaging.");
+              SuccessValue, "AssembleAtRally missions should produce the Assemble army posture.");
     }
 
     {
-        FGameStateDescriptor GameStateDescriptorValue =
-            CreateOpeningDescriptor(ConvertClockTimeToGameLoops(3U, 28U));
+        FGameStateDescriptor GameStateDescriptorValue = CreateGoalDrivenTimingDescriptor();
         FBuildPlanningState BuildPlanningStateValue;
         BuildPlannerValue.ProduceBuildPlan(GameStateDescriptorValue, BuildPlanningStateValue);
 
         Check(BuildPlanningStateValue.DesiredTownHallCount == 2U, SuccessValue,
-              "Frame opener should target the natural expansion by the medivac timing.");
+              "Goal-driven timing plan should preserve the requested natural expansion count.");
         Check(BuildPlanningStateValue.DesiredOrbitalCommandCount == 2U, SuccessValue,
-              "Frame opener should target both orbital commands by the medivac timing.");
+              "Goal-driven timing plan should preserve orbital intent for both active town halls.");
         Check(BuildPlanningStateValue.DesiredBarracksReactorCount == 1U, SuccessValue,
-              "Frame opener should target one barracks reactor.");
+              "Goal-driven timing plan should project the requested barracks reactor.");
         Check(BuildPlanningStateValue.DesiredFactoryCount == 1U, SuccessValue,
-              "Frame opener should target one factory.");
+              "Goal-driven timing plan should project the requested factory.");
         Check(BuildPlanningStateValue.DesiredFactoryTechLabCount == 1U, SuccessValue,
-              "Frame opener should target one factory tech lab.");
+              "Goal-driven timing plan should project the requested factory tech lab.");
         Check(BuildPlanningStateValue.DesiredStarportCount == 1U, SuccessValue,
-              "Frame opener should target one starport.");
+              "Goal-driven timing plan should project the requested starport.");
         Check(BuildPlanningStateValue.DesiredHellionCount == 1U, SuccessValue,
-              "Frame opener should target the first hellion.");
+              "Goal-driven timing plan should project the requested first hellion.");
         Check(BuildPlanningStateValue.DesiredMedivacCount == 1U, SuccessValue,
-              "Frame opener should target the first medivac.");
-        Check(BuildPlanningStateValue.DesiredCycloneCount == 0U, SuccessValue,
-              "Cyclone should not be targeted before its opener frame.");
-    }
-
-    {
-        FGameStateDescriptor GameStateDescriptorValue = CreateMidGameTimingDescriptor();
-        FBuildPlanningState BuildPlanningStateValue;
-        BuildPlannerValue.ProduceBuildPlan(GameStateDescriptorValue, BuildPlanningStateValue);
-
-        Check(BuildPlanningStateValue.DesiredTownHallCount == 3U, SuccessValue,
-              "Mid-game timing plan should target a third town hall.");
-        Check(BuildPlanningStateValue.DesiredOrbitalCommandCount == 2U, SuccessValue,
-              "Mid-game timing plan should preserve two orbital commands.");
-        Check(BuildPlanningStateValue.DesiredBarracksCount == 3U, SuccessValue,
-              "Mid-game timing plan should target three barracks.");
-        Check(BuildPlanningStateValue.DesiredFactoryCount == 1U, SuccessValue,
-              "Mid-game timing plan should preserve one factory.");
-        Check(BuildPlanningStateValue.DesiredStarportCount == 1U, SuccessValue,
-              "Mid-game timing plan should preserve one starport.");
-        Check(BuildPlanningStateValue.DesiredMedivacCount == 2U, SuccessValue,
-              "Mid-game timing plan should target two medivacs.");
-        Check(BuildPlanningStateValue.DesiredSiegeTankCount == 1U, SuccessValue,
-              "Mid-game timing plan should preserve one siege tank.");
+              "Goal-driven timing plan should project the requested first medivac.");
 
         ArmyPlannerValue.ProduceArmyPlan(GameStateDescriptorValue, GameStateDescriptorValue.ArmyState);
         Check(!GameStateDescriptorValue.ArmyState.ArmyPostures.empty() &&
                   GameStateDescriptorValue.ArmyState.ArmyPostures.front() == EArmyPosture::Engage,
-              SuccessValue, "Ready timing armies should move to the Engage posture.");
+              SuccessValue, "PressureKnownEnemyBase missions should produce the Engage army posture.");
     }
 
     {
-        FGameStateDescriptor GameStateDescriptorValue = CreateMacroDescriptor();
+        FGameStateDescriptor GameStateDescriptorValue = CreateGoalDrivenMacroDescriptor();
         FBuildPlanningState BuildPlanningStateValue;
         BuildPlannerValue.ProduceBuildPlan(GameStateDescriptorValue, BuildPlanningStateValue);
 
         Check(BuildPlanningStateValue.DesiredTownHallCount == 4U, SuccessValue,
-              "Macro plan should target a fourth town hall.");
+              "Goal-driven macro plan should project a fourth town hall.");
         Check(BuildPlanningStateValue.DesiredWorkerCount == 66U, SuccessValue,
-              "Macro plan should target sixty-six workers.");
+              "Goal-driven macro plan should project sixty-six workers.");
         Check(BuildPlanningStateValue.DesiredBarracksCount == 5U, SuccessValue,
-              "Macro plan should target five barracks.");
+              "Goal-driven macro plan should project five barracks.");
         Check(BuildPlanningStateValue.DesiredStarportCount == 2U, SuccessValue,
-              "Macro plan should target two starports.");
+              "Goal-driven macro plan should project two starports.");
 
         ArmyPlannerValue.ProduceArmyPlan(GameStateDescriptorValue, GameStateDescriptorValue.ArmyState);
         Check(GameStateDescriptorValue.ArmyState.ArmyPostures.size() >= 2U, SuccessValue,
-              "Macro army plan should preserve posture storage for multiple armies.");
+              "Army planner should preserve posture storage for multiple armies.");
         Check(GameStateDescriptorValue.ArmyState.ArmyPostures.front() == EArmyPosture::Advance, SuccessValue,
-              "Macro primary army should advance for map control once the army is large enough.");
+              "SweepExpansionLocations missions should produce the Advance army posture.");
         Check(GameStateDescriptorValue.ArmyState.ArmyPostures[1] == EArmyPosture::Hold, SuccessValue,
-              "Secondary macro army posture should default to Hold.");
+              "Secondary army posture should still default to Hold.");
     }
 
     return SuccessValue;
