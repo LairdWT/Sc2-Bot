@@ -428,6 +428,58 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
               "Lower-priority ready intents should drain after higher-priority ready intents.");
     }
 
+    {
+        FCommandAuthoritySchedulingState BatchedSchedulingStateValue;
+        BatchedSchedulingStateValue.BeginMutationBatch();
+
+        const uint32_t BatchedStrategicOrderIdValue = IntentSchedulingServiceValue.SubmitOrder(
+            BatchedSchedulingStateValue,
+            FCommandOrderRecord::CreateNoTarget(ECommandAuthorityLayer::StrategicDirector, NullTag,
+                                                ABILITY_ID::INVALID, 220, EIntentDomain::Recovery, 40U));
+
+        const uint32_t BatchedUnitOrderIdValue = IntentSchedulingServiceValue.SubmitOrder(
+            BatchedSchedulingStateValue,
+            FCommandOrderRecord::CreatePointTarget(ECommandAuthorityLayer::UnitExecution, 901U,
+                                                   ABILITY_ID::MOVE_MOVE, Point2D(22.0f, 22.0f), 80,
+                                                   EIntentDomain::ArmyCombat, 41U, 0U,
+                                                   BatchedStrategicOrderIdValue, 0, 0, true, false, false));
+
+        Check(BatchedSchedulingStateValue.GetOrderCount() == 2U, SuccessValue,
+              "Batched scheduling should append orders immediately to the authoritative store.");
+        Check(BatchedSchedulingStateValue.StrategicOrderIndices.empty(), SuccessValue,
+              "Derived queue views should stay unchanged until a mutation batch ends.");
+        Check(BatchedSchedulingStateValue.PlanningProcessIndices.empty(), SuccessValue,
+              "Planning-process views should stay unchanged until a mutation batch ends.");
+        Check(BatchedSchedulingStateValue.bDerivedQueuesDirty, SuccessValue,
+              "Batched scheduling should mark derived queues dirty while mutations are pending.");
+
+        BatchedSchedulingStateValue.EndMutationBatch();
+
+        Check(BatchedSchedulingStateValue.StrategicOrderIndices.size() == 1U, SuccessValue,
+              "Ending a mutation batch should rebuild the strategic queue views once.");
+        Check(BatchedSchedulingStateValue.PlanningProcessIndices.size() == 1U, SuccessValue,
+              "Ending a mutation batch should rebuild the planning-process views once.");
+        Check(!BatchedSchedulingStateValue.bDerivedQueuesDirty, SuccessValue,
+              "Ending a mutation batch should clear the derived-queue dirty flag after rebuild.");
+
+        size_t BatchedUnitOrderIndexValue = 0U;
+        Check(BatchedSchedulingStateValue.TryGetOrderIndex(BatchedUnitOrderIdValue, BatchedUnitOrderIndexValue),
+              SuccessValue, "Batched scheduling should index the unit-execution order after rebuild.");
+        IntentSchedulingServiceValue.UpdateOrderLifecycleState(BatchedSchedulingStateValue, BatchedUnitOrderIdValue,
+                                                               EOrderLifecycleState::Completed);
+
+        Check(BatchedSchedulingStateValue.CompletedOrderIndices.size() == 1U, SuccessValue,
+              "Completed unit-execution work should enter the completed-order view before compaction.");
+        Check(BatchedSchedulingStateValue.CompactTerminalOrders(), SuccessValue,
+              "Terminal unit-execution work should compact out of the hot scheduling store.");
+        Check(BatchedSchedulingStateValue.GetOrderCount() == 1U, SuccessValue,
+              "Compaction should remove only the terminal unit-execution order from the hot store.");
+        Check(!BatchedSchedulingStateValue.TryGetOrderIndex(BatchedUnitOrderIdValue, BatchedUnitOrderIndexValue),
+              SuccessValue, "Compaction should remove the compacted unit-execution order mapping.");
+        Check(BatchedSchedulingStateValue.TryGetOrderIndex(BatchedStrategicOrderIdValue, BatchedUnitOrderIndexValue),
+              SuccessValue, "Compaction should preserve non-unit-execution scheduler work.");
+    }
+
     FGameStateDescriptor GameStateDescriptorValue;
     GameStateDescriptorValue.CommandAuthoritySchedulingState = CommandAuthoritySchedulingStateValue;
     GameStateDescriptorValue.Reset();

@@ -493,12 +493,20 @@ bool DoesRemainingOpeningPlanCoverOrder(const FGameStateDescriptor& GameStateDes
 
 void FCommandAuthorityProcessor::ProcessSchedulerStep(FGameStateDescriptor& GameStateDescriptorValue) const
 {
+    FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
+        GameStateDescriptorValue.CommandAuthoritySchedulingState;
+
+    CommandAuthoritySchedulingStateValue.BeginMutationBatch();
     InitializeOpeningPlan(GameStateDescriptorValue);
     UpdateCompletedOpeningSteps(GameStateDescriptorValue);
     SeedReadyStrategicOrders(GameStateDescriptorValue);
     SeedGoalDrivenStrategicOrders(GameStateDescriptorValue);
+    CommandAuthoritySchedulingStateValue.EndMutationBatch();
+
+    CommandAuthoritySchedulingStateValue.BeginMutationBatch();
     EnsureStrategicChildOrders(GameStateDescriptorValue);
     UpdateCompletedOpeningSteps(GameStateDescriptorValue);
+    CommandAuthoritySchedulingStateValue.EndMutationBatch();
 }
 
 void FCommandAuthorityProcessor::InitializeOpeningPlan(FGameStateDescriptor& GameStateDescriptorValue) const

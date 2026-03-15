@@ -50,23 +50,27 @@ void FTerranCommandTaskPriorityService::UpdateTaskPriorities(FGameStateDescripto
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptorValue.CommandAuthoritySchedulingState;
 
+    CommandAuthoritySchedulingStateValue.BeginMutationBatch();
     const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
     for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
     {
-        FCommandOrderRecord CommandOrderRecordValue =
-            CommandAuthoritySchedulingStateValue.GetOrderRecord(OrderIndexValue);
         const int FocusWeightValue =
             GetFocusWeight(GameStateDescriptorValue.MacroState.PrimaryProductionFocus,
-                           CommandOrderRecordValue.TaskType);
-        const int EffectivePriorityValue =
-            CommandOrderRecordValue.BasePriorityValue + GetTaskTypeWeight(CommandOrderRecordValue.TaskType) +
-            FocusWeightValue + GetEmergencyWeight(GameStateDescriptorValue, CommandOrderRecordValue);
+                           CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue]);
+        const int EffectivePriorityValue = CommandAuthoritySchedulingStateValue.BasePriorityValues[OrderIndexValue] +
+                                           GetTaskTypeWeight(CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue]) +
+                                           FocusWeightValue +
+                                           GetEmergencyWeight(GameStateDescriptorValue,
+                                                              CommandAuthoritySchedulingStateValue,
+                                                              OrderIndexValue);
         CommandAuthoritySchedulingStateValue.EffectivePriorityValues[OrderIndexValue] = EffectivePriorityValue;
         CommandAuthoritySchedulingStateValue.PriorityTiers[OrderIndexValue] =
-            DeterminePriorityTier(GameStateDescriptorValue, CommandOrderRecordValue, EffectivePriorityValue);
+            DeterminePriorityTier(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue, OrderIndexValue,
+                                  EffectivePriorityValue);
     }
 
-    CommandAuthoritySchedulingStateValue.RebuildDerivedQueues();
+    CommandAuthoritySchedulingStateValue.bDerivedQueuesDirty = true;
+    CommandAuthoritySchedulingStateValue.EndMutationBatch();
 }
 
 int FTerranCommandTaskPriorityService::GetTaskTypeWeight(const ECommandTaskType CommandTaskTypeValue) const
@@ -206,15 +210,17 @@ int FTerranCommandTaskPriorityService::GetFocusWeight(const EProductionFocus Pro
 }
 
 int FTerranCommandTaskPriorityService::GetEmergencyWeight(
-    const FGameStateDescriptor& GameStateDescriptorValue, const FCommandOrderRecord& CommandOrderRecordValue) const
+    const FGameStateDescriptor& GameStateDescriptorValue,
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const size_t OrderIndexValue) const
 {
     int EmergencyWeightValue = 0;
     const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
     const FBuildPlanningState& BuildPlanningStateValue = GameStateDescriptorValue.BuildPlanning;
+    const ECommandTaskType CommandTaskTypeValue = CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue];
 
     if (BuildPlanningStateValue.AvailableSupply <= 1U)
     {
-        switch (CommandOrderRecordValue.TaskType)
+        switch (CommandTaskTypeValue)
         {
             case ECommandTaskType::Supply:
                 EmergencyWeightValue += 1200;
@@ -233,20 +239,20 @@ int FTerranCommandTaskPriorityService::GetEmergencyWeight(
 
     if (MacroStateDescriptorValue.ActiveBaseCount < MacroStateDescriptorValue.DesiredBaseCount &&
         IsExpansionEconomicallyStable(GameStateDescriptorValue) &&
-        CommandOrderRecordValue.TaskType == ECommandTaskType::Expansion)
+        CommandTaskTypeValue == ECommandTaskType::Expansion)
     {
         EmergencyWeightValue += 350;
     }
 
     if (MacroStateDescriptorValue.WorkerCount < GetWorkerSaturationTargetCount(MacroStateDescriptorValue) &&
-        CommandOrderRecordValue.TaskType == ECommandTaskType::WorkerProduction)
+        CommandTaskTypeValue == ECommandTaskType::WorkerProduction)
     {
         EmergencyWeightValue += 300;
     }
 
     if (IsDefenseEmergency(GameStateDescriptorValue))
     {
-        switch (CommandOrderRecordValue.TaskType)
+        switch (CommandTaskTypeValue)
         {
             case ECommandTaskType::ArmyMission:
             case ECommandTaskType::UnitProduction:
@@ -263,7 +269,7 @@ int FTerranCommandTaskPriorityService::GetEmergencyWeight(
 
     if (BuildPlanningStateValue.AvailableMinerals >= 500U)
     {
-        switch (CommandOrderRecordValue.TaskType)
+        switch (CommandTaskTypeValue)
         {
             case ECommandTaskType::ProductionStructure:
             case ECommandTaskType::UnitProduction:
@@ -278,31 +284,32 @@ int FTerranCommandTaskPriorityService::GetEmergencyWeight(
 }
 
 ECommandPriorityTier FTerranCommandTaskPriorityService::DeterminePriorityTier(
-    const FGameStateDescriptor& GameStateDescriptorValue, const FCommandOrderRecord& CommandOrderRecordValue,
+    const FGameStateDescriptor& GameStateDescriptorValue,
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const size_t OrderIndexValue,
     const int EffectivePriorityValue) const
 {
     const bool IsDefenseEmergencyValue = IsDefenseEmergency(GameStateDescriptorValue);
     const bool IsSupplyEmergencyValue = GameStateDescriptorValue.BuildPlanning.AvailableSupply <= 1U;
+    const ECommandTaskType CommandTaskTypeValue = CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue];
 
-    if (CommandOrderRecordValue.TaskType == ECommandTaskType::Recovery ||
-        (IsSupplyEmergencyValue && CommandOrderRecordValue.TaskType == ECommandTaskType::Supply) ||
+    if (CommandTaskTypeValue == ECommandTaskType::Recovery ||
+        (IsSupplyEmergencyValue && CommandTaskTypeValue == ECommandTaskType::Supply) ||
         (IsDefenseEmergencyValue &&
-         (CommandOrderRecordValue.TaskType == ECommandTaskType::ArmyMission ||
-          CommandOrderRecordValue.TaskType == ECommandTaskType::StaticDefense)))
+         (CommandTaskTypeValue == ECommandTaskType::ArmyMission ||
+          CommandTaskTypeValue == ECommandTaskType::StaticDefense)))
     {
         return ECommandPriorityTier::Critical;
     }
 
-    if (CommandOrderRecordValue.TaskType == ECommandTaskType::Expansion ||
-        CommandOrderRecordValue.TaskType == ECommandTaskType::WorkerProduction ||
-        CommandOrderRecordValue.TaskType == ECommandTaskType::ProductionStructure ||
-        CommandOrderRecordValue.TaskType == ECommandTaskType::ArmyMission)
+    if (CommandTaskTypeValue == ECommandTaskType::Expansion ||
+        CommandTaskTypeValue == ECommandTaskType::WorkerProduction ||
+        CommandTaskTypeValue == ECommandTaskType::ProductionStructure ||
+        CommandTaskTypeValue == ECommandTaskType::ArmyMission)
     {
         return ECommandPriorityTier::High;
     }
 
-    if (CommandOrderRecordValue.TaskType == ECommandTaskType::UpgradeResearch &&
-        EffectivePriorityValue < 900)
+    if (CommandTaskTypeValue == ECommandTaskType::UpgradeResearch && EffectivePriorityValue < 900)
     {
         return ECommandPriorityTier::Low;
     }

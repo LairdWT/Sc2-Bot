@@ -1139,6 +1139,9 @@ void TerranAgent::ProduceRecoveryIntents(const FFrameContext& Frame)
 
 void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
 {
+    FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
+        GameStateDescriptor.CommandAuthoritySchedulingState;
+
     CommandAuthorityProcessor.ProcessSchedulerStep(GameStateDescriptor);
     if (CommandTaskPriorityService != nullptr)
     {
@@ -1147,50 +1150,62 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
 
     if (EconomyProductionOrderExpander != nullptr && BuildPlacementService != nullptr)
     {
+        CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         EconomyProductionOrderExpander->ExpandEconomyAndProductionOrders(
             Frame, AgentState, GameStateDescriptor, IntentBuffer, *BuildPlacementService, ExpansionLocations);
-    }
-    if (CommandTaskPriorityService != nullptr)
-    {
-        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+        if (CommandTaskPriorityService != nullptr)
+        {
+            CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+        }
+        CommandAuthoritySchedulingStateValue.EndMutationBatch();
     }
 
     if (ArmyOrderExpander != nullptr)
     {
+        CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         ArmyOrderExpander->ExpandArmyOrders(Frame, AgentState, GameStateDescriptor, ExpansionLocations, BarracksRally,
                                             GameStateDescriptor.CommandAuthoritySchedulingState);
+        if (ArmyPlanner != nullptr)
+        {
+            ArmyPlanner->ProduceArmyPlan(GameStateDescriptor, GameStateDescriptor.ArmyState);
+        }
+        if (CommandTaskPriorityService != nullptr)
+        {
+            CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+        }
+        CommandAuthoritySchedulingStateValue.EndMutationBatch();
     }
-    if (ArmyPlanner != nullptr)
+    else if (ArmyPlanner != nullptr)
     {
         ArmyPlanner->ProduceArmyPlan(GameStateDescriptor, GameStateDescriptor.ArmyState);
-    }
-    if (CommandTaskPriorityService != nullptr)
-    {
-        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
     }
 
     if (SquadOrderExpander != nullptr)
     {
+        CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         SquadOrderExpander->ExpandSquadOrders(Frame, AgentState, GameStateDescriptor, BarracksRally,
                                               GameStateDescriptor.CommandAuthoritySchedulingState);
-    }
-    if (CommandTaskPriorityService != nullptr)
-    {
-        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+        if (CommandTaskPriorityService != nullptr)
+        {
+            CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+        }
+        CommandAuthoritySchedulingStateValue.EndMutationBatch();
     }
 
     if (UnitExecutionPlanner != nullptr)
     {
+        CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         LastArmyExecutionOrderCount = UnitExecutionPlanner->ExpandUnitExecutionOrders(
             Frame, AgentState, GameStateDescriptor, BarracksRally, GameStateDescriptor.CommandAuthoritySchedulingState);
+        if (CommandTaskPriorityService != nullptr)
+        {
+            CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+        }
+        CommandAuthoritySchedulingStateValue.EndMutationBatch();
     }
     else
     {
         LastArmyExecutionOrderCount = 0U;
-    }
-    if (CommandTaskPriorityService != nullptr)
-    {
-        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
     }
 
     IntentSchedulingService.DrainReadyIntents(GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,
@@ -1404,6 +1419,7 @@ void TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)
     constexpr uint64_t DispatchConfirmationTimeoutGameLoopsValue = 96U;
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptor.CommandAuthoritySchedulingState;
+    CommandAuthoritySchedulingStateValue.BeginMutationBatch();
     const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
     for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
     {
@@ -1453,6 +1469,8 @@ void TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)
         CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(CommandOrderRecordValue.OrderId,
                                                                    EOrderLifecycleState::Aborted);
     }
+    CommandAuthoritySchedulingStateValue.CompactTerminalOrders();
+    CommandAuthoritySchedulingStateValue.EndMutationBatch();
 }
 
 void TerranAgent::CaptureNewlyDispatchedSchedulerOrders(const FFrameContext& Frame)

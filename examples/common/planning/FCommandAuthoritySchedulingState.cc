@@ -4,6 +4,33 @@
 
 namespace sc2
 {
+namespace
+{
+
+template <typename TValueType>
+std::vector<TValueType> BuildCompactedVector(const std::vector<TValueType>& SourceValues,
+                                             const std::vector<size_t>& RetainedOrderIndicesValue)
+{
+    std::vector<TValueType> CompactedValues;
+    CompactedValues.reserve(RetainedOrderIndicesValue.size());
+    for (const size_t RetainedOrderIndexValue : RetainedOrderIndicesValue)
+    {
+        CompactedValues.push_back(SourceValues[RetainedOrderIndexValue]);
+    }
+
+    return CompactedValues;
+}
+
+bool ShouldCompactTerminalOrder(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                const size_t OrderIndexValue)
+{
+    return CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] ==
+               ECommandAuthorityLayer::UnitExecution &&
+           IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]);
+}
+
+}  // namespace
+
 
 FCommandAuthoritySchedulingState::FCommandAuthoritySchedulingState()
 {
@@ -19,6 +46,8 @@ void FCommandAuthoritySchedulingState::Reset()
     MaxArmyOrdersPerStep = 8U;
     MaxSquadOrdersPerStep = 16U;
     MaxUnitIntentsPerStep = 32U;
+    MutationBatchDepth = 0U;
+    bDerivedQueuesDirty = false;
 
     OrderIds.clear();
     ParentOrderIds.clear();
@@ -93,6 +122,25 @@ void FCommandAuthoritySchedulingState::Reset()
         {
             ReadyQueueValue.clear();
         }
+    }
+}
+
+void FCommandAuthoritySchedulingState::BeginMutationBatch()
+{
+    ++MutationBatchDepth;
+}
+
+void FCommandAuthoritySchedulingState::EndMutationBatch()
+{
+    if (MutationBatchDepth == 0U)
+    {
+        return;
+    }
+
+    --MutationBatchDepth;
+    if (MutationBatchDepth == 0U && bDerivedQueuesDirty)
+    {
+        RebuildDerivedQueues();
     }
 }
 
@@ -202,7 +250,7 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     DispatchAttemptCounts.push_back(StoredOrderValue.DispatchAttemptCount);
     OrderIdToIndex[StoredOrderValue.OrderId] = OrderIndexValue;
 
-    RebuildDerivedQueues();
+    MarkDerivedQueuesDirty();
     return StoredOrderValue.OrderId;
 }
 
@@ -328,13 +376,18 @@ bool FCommandAuthoritySchedulingState::SetOrderLifecycleState(const uint32_t Ord
         return false;
     }
 
+    if (LifecycleStates[OrderIndexValue] == LifecycleStateValue)
+    {
+        return true;
+    }
+
     LifecycleStates[OrderIndexValue] = LifecycleStateValue;
     if (IsTerminalLifecycleState(LifecycleStateValue))
     {
         ReservedPlacementSlotTypes[OrderIndexValue] = EBuildPlacementSlotType::Unknown;
         ReservedPlacementSlotOrdinals[OrderIndexValue] = 0U;
     }
-    RebuildDerivedQueues();
+    MarkDerivedQueuesDirty();
     return true;
 }
 
@@ -419,8 +472,93 @@ bool FCommandAuthoritySchedulingState::ClearOrderReservedPlacementSlot(const uin
     return true;
 }
 
+bool FCommandAuthoritySchedulingState::CompactTerminalOrders()
+{
+    if (OrderIds.empty())
+    {
+        return false;
+    }
+
+    std::vector<size_t> RetainedOrderIndicesValue;
+    RetainedOrderIndicesValue.reserve(OrderIds.size());
+
+    bool bCompactedAnyOrderValue = false;
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
+    {
+        if (ShouldCompactTerminalOrder(*this, OrderIndexValue))
+        {
+            bCompactedAnyOrderValue = true;
+            continue;
+        }
+
+        RetainedOrderIndicesValue.push_back(OrderIndexValue);
+    }
+
+    if (!bCompactedAnyOrderValue)
+    {
+        return false;
+    }
+
+    OrderIds = BuildCompactedVector(OrderIds, RetainedOrderIndicesValue);
+    ParentOrderIds = BuildCompactedVector(ParentOrderIds, RetainedOrderIndicesValue);
+    SourceGoalIds = BuildCompactedVector(SourceGoalIds, RetainedOrderIndicesValue);
+    SourceLayers = BuildCompactedVector(SourceLayers, RetainedOrderIndicesValue);
+    LifecycleStates = BuildCompactedVector(LifecycleStates, RetainedOrderIndicesValue);
+    TaskPackageKinds = BuildCompactedVector(TaskPackageKinds, RetainedOrderIndicesValue);
+    TaskNeedKinds = BuildCompactedVector(TaskNeedKinds, RetainedOrderIndicesValue);
+    TaskTypes = BuildCompactedVector(TaskTypes, RetainedOrderIndicesValue);
+    BasePriorityValues = BuildCompactedVector(BasePriorityValues, RetainedOrderIndicesValue);
+    EffectivePriorityValues = BuildCompactedVector(EffectivePriorityValues, RetainedOrderIndicesValue);
+    PriorityTiers = BuildCompactedVector(PriorityTiers, RetainedOrderIndicesValue);
+    IntentDomains = BuildCompactedVector(IntentDomains, RetainedOrderIndicesValue);
+    CreationSteps = BuildCompactedVector(CreationSteps, RetainedOrderIndicesValue);
+    DeadlineSteps = BuildCompactedVector(DeadlineSteps, RetainedOrderIndicesValue);
+    OwningArmyIndices = BuildCompactedVector(OwningArmyIndices, RetainedOrderIndicesValue);
+    OwningSquadIndices = BuildCompactedVector(OwningSquadIndices, RetainedOrderIndicesValue);
+    ActorTags = BuildCompactedVector(ActorTags, RetainedOrderIndicesValue);
+    AbilityIds = BuildCompactedVector(AbilityIds, RetainedOrderIndicesValue);
+    TargetKinds = BuildCompactedVector(TargetKinds, RetainedOrderIndicesValue);
+    TargetPoints = BuildCompactedVector(TargetPoints, RetainedOrderIndicesValue);
+    TargetUnitTags = BuildCompactedVector(TargetUnitTags, RetainedOrderIndicesValue);
+    QueuedValues = BuildCompactedVector(QueuedValues, RetainedOrderIndicesValue);
+    RequiresPlacementValidationValues =
+        BuildCompactedVector(RequiresPlacementValidationValues, RetainedOrderIndicesValue);
+    RequiresPathingValidationValues = BuildCompactedVector(RequiresPathingValidationValues, RetainedOrderIndicesValue);
+    PlanStepIds = BuildCompactedVector(PlanStepIds, RetainedOrderIndicesValue);
+    TargetCounts = BuildCompactedVector(TargetCounts, RetainedOrderIndicesValue);
+    RequestedQueueCounts = BuildCompactedVector(RequestedQueueCounts, RetainedOrderIndicesValue);
+    ProducerUnitTypeIds = BuildCompactedVector(ProducerUnitTypeIds, RetainedOrderIndicesValue);
+    ResultUnitTypeIds = BuildCompactedVector(ResultUnitTypeIds, RetainedOrderIndicesValue);
+    UpgradeIds = BuildCompactedVector(UpgradeIds, RetainedOrderIndicesValue);
+    PreferredPlacementSlotTypes = BuildCompactedVector(PreferredPlacementSlotTypes, RetainedOrderIndicesValue);
+    PreferredPlacementSlotIdTypes = BuildCompactedVector(PreferredPlacementSlotIdTypes, RetainedOrderIndicesValue);
+    PreferredPlacementSlotIdOrdinals =
+        BuildCompactedVector(PreferredPlacementSlotIdOrdinals, RetainedOrderIndicesValue);
+    ReservedPlacementSlotTypes = BuildCompactedVector(ReservedPlacementSlotTypes, RetainedOrderIndicesValue);
+    ReservedPlacementSlotOrdinals = BuildCompactedVector(ReservedPlacementSlotOrdinals, RetainedOrderIndicesValue);
+    LastDeferralReasons = BuildCompactedVector(LastDeferralReasons, RetainedOrderIndicesValue);
+    LastDeferralSteps = BuildCompactedVector(LastDeferralSteps, RetainedOrderIndicesValue);
+    LastDeferralGameLoops = BuildCompactedVector(LastDeferralGameLoops, RetainedOrderIndicesValue);
+    DispatchSteps = BuildCompactedVector(DispatchSteps, RetainedOrderIndicesValue);
+    DispatchGameLoops = BuildCompactedVector(DispatchGameLoops, RetainedOrderIndicesValue);
+    ObservedCountsAtDispatch = BuildCompactedVector(ObservedCountsAtDispatch, RetainedOrderIndicesValue);
+    ObservedInConstructionCountsAtDispatch =
+        BuildCompactedVector(ObservedInConstructionCountsAtDispatch, RetainedOrderIndicesValue);
+    DispatchAttemptCounts = BuildCompactedVector(DispatchAttemptCounts, RetainedOrderIndicesValue);
+
+    OrderIdToIndex.clear();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
+    {
+        OrderIdToIndex.emplace(OrderIds[OrderIndexValue], OrderIndexValue);
+    }
+
+    MarkDerivedQueuesDirty();
+    return true;
+}
+
 void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
 {
+    bDerivedQueuesDirty = false;
     StrategicOrderIndices.clear();
     PlanningProcessIndices.clear();
     ArmyOrderIndices.clear();
@@ -614,6 +752,15 @@ void FCommandAuthoritySchedulingState::SortDerivedQueues()
                 ReadyIntentQueues[PriorityTierIndexValue][IntentDomainIndexValue].begin(),
                 ReadyIntentQueues[PriorityTierIndexValue][IntentDomainIndexValue].end());
         }
+    }
+}
+
+void FCommandAuthoritySchedulingState::MarkDerivedQueuesDirty()
+{
+    bDerivedQueuesDirty = true;
+    if (MutationBatchDepth == 0U)
+    {
+        RebuildDerivedQueues();
     }
 }
 

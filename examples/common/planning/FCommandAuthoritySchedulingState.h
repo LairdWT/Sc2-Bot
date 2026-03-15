@@ -28,6 +28,8 @@ public:
 
     void Reset();
     void Reserve(size_t OrderCapacityValue);
+    void BeginMutationBatch();
+    void EndMutationBatch();
     uint32_t EnqueueOrder(const FCommandOrderRecord& CommandOrderRecordValue);
     bool IsOrderIndexValid(size_t OrderIndexValue) const;
     bool TryGetOrderIndex(uint32_t OrderIdValue, size_t& OutOrderIndexValue) const;
@@ -45,6 +47,7 @@ public:
                                uint32_t ObservedCountValue, uint32_t ObservedInConstructionCountValue);
     bool SetOrderReservedPlacementSlot(uint32_t OrderIdValue, const FBuildPlacementSlotId& BuildPlacementSlotIdValue);
     bool ClearOrderReservedPlacementSlot(uint32_t OrderIdValue);
+    bool CompactTerminalOrders();
     void RebuildDerivedQueues();
 
 public:
@@ -55,6 +58,8 @@ public:
     uint32_t MaxArmyOrdersPerStep;
     uint32_t MaxSquadOrdersPerStep;
     uint32_t MaxUnitIntentsPerStep;
+    uint32_t MutationBatchDepth;
+    bool bDerivedQueuesDirty;
 
     std::vector<uint32_t> OrderIds;
     std::vector<uint32_t> ParentOrderIds;
@@ -115,6 +120,7 @@ public:
         ReadyIntentQueues;
 
 private:
+    void MarkDerivedQueuesDirty();
     void RebuildProcessorState();
     void RebuildPlaybackState();
     void AppendQueuedOrderIndex(size_t OrderIndexValue);

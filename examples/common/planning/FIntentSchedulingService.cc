@@ -65,14 +65,20 @@ uint32_t FIntentSchedulingService::DrainReadyIntents(
         ++DrainedIntentCountValue;
     }
 
-    for (const uint32_t AbortedOrderIdValue : AbortedOrderIds)
+    if (!AbortedOrderIds.empty() || !DispatchedOrderIds.empty())
     {
-        CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(AbortedOrderIdValue, EOrderLifecycleState::Aborted);
-    }
-    for (const uint32_t DispatchedOrderIdValue : DispatchedOrderIds)
-    {
-        CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(DispatchedOrderIdValue,
-                                                                    EOrderLifecycleState::Dispatched);
+        CommandAuthoritySchedulingStateValue.BeginMutationBatch();
+        for (const uint32_t AbortedOrderIdValue : AbortedOrderIds)
+        {
+            CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(AbortedOrderIdValue,
+                                                                       EOrderLifecycleState::Aborted);
+        }
+        for (const uint32_t DispatchedOrderIdValue : DispatchedOrderIds)
+        {
+            CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(DispatchedOrderIdValue,
+                                                                        EOrderLifecycleState::Dispatched);
+        }
+        CommandAuthoritySchedulingStateValue.EndMutationBatch();
     }
 
     return DrainedIntentCountValue;
