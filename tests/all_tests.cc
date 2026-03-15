@@ -22,6 +22,7 @@
 #include "test_performance.h"
 #include "test_rendered.h"
 #include "test_restart.h"
+#include "test_scheduler_hot_path_profiles.h"
 #include "test_singularity_framework.h"
 #include "test_snapshots.h"
 #include "test_terran_descriptor_pipeline.h"
@@ -105,6 +106,7 @@ int main(int argc, char* argv[])
     TEST(sc2::TestMovementCombat);
     TEST(sc2::TestFastRestartSinglePlayer);
     TEST(sc2::TestUnitCommand);
+    TEST(sc2::TestSchedulerHotPathProfiles);
     TEST(sc2::TestPerformance);
     TEST(sc2::TestObservationInterface);
     TEST(sc2::TestSingularityFramework);

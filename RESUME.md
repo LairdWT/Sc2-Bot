@@ -87,6 +87,15 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 - `test_terran_economy_production_order_expander` now validates:
   - a wall depot order still creates work when another completed depot exists away from the wall slot
   - exact wall-slot orders do not drift to aggregate depot-count completion
+- Added hot-path profiling coverage:
+  - `tests/test_scheduler_hot_path_profiles.cc`
+  - `tests/test_scheduler_hot_path_profiles.h`
+  - wired through `tests/all_tests.cc` and `tests/CMakeLists.txt`
+- `TestSchedulerHotPathProfiles` now reports:
+  - type sizes for `FGoalDescriptor`, `FCommandTaskDescriptor`, `FCommandOrderRecord`, and `FCommandAuthoritySchedulingState`
+  - approximate retained bytes for task descriptors, goal sets, and scheduler storage
+  - isolated goal-derivation timing through `FDefaultStrategicDirector`
+  - isolated scheduler enqueue, derived-queue rebuild, priority recompute, and compaction timing
 
 ### Current In-Progress Implementation State
 - `cmd /c Build.bat --target tutorial` passes with the latest combat-dedupe and wall-slot fixes.
@@ -99,16 +108,32 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
   - repeated `TargetAlreadySatisfied` events for plan steps `1` and `8`
   - exact ramp wall orders were still being treated like generic depot counts in the economy projected-count path
   - the latest local fix addresses that by keeping exact wall-slot satisfaction and waiting logic slot-specific
+- The newest visible live run after the wall-slot fix still showed two unresolved issues:
+  - command centers were no longer sustaining SCV production correctly, so worker recovery fell out of the queue
+  - the game still slowed down heavily over time even after combat and production collapsed, which means the remaining hot path is scheduler retention and deferral churn rather than only combat intent spam
+- The newest late-game live numbers after the wall-slot fix were still high despite almost no surviving combat units:
+  - `DispatchUpdate` stayed reduced to sub-millisecond values, roughly `0.7-0.9 ms`
+  - `Economy` still sat around `24-26 ms`
+  - `Strategic` still sat around `7-8 ms`
+  - the scheduler retained large queue groups such as `PlanningQueues: High 7 | Normal 63 | Low 5`
+  - deferral telemetry kept climbing past `4000`
+- The newest isolated profiling numbers line up with that diagnosis:
+  - goal derivation remained cheap at roughly `1 us` average in both `Recovery` and `MidGame`
+  - derived queue rebuild remained relatively cheap at roughly `1.2 ms` for `8192` synthetic orders
+  - scheduler compaction was much more expensive at roughly `51.8 ms` for `8192` synthetic orders
+  - this suggests the next performance slice should focus on active-order admission, stale-order retirement, and deferral churn before lower-level micro-optimizations
 - Focused validation that currently passes for this slice:
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestCommandAuthorityScheduling' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranArmyOrderPipeline' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 180`
+  - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestSchedulerHotPathProfiles' --timeout 180`
   - `cmd /c Build.bat --target tutorial`
 - Remaining work in this slice:
-  - run another visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` to confirm the wall-slot churn fix reduced the economy spike
+  - restore command-center SCV production so worker saturation and recovery goals actually keep feeding the economy
+  - identify why strategic and economy orders keep accumulating and deferring in recovery instead of collapsing when their producers no longer exist
   - extend bounded scheduler admission beyond the unit-execution layer so new work cannot flood the hot store indefinitely as the game progresses
   - consider ring-buffer-backed per-domain admission buffers with explicit overflow telemetry after the first admission cap is in place
-  - consider a second compaction or archival pass for older non-opening terminal orders once the remaining recovery paths are audited
+  - consider a second compaction or archival pass for older non-opening terminal orders once the remaining recovery and goal-order paths are audited
   - prune long-lived telemetry maps keyed by historical order ids so telemetry does not become the next unbounded retention surface
 
 ### Commit Scope For This Checkpoint
@@ -116,9 +141,9 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 - Continue to exclude `.codex/` and any other non-project local tooling artifacts from the checkpoint commit.
 
 ### Immediate Next Steps After This Commit
-1. Push the verified combat-dedupe and wall-slot-economy fix checkpoint.
-2. Re-run the visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` and compare the remaining economy-phase spike against the previous `42-43 ms` late-game readings.
-3. If the economy spike remains high, add bounded per-domain admission buffers or ring-buffer-backed package feeders above the hot scheduler store.
+1. Push the profiler test slice together with the latest scheduler fixes.
+2. Run the full test suite and a visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat`.
+3. Fix worker-production starvation and strategic-order retention before adding broader ring-buffer admission layers.
 
 ## What Has Already Been Implemented
 

@@ -15,6 +15,7 @@ set(sc2test_sources
     test_observation_interface.cc
     test_performance.cc
     test_restart.cc
+    test_scheduler_hot_path_profiles.cc
     test_singularity_framework.cc
     test_snapshots.cc
     test_terran_economic_models.cc
