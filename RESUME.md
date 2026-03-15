@@ -2,6 +2,93 @@
 
 You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building placement effort.
 
+## Latest Resume Update
+
+### Current Slice
+- The active slice is now the bounded hot scheduler frontier, blocked retry buffers, and worker-recovery pass.
+- This work sits on top of the scheduler-owned army pipeline and the goal-driven task descriptors; it is focused on stopping deferred strategic and economy work from living forever in the hot store.
+
+### Implemented In This Slice
+- Added scheduler task retention and wake metadata:
+  - `ECommandTaskRetentionPolicy`
+  - `EBlockedTaskWakeKind`
+- Added blocked retry and scheduler stimulus types:
+  - `FBlockedTaskRecord`
+  - `FBlockedTaskRingBuffer`
+  - `FSchedulerStimulusState`
+- Added `ICommandTaskAdmissionService` and `FTerranCommandTaskAdmissionService`.
+- `FCommandTaskDescriptor` and `FCommandOrderRecord` now carry:
+  - `RetentionPolicy`
+  - `BlockedTaskWakeKind`
+  - `ConsecutiveDeferralCount` on orders
+- `FCommandAuthoritySchedulingState` now carries:
+  - blocked strategic and planning retry buffers
+  - blocked retry counters for buffered, coalesced, dropped, reactivated, and rejected must-run work
+  - scheduler stimulus state
+  - `bPrioritiesDirty`
+- `FCommandAuthorityProcessor` now uses the admission service to:
+  - refresh scheduler stimulus revisions
+  - reactivate blocked retry work
+  - admit opening and goal-driven strategic work only when it belongs in the hot frontier
+- Remaining-opening coverage no longer suppresses runtime:
+  - `WorkerProduction`
+  - `Supply`
+  - `Expansion`
+  - `Recovery`
+  merely because similar work still exists somewhere later in the authored opening asset
+- Deferred strategic and economy work now parks out of the hot store on:
+  - `NoProducer`
+  - `InsufficientResources`
+  - `NoValidPlacement`
+  - `ReservedSlotOccupied`
+  - `ReservedSlotInvalidated`
+  - `ProducerBusy` after three consecutive busy deferrals
+- `FTerranEconomyProductionOrderExpander` now:
+  - copies the new retention and wake metadata into child orders
+  - allows SCV production to create one child execution order per eligible town hall up to the requested queue count
+  - correctly treats `CommandCenter`, `OrbitalCommand`, and `PlanetaryFortress` as valid SCV producers in that worker path
+- `FCommandAuthoritySchedulingState::SortDerivedQueues()` now preserves and sorts `DispatchedOrderIndices` instead of clearing them, which restored the correct `Dispatching` playback state after ready-intent drain
+- `PrintAgentState()` now reports:
+  - active hot counts by layer
+  - blocked strategic and planning occupancy
+  - blocked retry counters
+  - blocked counts grouped by deferral reason
+
+### Test Coverage Added Or Extended
+- `test_command_authority_scheduling` now covers:
+  - blocked retry ring-buffer coalescing
+  - discardable-duplicate eviction
+  - must-run blocked retry rejection signaling
+  - strategic hot admission caps
+  - duplicate hot admission rejection
+  - must-run admission beyond the normal strategic cap
+  - parking `NoProducer` work into blocked strategic storage
+  - producer-stimulus reactivation
+  - `ProducerBusy` parking after three consecutive busy deferrals
+- `test_terran_economy_production_order_expander` now covers:
+  - one SCV child order per eligible command center or orbital for a multi-townhall worker task
+- `test_scheduler_hot_path_profiles` now reports:
+  - retained bytes for retention and wake columns
+  - retained bytes for blocked retry buffers separately from hot orders
+  - admission promotion timing
+  - blocked parking timing
+  - blocked reactivation timing
+
+### Current Validation State
+- Passed:
+  - `cmd /c BuildAllTests.bat`
+  - `sc2::TestCommandAuthorityScheduling`
+  - `sc2::TestTerranEconomyProductionOrderExpander`
+  - `sc2::TestSchedulerHotPathProfiles`
+  - `sc2::TestTerranOpeningPlanScheduler`
+  - `sc2::TestTerranArmyOrderPipeline`
+  - `cmd /c Build.bat --target tutorial`
+- Live run:
+  - launched only with `cmd /c LaunchTerranEasyComputerMatch.bat`
+  - the match did not terminate within the 30-minute timeout window
+  - `tutorial.exe` and `SC2_x64.exe` were then killed manually
+  - this means the slice is live-stable enough to stay in game, but it still lacks a clean live acceptance verdict for late-game macro closure and scheduler churn
+
 ## Immediate User Requests
 - Push the current verified optimization work to git after updating `RESUME.md`.
 - Preserve the user-approved live launch path: only `cmd /c LaunchTerranEasyComputerMatch.bat`.

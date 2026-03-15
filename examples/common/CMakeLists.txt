@@ -28,7 +28,9 @@ set(sc2_terran_bot_common_sources
     goals/FGoalDescriptor.cc
     descriptors/IGameStateDescriptorBuilder.cc
     planning/ECommandAuthorityLayer.cc
+    planning/ECommandTaskRetentionPolicy.cc
     planning/ECommandPriorityTier.cc
+    planning/EBlockedTaskWakeKind.cc
     planning/ECommandOrderDeferralReason.cc
     planning/ECommandTaskType.cc
     planning/EIntentDomain.cc
@@ -38,13 +40,17 @@ set(sc2_terran_bot_common_sources
     planning/EPlanningProcessorState.cc
     planning/EWallGateState.cc
     planning/FCommandTaskDescriptor.cc
+    planning/FBlockedTaskRecord.cc
+    planning/FBlockedTaskRingBuffer.cc
     planning/FCommandAuthoritySchedulingState.cc
     planning/FCommandAuthorityProcessor.cc
     planning/FDefaultStrategicDirector.cc
     planning/FCommandOrderRecord.cc
+    planning/FSchedulerStimulusState.cc
     planning/FTacticalBehaviorScore.cc
     planning/FTerranArmyOrderExpander.cc
     planning/FTerranArmyUnitExecutionPlanner.cc
+    planning/FTerranCommandTaskAdmissionService.cc
     planning/FTerranCommandTaskPriorityService.cc
     planning/FTerranRampWallController.cc
     planning/FTerranEconomyProductionOrderExpander.cc

@@ -13,6 +13,7 @@
 #include "common/planning/FTerranArmyPlanner.h"
 #include "common/planning/FTerranArmyOrderExpander.h"
 #include "common/planning/FTerranArmyUnitExecutionPlanner.h"
+#include "common/planning/FTerranCommandTaskAdmissionService.h"
 #include "common/planning/FTerranRampWallController.h"
 #include "common/planning/FTerranCommandTaskPriorityService.h"
 #include "common/planning/FTerranEconomyProductionOrderExpander.h"
@@ -123,6 +124,8 @@ private:
     const IArmyPlanner* ArmyPlanner{&DefaultArmyPlanner};
     FTerranCommandTaskPriorityService DefaultCommandTaskPriorityService;
     const ICommandTaskPriorityService* CommandTaskPriorityService{&DefaultCommandTaskPriorityService};
+    FTerranCommandTaskAdmissionService DefaultCommandTaskAdmissionService;
+    const ICommandTaskAdmissionService* CommandTaskAdmissionService{&DefaultCommandTaskAdmissionService};
     FCommandAuthorityProcessor CommandAuthorityProcessor;
     FTerranArmyOrderExpander DefaultArmyOrderExpander;
     const IArmyOrderExpander* ArmyOrderExpander{&DefaultArmyOrderExpander};

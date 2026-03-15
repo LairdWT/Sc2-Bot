@@ -2,131 +2,107 @@
 
 ## Purpose
 
-The bot should accumulate a versioned record of what happened in each game so later analysis does not depend on scraping console logs or replay metadata manually.
+This page documents the current telemetry implementation used by the Terran coordinator path, and the currently missing game-record-store layer.
 
-The primary goals are:
+Primary code surfaces:
 
-- record what plan and decisions were active
-- record what the game state looked like when those decisions were made
-- record the outcome and opponent context
-- export compact spatial summaries such as heatmaps
+- `L:\Sc2_Bot\examples\terran\terran.cc`
+- `L:\Sc2_Bot\examples\common\telemetry\FAgentExecutionTelemetry.h`
+- `L:\Sc2_Bot\examples\common\telemetry\FAgentExecutionTelemetry.cc`
+- `L:\Sc2_Bot\tests\test_agent_execution_telemetry.cc`
 
-The storage direction should follow the installed `structure-of-arrays` and `data-oriented-models` skills.
+## Current Runtime Owner
 
-## Record Layers
+`TerranAgent` owns one `FAgentExecutionTelemetry ExecutionTelemetry` instance and updates it from:
 
-Planned record layers:
+- `OnGameStart()` via `ExecutionTelemetry.Reset()`
+- `OnStep()` via `UpdateExecutionTelemetry(const FFrameContext& Frame)`
 
-- `FMatchRecord`
-  one manifest per game
-- `FDecisionEventStore`
-  append-only decision and state transition events
-- `FSpatialSnapshotStore`
-  coarse field and heatmap exports
-- `FOutcomeSummary`
-  final result, matchup, and timing summary
+`PrintAgentState()` reads telemetry counters and prints recent event summaries.
 
-## Versioning
+## Telemetry State Model
 
-Every recorded match should carry explicit version data.
+`FAgentExecutionTelemetry` currently owns:
 
-Required version fields:
+- supply-block state and duration
+- mineral-bank state, duration, and last mineral amount
+- total counters:
+  - `TotalActorIntentConflictCount`
+  - `TotalIdleProductionConflictCount`
+  - `TotalSchedulerOrderDeferralCount`
+- rolling event buffer: `RecentEvents`
 
-- telemetry schema version
-- bot architecture version
-- git commit or build identifier
-- StarCraft II version
+Deduplication caches prevent repeated spam for the same actor/order within cooldown windows:
 
-The telemetry reader should reject or migrate unknown schema versions instead of silently guessing.
+- `LastActorConflictStepByActor`
+- `LastIdleProductionConflictStepByActor`
+- `LastSchedulerDeferralStepByOrderId`
+- `LastSchedulerDeferralReasonByOrderId`
 
-## Opponent Classification
+## Event Contract
 
-Opponent type should be stored with an enum, not free-form strings.
+`FAgentExecutionTelemetry` appends `FExecutionEventRecord` events for:
 
-Planned enum:
+- `SupplyBlockedStarted`
+- `SupplyBlockedEnded`
+- `MineralBankStarted`
+- `MineralBankEnded`
+- `ActorIntentConflict`
+- `IdleProductionStructure`
+- `SchedulerOrderDeferred`
+- `WallDescriptorInvalid`
+- `WallThreatDetected`
+- `WallOpened`
+- `WallClosed`
 
-- `EOpponentCategory::BlizzardComputer`
-- `EOpponentCategory::Human`
-- `EOpponentCategory::ThirdPartyBot`
-- `EOpponentCategory::Unknown`
+Buffer rules:
 
-Optional future labels:
+- cooldown: 120 steps per actor/order key for conflict/deferral classes
+- ring size: `MaxRecentEventCountValue = 16`
 
-- ladder MMR band
-- matchup
-- known bot name
-- map name and spawn location pairing
+## Coordinator Integration Order
 
-## Authoritative Event Shape
+`TerranAgent::OnStep()` calls telemetry update after all producer stages and before intent resolution:
 
-Decision and state history should be recorded as a structure-of-arrays event store.
+1. Producer stages populate `IntentBuffer` and scheduler deferral metadata.
+2. `UpdateExecutionTelemetry(Frame)` consumes `IntentBuffer` and `CommandAuthoritySchedulingState`.
+3. `FIntentArbiter::Resolve(...)` runs after telemetry capture.
 
-Planned authoritative columns:
+This makes telemetry describe production-time conflicts and deferrals for the current frame before resolution drops losing intents.
 
-- `MatchIds`
-- `EventSteps`
-- `EventTypes`
-- `GamePlanValues`
-- `MacroPhaseValues`
-- `ArmyIndices`
-- `SquadIndices`
-- `SourceLayers`
-- `DecisionReasonCodes`
-- `MineralValues`
-- `VespeneValues`
-- `SupplyValues`
-- `ThreatScores`
-- `OutcomeFlags`
+## Current Detection Rules
 
-Row-style views should be reconstructed only for export, debugging, or analysis queries.
+`UpdateExecutionTelemetry(...)` records:
 
-## Spatial Export Direction
+- supply blocked when `ObservationPtr->GetFoodCap() < 200` and `BuildPlanning.AvailableSupply == 0`
+- mineral banking when `BuildPlanning.AvailableMinerals >= 400`
+- actor-intent conflicts when the same actor receives non-matching intents in a single frame
+- idle marine production conflicts for idle completed `TERRAN_BARRACKS` when marine demand exists
+- idle worker production conflicts for idle town halls when worker demand exists
+- scheduler deferral events for orders deferred on the current step
 
-Spatial exports should have two forms:
+Wall-related events are recorded from other coordinator functions:
 
-- structured field metadata
-- compact image payloads
+- `RecordWallDescriptorInvalid(...)` in `InitializeRampWallDescriptor(...)`
+- `RecordWallThreatDetected(...)`, `RecordWallClosed(...)`, `RecordWallOpened(...)` in `ProduceWallGateIntents(...)`
 
-For aggregate per-race density or hotspot accumulation, one image can encode:
+## Test Coverage
 
-- `R` channel for Zerg-related values
-- `G` channel for Protoss-related values
-- `B` channel for Terran-related values
+`L:\Sc2_Bot\tests\test_agent_execution_telemetry.cc` verifies:
 
-That is a good compact export format for aggregated race-conditioned heatmaps. It should not replace the authoritative structured metadata needed to interpret:
+- state transitions for supply-block and mineral-bank conditions
+- event generation for all public record methods
+- cooldown coalescing for actor conflict, idle production, and scheduler deferral events
+- reset behavior for counters and buffers
+- preservation of deferral reason and order id fields
 
-- map identifier
-- world-to-pixel transform
-- normalization rules
-- field meaning
-- schema version
+## Open Gap: Match Record Store
 
-If one export must carry both race-conditioned data and confidence or recency, use either:
+A persistent match-level telemetry store is not implemented in the current owned Terran path.
 
-- a second image
-- a separate metadata blob
-- an additional scalar grid in the structured snapshot store
+There is no current `FMatchRecord` or durable event export surface in:
 
-## Match Output Bundle
+- `L:\Sc2_Bot\examples\terran`
+- `L:\Sc2_Bot\examples\common\telemetry`
 
-The preferred output shape is one folder per match containing:
-
-- match manifest
-- decision event file
-- outcome summary
-- spatial image exports
-- spatial metadata manifest
-- optional replay correlation data
-
-The storage location should be outside the live gameplay state and treated as analytics output.
-
-## Immediate Implementation Direction
-
-The first implementation should stay compact:
-
-- one match manifest
-- one append-only decision event store
-- one outcome summary
-- one coarse spatial snapshot export
-
-That is enough to start building a reusable database of bot behavior without overbuilding the learning pipeline before the architecture is stable.
+Current telemetry is in-memory per run and console-observable only.

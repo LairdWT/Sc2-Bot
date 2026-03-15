@@ -13,7 +13,12 @@ Primary local sources:
 - `L:\Sc2_Bot\examples\common\planning\FTerranEconomyProductionOrderExpander.cc`
 - `L:\Sc2_Bot\examples\common\services\FTerranBuildPlacementService.cc`
 - `L:\Sc2_Bot\src\sc2api\sc2_client.h`
+- `L:\Sc2_Bot\src\sc2api\sc2_client.cc`
 - `L:\Sc2_Bot\src\sc2api\sc2_interfaces.h`
+- `L:\Sc2_Bot\src\sc2api\sc2_proto_to_pods.cc`
+- `L:\Sc2_Bot\src\sc2api\sc2_coordinator.cc`
+- `L:\Sc2_Bot\tests\test_feature_layer.cc`
+- `L:\Sc2_Bot\tests\test_actions.cc`
 
 ## API Acquisition Surface
 
@@ -73,6 +78,14 @@ Downstream surfaces that directly depend on `Frame.Observation`:
 - `FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(...)`
 - worker assignment and refinery commitment helpers in `terran.cc`
 
+Feature-layer action mirror surface on `ObservationInterface`:
+
+- `const SpatialActions& GetFeatureLayerActions() const`
+- `ObservationImp::UpdateObservation()` resets `feature_layer_actions_` only when `is_new_frame` is true (`next_game_loop != current_game_loop_`), then always calls `ConvertFeatureLayerActions(response_, feature_layer_actions_)`.
+- `ConvertFeatureLayerActions(...)` appends into `SpatialActions` collections through `ConvertSpatialAction(...)`.
+- In stepped mode, `CoordinatorImp::StepAgents()` calls `ControlImp::Step(...)` then `ControlImp::WaitStep()`, and `WaitStep()` calls `GetObservation()` once per step request.
+- In realtime mode, `CoordinatorImp::StepAgentsRealtime()` calls `control->GetObservation()` directly each update, so multiple observations can occur without a forced game-loop advance.
+
 ## QueryInterface Usage In Owned Terran Flow
 
 Coordinator seam usage:
@@ -110,7 +123,11 @@ Bot-owned responsibility:
 - `Query()` is optional at acquisition time; downstream code decides whether to hard-require it.
 - Placement and pathing validation paths explicitly reject intents or orders when `QueryInterface` is required but missing.
 - Feature-layer ingestion requires both `Frame.IsValid()` and `Frame.RawObservation->has_feature_layer_data()`.
+- `GetFeatureLayerActions()` is a mirror of action data carried by observation updates, not a command authority surface for `TerranAgent` execution.
 
 ## Remaining Ambiguities After This Pass
 
-- None.
+- `FL-002`
+  - `ObservationImp::UpdateObservation()` clears `feature_layer_actions_` only when `is_new_frame` is true, while `ConvertFeatureLayerActions(...)` appends entries.
+  - Local source proves reset and append boundaries but does not prove server-side semantics for repeated same-loop `ResponseObservation::actions` payloads.
+  - Existing tests validate next-loop action visibility, but do not assert same-loop cardinality under repeated `GetObservation()` calls in realtime cadence.

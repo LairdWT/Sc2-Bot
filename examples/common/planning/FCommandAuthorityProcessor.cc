@@ -1,6 +1,10 @@
 #include "common/planning/FCommandAuthorityProcessor.h"
 
+#include <algorithm>
+
 #include "common/build_orders/FOpeningPlanRegistry.h"
+#include "common/planning/FTerranCommandTaskAdmissionService.h"
+#include "common/planning/ICommandTaskAdmissionService.h"
 #include "common/terran_models.h"
 
 namespace sc2
@@ -111,6 +115,25 @@ bool IsRampWallSlotType(const EBuildPlacementSlotType PreferredPlacementSlotType
         default:
             return false;
     }
+}
+
+bool DoesTaskSignatureMatch(const uint32_t LeftTaskIdValue, const uint32_t LeftSourceGoalIdValue,
+                            const AbilityID LeftAbilityIdValue, const UNIT_TYPEID LeftResultUnitTypeIdValue,
+                            const UpgradeID LeftUpgradeIdValue,
+                            const FBuildPlacementSlotId& LeftPreferredPlacementSlotIdValue,
+                            const uint32_t RightTaskIdValue, const uint32_t RightSourceGoalIdValue,
+                            const AbilityID RightAbilityIdValue, const UNIT_TYPEID RightResultUnitTypeIdValue,
+                            const UpgradeID RightUpgradeIdValue,
+                            const FBuildPlacementSlotId& RightPreferredPlacementSlotIdValue)
+{
+    if (LeftTaskIdValue != 0U || RightTaskIdValue != 0U)
+    {
+        return LeftTaskIdValue == RightTaskIdValue;
+    }
+
+    return LeftSourceGoalIdValue == RightSourceGoalIdValue && LeftAbilityIdValue == RightAbilityIdValue &&
+           LeftResultUnitTypeIdValue == RightResultUnitTypeIdValue && LeftUpgradeIdValue == RightUpgradeIdValue &&
+           LeftPreferredPlacementSlotIdValue == RightPreferredPlacementSlotIdValue;
 }
 
 bool ShouldUseExactWallSlotObservedMatch(const FGameStateDescriptor& GameStateDescriptorValue,
@@ -229,22 +252,42 @@ bool TryPopulateUpgradeGoalOrder(const FGoalDescriptor& GoalDescriptorValue, con
     return true;
 }
 
-bool TryPopulateGoalOrder(const FGoalDescriptor& GoalDescriptorValue, const uint64_t CurrentGameLoopValue,
-                          FCommandOrderRecord& CommandOrderRecordValue)
+bool IsCriticalRecoveryMacroState(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return GameStateDescriptorValue.MacroState.ActiveBaseCount == 0U ||
+           GameStateDescriptorValue.MacroState.WorkerCount < 12U;
+}
+
+uint32_t GetReadyTownHallCount(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return std::max<uint32_t>(1U, GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount);
+}
+
+bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, const FGoalDescriptor& GoalDescriptorValue,
+                          const uint64_t CurrentGameLoopValue, FCommandOrderRecord& CommandOrderRecordValue)
 {
     switch (GoalDescriptorValue.GoalType)
     {
         case EGoalType::SaturateWorkers:
+        {
+            const uint32_t WorkerDeficitValue =
+                GoalDescriptorValue.TargetCount > GameStateDescriptorValue.MacroState.WorkerCount
+                    ? GoalDescriptorValue.TargetCount - GameStateDescriptorValue.MacroState.WorkerCount
+                    : 0U;
             CommandOrderRecordValue = FCommandOrderRecord::CreateNoTarget(
                 ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::TRAIN_SCV,
                 GoalDescriptorValue.BasePriorityValue, EIntentDomain::UnitProduction, CurrentGameLoopValue);
             CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::Macro;
             CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Unit;
             CommandOrderRecordValue.TaskType = ECommandTaskType::WorkerProduction;
+            CommandOrderRecordValue.RetentionPolicy = ECommandTaskRetentionPolicy::HotMustRun;
             CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_COMMANDCENTER;
             CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
             CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
+            CommandOrderRecordValue.RequestedQueueCount =
+                std::max<uint32_t>(1U, std::min<uint32_t>(WorkerDeficitValue, GetReadyTownHallCount(GameStateDescriptorValue)));
             return true;
+        }
         case EGoalType::MaintainSupply:
             CommandOrderRecordValue = FCommandOrderRecord::CreateNoTarget(
                 ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::BUILD_SUPPLYDEPOT,
@@ -252,6 +295,9 @@ bool TryPopulateGoalOrder(const FGoalDescriptor& GoalDescriptorValue, const uint
             CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::Supply;
             CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
             CommandOrderRecordValue.TaskType = ECommandTaskType::Supply;
+            CommandOrderRecordValue.RetentionPolicy = IsCriticalRecoveryMacroState(GameStateDescriptorValue)
+                                                          ? ECommandTaskRetentionPolicy::HotMustRun
+                                                          : ECommandTaskRetentionPolicy::BufferedRetry;
             CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
             CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
             CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -263,6 +309,9 @@ bool TryPopulateGoalOrder(const FGoalDescriptor& GoalDescriptorValue, const uint
             CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::Expansion;
             CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Expansion;
             CommandOrderRecordValue.TaskType = ECommandTaskType::Expansion;
+            CommandOrderRecordValue.RetentionPolicy = IsCriticalRecoveryMacroState(GameStateDescriptorValue)
+                                                          ? ECommandTaskRetentionPolicy::HotMustRun
+                                                          : ECommandTaskRetentionPolicy::BufferedRetry;
             CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
             CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_COMMANDCENTER;
             CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -460,27 +509,42 @@ bool HasActiveStrategicOrderForGoal(const FCommandAuthoritySchedulingState& Comm
 bool DoesRemainingOpeningPlanCoverOrder(const FGameStateDescriptor& GameStateDescriptorValue,
                                         const FCommandOrderRecord& CommandOrderRecordValue)
 {
-    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
-    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
-        FOpeningPlanRegistry::GetOpeningPlanDescriptor(OpeningPlanExecutionStateValue.ActivePlanId);
-
-    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    switch (CommandOrderRecordValue.TaskType)
     {
-        const FCommandTaskDescriptor& CommandTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
-        if (OpeningPlanExecutionStateValue.IsStepCompleted(CommandTaskDescriptorValue.TaskId))
+        case ECommandTaskType::WorkerProduction:
+        case ECommandTaskType::Supply:
+        case ECommandTaskType::Expansion:
+        case ECommandTaskType::Recovery:
+            return false;
+        default:
+            break;
+    }
+
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
+        GameStateDescriptorValue.CommandAuthoritySchedulingState;
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.PlanStepIds[OrderIndexValue] == 0U ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
         {
             continue;
         }
 
-        if (CommandTaskDescriptorValue.ActionUpgradeId.ToType() != UPGRADE_ID::INVALID &&
-            CommandTaskDescriptorValue.ActionUpgradeId == CommandOrderRecordValue.UpgradeId)
-        {
-            return CommandTaskDescriptorValue.ActionTargetCount >= CommandOrderRecordValue.TargetCount;
-        }
-
-        if (CommandTaskDescriptorValue.ActionAbilityId == CommandOrderRecordValue.AbilityId &&
-            CommandTaskDescriptorValue.ActionResultUnitTypeId == CommandOrderRecordValue.ResultUnitTypeId &&
-            CommandTaskDescriptorValue.ActionTargetCount >= CommandOrderRecordValue.TargetCount)
+        FBuildPlacementSlotId PreferredPlacementSlotIdValue;
+        PreferredPlacementSlotIdValue.SlotType =
+            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdTypes[OrderIndexValue];
+        PreferredPlacementSlotIdValue.Ordinal =
+            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdOrdinals[OrderIndexValue];
+        if (DoesTaskSignatureMatch(CommandAuthoritySchedulingStateValue.PlanStepIds[OrderIndexValue],
+                                   CommandAuthoritySchedulingStateValue.SourceGoalIds[OrderIndexValue],
+                                   CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue],
+                                   CommandAuthoritySchedulingStateValue.ResultUnitTypeIds[OrderIndexValue],
+                                   CommandAuthoritySchedulingStateValue.UpgradeIds[OrderIndexValue],
+                                   PreferredPlacementSlotIdValue, CommandOrderRecordValue.PlanStepId,
+                                   CommandOrderRecordValue.SourceGoalId, CommandOrderRecordValue.AbilityId,
+                                   CommandOrderRecordValue.ResultUnitTypeId, CommandOrderRecordValue.UpgradeId,
+                                   CommandOrderRecordValue.PreferredPlacementSlotId))
         {
             return true;
         }
@@ -493,14 +557,24 @@ bool DoesRemainingOpeningPlanCoverOrder(const FGameStateDescriptor& GameStateDes
 
 void FCommandAuthorityProcessor::ProcessSchedulerStep(FGameStateDescriptor& GameStateDescriptorValue) const
 {
+    static const FTerranCommandTaskAdmissionService DefaultCommandTaskAdmissionServiceValue;
+    ProcessSchedulerStep(GameStateDescriptorValue, DefaultCommandTaskAdmissionServiceValue);
+}
+
+void FCommandAuthorityProcessor::ProcessSchedulerStep(
+    FGameStateDescriptor& GameStateDescriptorValue,
+    const ICommandTaskAdmissionService& CommandTaskAdmissionServiceValue) const
+{
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptorValue.CommandAuthoritySchedulingState;
 
     CommandAuthoritySchedulingStateValue.BeginMutationBatch();
     InitializeOpeningPlan(GameStateDescriptorValue);
+    CommandTaskAdmissionServiceValue.RefreshStimulusState(GameStateDescriptorValue);
+    CommandTaskAdmissionServiceValue.ReactivateBlockedTasks(GameStateDescriptorValue);
     UpdateCompletedOpeningSteps(GameStateDescriptorValue);
-    SeedReadyStrategicOrders(GameStateDescriptorValue);
-    SeedGoalDrivenStrategicOrders(GameStateDescriptorValue);
+    SeedReadyStrategicOrders(GameStateDescriptorValue, CommandTaskAdmissionServiceValue);
+    SeedGoalDrivenStrategicOrders(GameStateDescriptorValue, CommandTaskAdmissionServiceValue);
     CommandAuthoritySchedulingStateValue.EndMutationBatch();
 
     CommandAuthoritySchedulingStateValue.BeginMutationBatch();
@@ -638,7 +712,9 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
     }
 }
 
-void FCommandAuthorityProcessor::SeedReadyStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue) const
+void FCommandAuthorityProcessor::SeedReadyStrategicOrders(
+    FGameStateDescriptor& GameStateDescriptorValue,
+    const ICommandTaskAdmissionService& CommandTaskAdmissionServiceValue) const
 {
     FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
     const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
@@ -668,33 +744,26 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(FGameStateDescriptor& 
             continue;
         }
 
-        FCommandOrderRecord StrategicOrderValue = FCommandOrderRecord::CreateNoTarget(
-            ECommandAuthorityLayer::StrategicDirector, NullTag, CommandTaskDescriptorValue.ActionAbilityId,
-            CommandTaskDescriptorValue.BasePriorityValue, EIntentDomain::StructureBuild,
-            CommandTaskDescriptorValue.TriggerMinGameLoop);
-        StrategicOrderValue.TaskPackageKind = CommandTaskDescriptorValue.PackageKind;
-        StrategicOrderValue.TaskNeedKind = CommandTaskDescriptorValue.NeedKind;
-        StrategicOrderValue.TaskType = CommandTaskDescriptorValue.TaskType;
-        StrategicOrderValue.SourceGoalId = CommandTaskDescriptorValue.SourceGoalId;
-        StrategicOrderValue.PlanStepId = CommandTaskDescriptorValue.TaskId;
-        StrategicOrderValue.TargetCount = CommandTaskDescriptorValue.ActionTargetCount;
-        StrategicOrderValue.RequestedQueueCount = CommandTaskDescriptorValue.ActionRequestedQueueCount;
-        StrategicOrderValue.ProducerUnitTypeId = CommandTaskDescriptorValue.ActionProducerUnitTypeId;
-        StrategicOrderValue.ResultUnitTypeId = CommandTaskDescriptorValue.ActionResultUnitTypeId;
-        StrategicOrderValue.UpgradeId = CommandTaskDescriptorValue.ActionUpgradeId;
-        StrategicOrderValue.PreferredPlacementSlotType =
-            CommandTaskDescriptorValue.ActionPreferredPlacementSlotType;
-        StrategicOrderValue.PreferredPlacementSlotId = CommandTaskDescriptorValue.ActionPreferredPlacementSlotId;
-        StrategicOrderValue.IntentDomain = DetermineIntentDomain(StrategicOrderValue);
-
-        const uint32_t StrategicOrderIdValue =
-            CommandAuthoritySchedulingStateValue.EnqueueOrder(StrategicOrderValue);
+        const uint32_t StrategicOrderIdValue = [&]() -> uint32_t
+        {
+            uint32_t AdmittedOrderIdValue = 0U;
+            return CommandTaskAdmissionServiceValue.TryAdmitOpeningTask(
+                       GameStateDescriptorValue, CommandTaskDescriptorValue, AdmittedOrderIdValue)
+                       ? AdmittedOrderIdValue
+                       : 0U;
+        }();
+        if (StrategicOrderIdValue == 0U)
+        {
+            continue;
+        }
         OpeningPlanExecutionStateValue.RecordSeededStep(CommandTaskDescriptorValue.TaskId, StrategicOrderIdValue);
         ++SeededOrderCountValue;
     }
 }
 
-void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue) const
+void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(
+    FGameStateDescriptor& GameStateDescriptorValue,
+    const ICommandTaskAdmissionService& CommandTaskAdmissionServiceValue) const
 {
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptorValue.CommandAuthoritySchedulingState;
@@ -736,7 +805,9 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(FGameStateDescrip
         ArmyMissionOrderValue.TaskType = ECommandTaskType::ArmyMission;
         ArmyMissionOrderValue.SourceGoalId = ArmyMissionGoalDescriptorValue->GoalId;
         ArmyMissionOrderValue.OwningArmyIndex = 0;
-        CommandAuthoritySchedulingStateValue.EnqueueOrder(ArmyMissionOrderValue);
+        uint32_t ArmyMissionOrderIdValue = 0U;
+        CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(GameStateDescriptorValue, ArmyMissionOrderValue,
+                                                                 ArmyMissionOrderIdValue);
     }
 
     const std::array<const std::vector<FGoalDescriptor>*, 3U> GoalListsValue = {
@@ -760,7 +831,8 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(FGameStateDescrip
             }
 
             FCommandOrderRecord GoalOrderValue;
-            if (!TryPopulateGoalOrder(GoalDescriptorValue, GameStateDescriptorValue.CurrentGameLoop, GoalOrderValue))
+            if (!TryPopulateGoalOrder(GameStateDescriptorValue, GoalDescriptorValue,
+                                      GameStateDescriptorValue.CurrentGameLoop, GoalOrderValue))
             {
                 continue;
             }
@@ -771,7 +843,9 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(FGameStateDescrip
                 continue;
             }
 
-            CommandAuthoritySchedulingStateValue.EnqueueOrder(GoalOrderValue);
+            uint32_t GoalOrderIdValue = 0U;
+            CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(GameStateDescriptorValue, GoalOrderValue,
+                                                                     GoalOrderIdValue);
         }
     }
 }

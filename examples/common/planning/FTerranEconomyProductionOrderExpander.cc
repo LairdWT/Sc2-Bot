@@ -72,6 +72,26 @@ bool IsRampWallSlotType(const EBuildPlacementSlotType BuildPlacementSlotTypeValu
     }
 }
 
+bool IsTerranScvProducerUnitType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_COMMANDCENTER:
+        case UNIT_TYPEID::TERRAN_ORBITALCOMMAND:
+        case UNIT_TYPEID::TERRAN_PLANETARYFORTRESS:
+            return true;
+        default:
+            return false;
+    }
+}
+
+Units GetEligibleWorkerProductionStructures(const ObservationInterface& ObservationValue)
+{
+    return ObservationValue.GetUnits(Unit::Alliance::Self,
+                                     [](const Unit& UnitValue)
+                                     { return IsTerranScvProducerUnitType(UnitValue.unit_type.ToType()); });
+}
+
 bool DoesPlacementSlotSatisfyFootprintPolicy(const FFrameContext& FrameValue,
                                              const FBuildPlacementSlot& BuildPlacementSlotValue,
                                              const ABILITY_ID StructureAbilityIdValue);
@@ -521,6 +541,8 @@ void CopyTaskMetadataToChildOrder(const FCommandOrderRecord& SourceOrderValue, F
     ChildOrderValue.TaskPackageKind = SourceOrderValue.TaskPackageKind;
     ChildOrderValue.TaskNeedKind = SourceOrderValue.TaskNeedKind;
     ChildOrderValue.TaskType = SourceOrderValue.TaskType;
+    ChildOrderValue.RetentionPolicy = SourceOrderValue.RetentionPolicy;
+    ChildOrderValue.BlockedTaskWakeKind = SourceOrderValue.BlockedTaskWakeKind;
     ChildOrderValue.EffectivePriorityValue = SourceOrderValue.EffectivePriorityValue;
     ChildOrderValue.PriorityTier = SourceOrderValue.PriorityTier;
 }
@@ -1849,8 +1871,99 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                const Units ProducerUnitsValue =
-                    FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(EconomyOrderValue.ProducerUnitTypeId));
+                const Units ProducerUnitsValue = EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SCV
+                                                     ? GetEligibleWorkerProductionStructures(*FrameValue.Observation)
+                                                     : FrameValue.Observation->GetUnits(Unit::Alliance::Self,
+                                                                                        IsUnit(EconomyOrderValue.ProducerUnitTypeId));
+
+                if (EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SCV)
+                {
+                    const uint32_t RequestedQueueCountValue = std::max<uint32_t>(1U, EconomyOrderValue.RequestedQueueCount);
+                    const uint32_t AdditionalChildOrderBudgetValue =
+                        RequestedQueueCountValue > ActiveUnitExecutionChildCountValue
+                            ? RequestedQueueCountValue - ActiveUnitExecutionChildCountValue
+                            : 0U;
+                    if (AdditionalChildOrderBudgetValue == 0U)
+                    {
+                        CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+                            EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion,
+                            CurrentStepValue, CurrentGameLoopValue);
+                        continue;
+                    }
+
+                    bool HasBusyProducerValue = false;
+                    uint32_t CreatedChildCountValue = 0U;
+                    for (const Unit* ProducerUnitValue : ProducerUnitsValue)
+                    {
+                        if (ProducerUnitValue == nullptr)
+                        {
+                            continue;
+                        }
+
+                        if (ProducerUnitValue->build_progress < 1.0f ||
+                            IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
+                            HasConflictingSchedulerOrderForProductionActor(CommandAuthoritySchedulingStateValue,
+                                                                           ProducerUnitValue->tag))
+                        {
+                            HasBusyProducerValue = true;
+                            continue;
+                        }
+
+                        if (GetCommittedProductionOrderCount(CommandAuthoritySchedulingStateValue, *ProducerUnitValue) >=
+                            GetProductionQueueCapacity(*FrameValue.Observation, *ProducerUnitValue))
+                        {
+                            HasBusyProducerValue = true;
+                            continue;
+                        }
+
+                        if (!TryReserveUnitCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.ResultUnitTypeId))
+                        {
+                            DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
+                            break;
+                        }
+
+                        FCommandOrderRecord ScvUnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
+                            ECommandAuthorityLayer::UnitExecution, ProducerUnitValue->tag, EconomyOrderValue.AbilityId,
+                            EconomyOrderValue.BasePriorityValue, EIntentDomain::UnitProduction,
+                            GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                        CopyTaskMetadataToChildOrder(EconomyOrderValue, ScvUnitExecutionOrderValue);
+                        ScvUnitExecutionOrderValue.Queued = !ProducerUnitValue->orders.empty();
+                        ScvUnitExecutionOrderValue.LifecycleState = EOrderLifecycleState::Ready;
+                        ScvUnitExecutionOrderValue.PlanStepId = EconomyOrderValue.PlanStepId;
+                        ScvUnitExecutionOrderValue.TargetCount = EconomyOrderValue.TargetCount;
+                        ScvUnitExecutionOrderValue.RequestedQueueCount = EconomyOrderValue.RequestedQueueCount;
+                        ScvUnitExecutionOrderValue.ProducerUnitTypeId = ProducerUnitValue->unit_type.ToType();
+                        ScvUnitExecutionOrderValue.ResultUnitTypeId = EconomyOrderValue.ResultUnitTypeId;
+                        ScvUnitExecutionOrderValue.UpgradeId = EconomyOrderValue.UpgradeId;
+                        CommandAuthoritySchedulingStateValue.EnqueueOrder(ScvUnitExecutionOrderValue);
+                        ++CreatedChildCountValue;
+
+                        if (CreatedChildCountValue >= AdditionalChildOrderBudgetValue)
+                        {
+                            break;
+                        }
+                    }
+
+                    if (CreatedChildCountValue > 0U)
+                    {
+                        CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+                            EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion,
+                            CurrentStepValue, CurrentGameLoopValue);
+                        continue;
+                    }
+
+                    if (DeferralReasonValue == ECommandOrderDeferralReason::None)
+                    {
+                        DeferralReasonValue = HasBusyProducerValue ? ECommandOrderDeferralReason::ProducerBusy
+                                                                   : ECommandOrderDeferralReason::NoProducer;
+                    }
+
+                    CommandAuthoritySchedulingStateValue.SetOrderDeferralState(EconomyOrderValue.OrderId,
+                                                                               DeferralReasonValue, CurrentStepValue,
+                                                                               CurrentGameLoopValue);
+                    continue;
+                }
+
                 bool HasBusyProducerValue = false;
                 for (const Unit* ProducerUnitValue : ProducerUnitsValue)
                 {

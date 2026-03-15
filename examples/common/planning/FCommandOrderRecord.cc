@@ -20,6 +20,8 @@ void FCommandOrderRecord::Reset()
     TaskPackageKind = ECommandTaskPackageKind::Unknown;
     TaskNeedKind = ECommandTaskNeedKind::Unknown;
     TaskType = ECommandTaskType::Unknown;
+    RetentionPolicy = ECommandTaskRetentionPolicy::BufferedRetry;
+    BlockedTaskWakeKind = EBlockedTaskWakeKind::CooldownOnly;
     BasePriorityValue = 0;
     EffectivePriorityValue = 0;
     PriorityTier = ECommandPriorityTier::Normal;
@@ -48,6 +50,7 @@ void FCommandOrderRecord::Reset()
     LastDeferralReason = ECommandOrderDeferralReason::None;
     LastDeferralStep = 0U;
     LastDeferralGameLoop = 0U;
+    ConsecutiveDeferralCount = 0U;
     DispatchStep = 0U;
     DispatchGameLoop = 0U;
     ObservedCountAtDispatch = 0U;

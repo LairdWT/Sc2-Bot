@@ -49,6 +49,10 @@ void FTerranCommandTaskPriorityService::UpdateTaskPriorities(FGameStateDescripto
 {
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptorValue.CommandAuthoritySchedulingState;
+    if (!CommandAuthoritySchedulingStateValue.bPrioritiesDirty)
+    {
+        return;
+    }
 
     CommandAuthoritySchedulingStateValue.BeginMutationBatch();
     const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
@@ -70,6 +74,7 @@ void FTerranCommandTaskPriorityService::UpdateTaskPriorities(FGameStateDescripto
     }
 
     CommandAuthoritySchedulingStateValue.bDerivedQueuesDirty = true;
+    CommandAuthoritySchedulingStateValue.bPrioritiesDirty = false;
     CommandAuthoritySchedulingStateValue.EndMutationBatch();
 }
 

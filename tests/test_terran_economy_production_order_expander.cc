@@ -10,6 +10,7 @@
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/planning/ECommandAuthorityLayer.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
+#include "common/planning/ECommandTaskType.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "common/planning/FCommandOrderRecord.h"
 #include "common/planning/FTerranEconomyProductionOrderExpander.h"
@@ -631,6 +632,87 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
                                  ECommandAuthorityLayer::UnitExecution) == 2U,
           SuccessValue,
           "A unit-production economy order with requested queue count two should keep filling a reactor-backed queue.");
+
+    std::vector<Unit> WorkerTownHallUnitStorageValue;
+    WorkerTownHallUnitStorageValue.push_back(
+        MakeUnit(211U, UNIT_TYPEID::TERRAN_COMMANDCENTER, Unit::Alliance::Self, Point2D(10.0f, 10.0f), true));
+    WorkerTownHallUnitStorageValue.push_back(
+        MakeUnit(212U, UNIT_TYPEID::TERRAN_ORBITALCOMMAND, Unit::Alliance::Self, Point2D(24.0f, 10.0f), true));
+
+    Units WorkerTownHallUnitPointersValue;
+    AppendUnitPointers(WorkerTownHallUnitStorageValue, WorkerTownHallUnitPointersValue);
+
+    FakeObservation WorkerTownHallObservationValue;
+    WorkerTownHallObservationValue.SetUnits(WorkerTownHallUnitPointersValue);
+    WorkerTownHallObservationValue.MineralsValue = 300U;
+    WorkerTownHallObservationValue.FoodCapValue = 60U;
+    WorkerTownHallObservationValue.FoodUsedValue = 20U;
+
+    FakeQuery WorkerTownHallQueryValue;
+    const FFrameContext WorkerTownHallFrameValue =
+        FFrameContext::Create(&WorkerTownHallObservationValue, &WorkerTownHallQueryValue, 2U);
+
+    FAgentState WorkerTownHallAgentStateValue;
+    WorkerTownHallAgentStateValue.Update(WorkerTownHallFrameValue);
+
+    FGameStateDescriptor WorkerTownHallGameStateDescriptorValue;
+    WorkerTownHallGameStateDescriptorValue.CurrentStep = 2U;
+    WorkerTownHallGameStateDescriptorValue.CurrentGameLoop = 2U;
+    WorkerTownHallGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 300U;
+    WorkerTownHallGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    WorkerTownHallGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    WorkerTownHallGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 2U;
+    WorkerTownHallGameStateDescriptorValue.BuildPlanning.ObservedOrbitalCommandCount = 1U;
+
+    FCommandAuthoritySchedulingState& WorkerTownHallSchedulingStateValue =
+        WorkerTownHallGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord WorkerEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::TRAIN_SCV, 175,
+        EIntentDomain::UnitProduction, 2U);
+    WorkerEconomyOrderValue.TaskType = ECommandTaskType::WorkerProduction;
+    WorkerEconomyOrderValue.TargetCount = 28U;
+    WorkerEconomyOrderValue.RequestedQueueCount = 2U;
+    WorkerEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_COMMANDCENTER;
+    WorkerEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    const uint32_t WorkerEconomyOrderIdValue =
+        WorkerTownHallSchedulingStateValue.EnqueueOrder(WorkerEconomyOrderValue);
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        WorkerTownHallFrameValue, WorkerTownHallAgentStateValue, WorkerTownHallGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    Check(CountActiveChildOrders(WorkerTownHallSchedulingStateValue, WorkerEconomyOrderIdValue,
+                                 ECommandAuthorityLayer::UnitExecution) == 2U,
+          SuccessValue,
+          "Worker-production economy orders should create one SCV child per eligible command center or orbital.");
+
+    bool HasCommandCenterWorkerOrderValue = false;
+    bool HasOrbitalWorkerOrderValue = false;
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < WorkerTownHallSchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (WorkerTownHallSchedulingStateValue.ParentOrderIds[OrderIndexValue] != WorkerEconomyOrderIdValue ||
+            WorkerTownHallSchedulingStateValue.SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution ||
+            IsTerminalLifecycleState(WorkerTownHallSchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        if (WorkerTownHallSchedulingStateValue.ActorTags[OrderIndexValue] == 211U)
+        {
+            HasCommandCenterWorkerOrderValue = true;
+        }
+        if (WorkerTownHallSchedulingStateValue.ActorTags[OrderIndexValue] == 212U)
+        {
+            HasOrbitalWorkerOrderValue = true;
+        }
+    }
+
+    Check(HasCommandCenterWorkerOrderValue, SuccessValue,
+          "Worker-production child orders should include the idle command center.");
+    Check(HasOrbitalWorkerOrderValue, SuccessValue,
+          "Worker-production child orders should include the idle orbital command.");
 
     std::vector<Unit> WallBarracksUnitStorageValue;
     WallBarracksUnitStorageValue.push_back(

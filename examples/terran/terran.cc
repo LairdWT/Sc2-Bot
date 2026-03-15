@@ -943,6 +943,51 @@ void TerranAgent::PrintAgentState()
     std::cout << std::endl;
     PrintReadyIntentQueueSummary(GameStateDescriptor.CommandAuthoritySchedulingState.ReadyIntentQueues);
     std::cout << std::endl;
+    std::cout << "Hot Active: "
+              << "Strategic " << GameStateDescriptor.CommandAuthoritySchedulingState.GetActiveOrderCountForLayer(
+                                       ECommandAuthorityLayer::StrategicDirector)
+              << " | Planning " << GameStateDescriptor.CommandAuthoritySchedulingState.GetActiveOrderCountForLayer(
+                                       ECommandAuthorityLayer::EconomyAndProduction)
+              << " | Army " << GameStateDescriptor.CommandAuthoritySchedulingState.GetActiveOrderCountForLayer(
+                                  ECommandAuthorityLayer::Army)
+              << " | Squad " << GameStateDescriptor.CommandAuthoritySchedulingState.GetActiveOrderCountForLayer(
+                                   ECommandAuthorityLayer::Squad)
+              << " | UnitExec " << GameStateDescriptor.CommandAuthoritySchedulingState.GetActiveOrderCountForLayer(
+                                      ECommandAuthorityLayer::UnitExecution)
+              << "\n";
+    std::cout << "Blocked Tasks: "
+              << "Strategic " << GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount()
+              << " | Planning " << GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks.GetCount()
+              << " | Buffered " << GameStateDescriptor.CommandAuthoritySchedulingState.BufferedBlockedTaskCount
+              << " | Coalesced " << GameStateDescriptor.CommandAuthoritySchedulingState.CoalescedBlockedTaskCount
+              << " | Dropped " << GameStateDescriptor.CommandAuthoritySchedulingState.DroppedBlockedTaskCount
+              << " | Reactivated " << GameStateDescriptor.CommandAuthoritySchedulingState.ReactivatedBlockedTaskCount
+              << " | MustRunRejected "
+              << GameStateDescriptor.CommandAuthoritySchedulingState.RejectedMustRunBlockedTaskCount
+              << " | NoProducer "
+              << (GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::NoProducer) +
+                  GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::NoProducer))
+              << " | Resources "
+              << (GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::InsufficientResources) +
+                  GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::InsufficientResources))
+              << " | Placement "
+              << (GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::NoValidPlacement) +
+                  GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::NoValidPlacement) +
+                  GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::ReservedSlotOccupied) +
+                  GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::ReservedSlotOccupied) +
+                  GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::ReservedSlotInvalidated) +
+                  GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks.CountRecordsByDeferralReason(
+                      ECommandOrderDeferralReason::ReservedSlotInvalidated))
+              << "\n";
     std::cout << "Unit Execution Admission: "
               << "Dispatched " << GameStateDescriptor.CommandAuthoritySchedulingState.DispatchedOrderIndices.size()
               << " | Cap " << GameStateDescriptor.CommandAuthoritySchedulingState.MaxActiveUnitExecutionOrders
@@ -1196,10 +1241,13 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
         GameStateDescriptor.CommandAuthoritySchedulingState;
     const FSteadyTimePoint StrategicPhaseStartTimeValue = FSteadyClock::now();
 
-    CommandAuthorityProcessor.ProcessSchedulerStep(GameStateDescriptor);
-    if (CommandTaskPriorityService != nullptr)
+    if (CommandTaskAdmissionService != nullptr)
     {
-        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+        CommandAuthorityProcessor.ProcessSchedulerStep(GameStateDescriptor, *CommandTaskAdmissionService);
+    }
+    else
+    {
+        CommandAuthorityProcessor.ProcessSchedulerStep(GameStateDescriptor);
     }
     FSteadyTimePoint StrategicPhaseEndTimeValue = FSteadyClock::now();
     LastSchedulerStrategicProcessingMicroseconds =
@@ -1211,9 +1259,9 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         EconomyProductionOrderExpander->ExpandEconomyAndProductionOrders(
             Frame, AgentState, GameStateDescriptor, IntentBuffer, *BuildPlacementService, ExpansionLocations);
-        if (CommandTaskPriorityService != nullptr)
+        if (CommandTaskAdmissionService != nullptr)
         {
-            CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
+            CommandTaskAdmissionService->ParkDeferredOrders(GameStateDescriptor);
         }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
         const FSteadyTimePoint EconomyPhaseEndTimeValue = FSteadyClock::now();
@@ -1234,10 +1282,6 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
         if (ArmyPlanner != nullptr)
         {
             ArmyPlanner->ProduceArmyPlan(GameStateDescriptor, GameStateDescriptor.ArmyState);
-        }
-        if (CommandTaskPriorityService != nullptr)
-        {
-            CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
         }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
         const FSteadyTimePoint ArmyPhaseEndTimeValue = FSteadyClock::now();
@@ -1263,10 +1307,6 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         SquadOrderExpander->ExpandSquadOrders(Frame, AgentState, GameStateDescriptor, BarracksRally,
                                               GameStateDescriptor.CommandAuthoritySchedulingState);
-        if (CommandTaskPriorityService != nullptr)
-        {
-            CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
-        }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
         const FSteadyTimePoint SquadPhaseEndTimeValue = FSteadyClock::now();
         LastSchedulerSquadProcessingMicroseconds =
@@ -1283,10 +1323,6 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         LastArmyExecutionOrderCount = UnitExecutionPlanner->ExpandUnitExecutionOrders(
             Frame, AgentState, GameStateDescriptor, BarracksRally, GameStateDescriptor.CommandAuthoritySchedulingState);
-        if (CommandTaskPriorityService != nullptr)
-        {
-            CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
-        }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
         const FSteadyTimePoint UnitExecutionPhaseEndTimeValue = FSteadyClock::now();
         LastSchedulerUnitExecutionProcessingMicroseconds =
@@ -1296,6 +1332,11 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
     {
         LastArmyExecutionOrderCount = 0U;
         LastSchedulerUnitExecutionProcessingMicroseconds = 0U;
+    }
+
+    if (CommandTaskPriorityService != nullptr)
+    {
+        CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
     }
 
     const FSteadyTimePoint DrainPhaseStartTimeValue = FSteadyClock::now();

@@ -6,14 +6,18 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/planning/EBlockedTaskWakeKind.h"
 #include "common/planning/ECommandAuthorityLayer.h"
 #include "common/planning/ECommandPriorityTier.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
+#include "common/planning/ECommandTaskRetentionPolicy.h"
+#include "common/planning/FBlockedTaskRingBuffer.h"
 #include "common/planning/EIntentDomain.h"
 #include "common/planning/EIntentPlaybackState.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "common/planning/EPlanningProcessorState.h"
 #include "common/planning/FCommandOrderRecord.h"
+#include "common/planning/FSchedulerStimulusState.h"
 #include "common/services/FBuildPlacementSlotId.h"
 
 namespace sc2
@@ -49,6 +53,7 @@ public:
     bool ClearOrderReservedPlacementSlot(uint32_t OrderIdValue);
     bool CompactTerminalOrders();
     void RebuildDerivedQueues();
+    size_t GetActiveOrderCountForLayer(ECommandAuthorityLayer SourceLayerValue) const;
 
 public:
     uint32_t NextOrderId;
@@ -58,11 +63,22 @@ public:
     uint32_t MaxArmyOrdersPerStep;
     uint32_t MaxSquadOrdersPerStep;
     uint32_t MaxUnitIntentsPerStep;
+    uint32_t MaxActiveStrategicOrders;
+    uint32_t MaxActivePlanningOrders;
     uint32_t MaxActiveUnitExecutionOrders;
+    uint32_t MaxBlockedStrategicTasks;
+    uint32_t MaxBlockedPlanningTasks;
     uint32_t MutationBatchDepth;
     uint32_t RejectedUnitExecutionAdmissionCount;
     uint32_t SupersededUnitExecutionOrderCount;
+    uint32_t BufferedBlockedTaskCount;
+    uint32_t CoalescedBlockedTaskCount;
+    uint32_t DroppedBlockedTaskCount;
+    uint32_t ReactivatedBlockedTaskCount;
+    uint32_t RejectedMustRunBlockedTaskCount;
     bool bDerivedQueuesDirty;
+    bool bPrioritiesDirty;
+    FSchedulerStimulusState SchedulerStimulusState;
 
     std::vector<uint32_t> OrderIds;
     std::vector<uint32_t> ParentOrderIds;
@@ -72,6 +88,8 @@ public:
     std::vector<ECommandTaskPackageKind> TaskPackageKinds;
     std::vector<ECommandTaskNeedKind> TaskNeedKinds;
     std::vector<ECommandTaskType> TaskTypes;
+    std::vector<ECommandTaskRetentionPolicy> RetentionPolicies;
+    std::vector<EBlockedTaskWakeKind> BlockedTaskWakeKinds;
     std::vector<int> BasePriorityValues;
     std::vector<int> EffectivePriorityValues;
     std::vector<ECommandPriorityTier> PriorityTiers;
@@ -102,6 +120,7 @@ public:
     std::vector<ECommandOrderDeferralReason> LastDeferralReasons;
     std::vector<uint64_t> LastDeferralSteps;
     std::vector<uint64_t> LastDeferralGameLoops;
+    std::vector<uint32_t> ConsecutiveDeferralCounts;
     std::vector<uint64_t> DispatchSteps;
     std::vector<uint64_t> DispatchGameLoops;
     std::vector<uint32_t> ObservedCountsAtDispatch;
@@ -122,6 +141,8 @@ public:
     std::array<std::vector<size_t>, CommandPriorityTierCountValue> SquadQueues;
     std::array<std::array<std::vector<size_t>, IntentDomainCountValue>, CommandPriorityTierCountValue>
         ReadyIntentQueues;
+    FBlockedTaskRingBuffer BlockedStrategicTasks;
+    FBlockedTaskRingBuffer BlockedPlanningTasks;
 
 private:
     void MarkDerivedQueuesDirty();

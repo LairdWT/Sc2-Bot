@@ -2,20 +2,21 @@
 
 ## Purpose
 
-This document describes the next scheduling layer above the current `FIntentBuffer` and `FIntentArbiter`.
+This page documents the current scheduling and command-authority implementation used by `TerranAgent`.
 
-The design target is:
+Primary code surfaces:
 
-- explicit command authority by layer
-- bounded work per frame
-- data-oriented authoritative storage
-- stable order preservation when preparation and execution lifecycles differ
-
-The primary reference patterns for this direction are the installed `queue-orchestration`, `structure-of-arrays`, `data-oriented-models`, and `interface-patterns` skills.
+- `L:\Sc2_Bot\examples\terran\terran.cc`
+- `L:\Sc2_Bot\examples\common\planning\FCommandAuthoritySchedulingState.h`
+- `L:\Sc2_Bot\examples\common\planning\FCommandAuthoritySchedulingState.cc`
+- `L:\Sc2_Bot\examples\common\planning\FIntentSchedulingService.h`
+- `L:\Sc2_Bot\examples\common\planning\FIntentSchedulingService.cc`
+- `L:\Sc2_Bot\examples\common\planning\FCommandAuthorityProcessor.h`
+- `L:\Sc2_Bot\examples\common\planning\FCommandAuthorityProcessor.cc`
 
 ## Authority Layers
 
-The intended command authority hierarchy is:
+`FCommandAuthoritySchedulingState` stores `SourceLayers` using `ECommandAuthorityLayer`:
 
 - `Agent`
 - `StrategicDirector`
@@ -24,51 +25,25 @@ The intended command authority hierarchy is:
 - `Squad`
 - `UnitExecution`
 
-Rules:
+`TerranAgent` issues SC2 commands only from resolved unit intents in `ExecuteResolvedIntents(...)`.
 
-- higher layers may emit goals and requests for lower layers
-- lower layers may not mutate higher-level goals directly
-- no layer outside `UnitExecution` should issue SC2 commands directly
-- `TerranAgent` remains the thin consumer that executes only resolved intents
+## Authoritative Store Shape
 
-## Queue Topology
+`FCommandAuthoritySchedulingState` owns structure-of-arrays scheduler columns including:
 
-The queue model should reuse the `queue-orchestration` pattern instead of one queue doing every job.
+- identity and hierarchy: `OrderIds`, `ParentOrderIds`, `SourceGoalIds`, `SourceLayers`
+- lifecycle and priority: `LifecycleStates`, `BasePriorityValues`, `EffectivePriorityValues`, `PriorityTiers`
+- command payload: `ActorTags`, `AbilityIds`, `TargetKinds`, `TargetPoints`, `TargetUnitTags`
+- scheduler metadata: `IntentDomains`, `CreationSteps`, `DeadlineSteps`, `PlanStepIds`, `RequestedQueueCounts`
+- placement and producer metadata: `ProducerUnitTypeIds`, `ResultUnitTypeIds`, `PreferredPlacementSlot*`, `ReservedPlacementSlot*`
+- deferral metadata: `LastDeferralReasons`, `LastDeferralSteps`, `LastDeferralGameLoops`, `ConsecutiveDeferralCounts`
+- dispatch snapshots: `DispatchSteps`, `DispatchGameLoops`, `ObservedCountsAtDispatch`, `ObservedInConstructionCountsAtDispatch`, `DispatchAttemptCounts`
 
-Planned queues and buffers:
+`OrderIdToIndex` remains the authoritative lookup from order id to column index.
 
-- `StrategicOrderQueue`
-  authoritative order of high-level plan changes
-- `PlanningProcessQueue`
-  work awaiting descriptor rebuild or planner expansion
-- `ArmyOrderQueue`
-  army-level orders awaiting squad decomposition
-- `SquadOrderQueue`
-  squad-level orders awaiting unit assignment or local planning
-- `ReadyIntentBuffer`
-  validated unit-intent slices ready for arbitration
-- `CompletedOrderBuffer`
-  completed or aborted work kept briefly for auditing and telemetry
+## Lifecycle States
 
-Each queue should have bounded per-frame processing limits such as:
-
-- `MaxStrategicOrdersPerStep`
-- `MaxArmyOrdersPerStep`
-- `MaxSquadOrdersPerStep`
-- `MaxUnitIntentsPerStep`
-
-## Lifecycle State
-
-The scheduling layer should use explicit enums instead of unrelated booleans.
-
-Planned enums:
-
-- `ECommandAuthorityLayer`
-- `EOrderLifecycleState`
-- `EPlanningProcessorState`
-- `EIntentPlaybackState`
-
-Planned lifecycle states:
+The active lifecycle enum is `EOrderLifecycleState` with queue views rebuilt from lifecycle values:
 
 - `Queued`
 - `Preprocessing`
@@ -78,67 +53,100 @@ Planned lifecycle states:
 - `Aborted`
 - `Expired`
 
-## Authoritative Data Shape
+Derived views are rebuilt by `RebuildDerivedQueues()`:
 
-The storage should follow a structure-of-arrays layout.
+- `StrategicOrderIndices`
+- `PlanningProcessIndices`
+- `ArmyOrderIndices`
+- `SquadOrderIndices`
+- `ReadyIntentIndices`
+- `DispatchedOrderIndices`
+- `CompletedOrderIndices`
 
-Planned authoritative columns:
+Priority-tier and domain-bucket views are maintained in:
 
-- `OrderIds`
-- `ParentOrderIds`
-- `SourceLayers`
-- `LifecycleStates`
-- `PriorityValues`
-- `CreationSteps`
-- `DeadlineSteps`
-- `OwningArmyIndices`
-- `OwningSquadIndices`
-- `ActorTags`
-- `AbilityIds`
-- `TargetKinds`
-- `TargetPoints`
-- `TargetUnitTags`
+- `StrategicQueues`
+- `PlanningQueues`
+- `ArmyQueues`
+- `SquadQueues`
+- `ReadyIntentQueues`
 
-Derived views should remain index-based:
+## Mutation Batch Contract
 
-- ready strategic order indices
-- army order indices by army
-- squad order indices by squad
-- unit execution indices by actor
+`BeginMutationBatch()` and `EndMutationBatch()` gate derived queue rebuild cost.
 
-## Interface Boundaries
+- `MarkDerivedQueuesDirty()` tracks pending rebuilds.
+- Rebuild occurs immediately when no batch is active.
+- Rebuild is deferred until the outermost `EndMutationBatch()` when batching is active.
 
-The queue owners should be exposed through interfaces, not concrete cross-casts.
+`TerranAgent::ProduceSchedulerIntents(...)` uses mutation batches around each expansion phase.
 
-Planned interfaces:
+## Processor And Playback State
 
-- `IIntentSchedulingService`
-- `IArmyOrderExpander`
-- `ISquadOrderExpander`
-- `IUnitExecutionPlanner`
+`RebuildProcessorState()` sets:
 
-The strategic director and planners should only submit orders through these interfaces. They should not know the concrete storage layout.
+- `EPlanningProcessorState::ReadyToDrain` when `ReadyIntentIndices` has work
+- `EPlanningProcessorState::Processing` when upstream queues have work
+- `EPlanningProcessorState::Idle` otherwise
 
-## Relationship To The Current Intent System
+`RebuildPlaybackState()` sets:
 
-The current intent seam remains valid:
+- `EIntentPlaybackState::ReadyBufferPending` when `ReadyIntentIndices` has work
+- `EIntentPlaybackState::Dispatching` when only `DispatchedOrderIndices` has work
+- `EIntentPlaybackState::Blocked` when upstream queues have work but no ready intents
+- `EIntentPlaybackState::Idle` otherwise
 
-- planners and scheduling services submit work
-- the scheduling system expands and stages unit-ready work
-- `ReadyIntentBuffer` feeds `FIntentBuffer`
-- `FIntentArbiter` resolves conflicts and validates targets
-- `TerranAgent` executes only resolved intents
+## Ready-Intent Drain Boundary
 
-This preserves the current execution path while allowing the planning stack above it to become layered and persistent.
+`FIntentSchedulingService::DrainReadyIntents(...)` is the scheduler-to-intent handoff.
 
-## Immediate Implementation Direction
+Drain rules:
 
-The first implementation should stay limited:
+1. Effective drain budget is `min(MaxIntentCountValue, MaxUnitIntentsPerStep)`.
+2. Iterate `ReadyIntentIndices` in pre-sorted order.
+3. Invalid command payload (`ActorTag == NullTag` or invalid ability) is marked aborted.
+4. Valid records are converted into `FUnitIntent` via `AppendCommandOrderToIntentBuffer(...)`.
+5. Dispatched records transition lifecycle to `Dispatched`.
+6. Aborted records transition lifecycle to `Aborted`.
+7. Lifecycle mutations are wrapped in one mutation batch.
 
-- one authoritative scheduling owner
-- one queue for army orders
-- one queue for squad orders
-- one ready buffer for unit intents
-- explicit reset that clears all queues and ready buffers together
+## Dispatch Tracking And Compaction
 
-That is enough to validate the pattern before adding replay or telemetry coupling.
+`TerranAgent` dispatch tracking uses two distinct phases:
+
+- `UpdateDispatchedSchedulerOrders(...)`:
+  - validates existing `Dispatched` `UnitExecution` orders
+  - marks orders `Completed` or `Aborted`
+  - compacts terminal `UnitExecution` orders through `CompactTerminalOrders()`
+- `CaptureNewlyDispatchedSchedulerOrders(...)`:
+  - captures dispatch snapshot for newly dispatched orders where `DispatchAttemptCounts == 0`
+  - increments dispatch attempts through `SetOrderDispatchState(...)`
+
+`CompactTerminalOrders()` removes only terminal `UnitExecution` rows and rebuilds `OrderIdToIndex`.
+
+## Deferral And Blocked Work Signals
+
+`FCommandAuthoritySchedulingState` tracks deferrals per order through:
+
+- `SetOrderDeferralState(...)`
+- `ClearOrderDeferralState(...)`
+
+Per-frame deferral telemetry is emitted by `TerranAgent::UpdateExecutionTelemetry(...)` when:
+
+- `LastDeferralSteps[OrderIndex] == CurrentStep`
+- `LastDeferralReasons[OrderIndex] != ECommandOrderDeferralReason::None`
+
+Parking and blocked-task behavior is handled by `FTerranCommandTaskAdmissionService` in the scheduler production path.
+
+## Test Coverage
+
+Focused tests for this seam:
+
+- `L:\Sc2_Bot\tests\test_command_authority_scheduling.cc`
+  - lifecycle transitions
+  - ready drain budgets
+  - dispatch snapshot and attempt counting
+  - mutation batch rebuild behavior
+  - compaction of terminal `UnitExecution` orders
+- `L:\Sc2_Bot\tests\test_terran_opening_plan_scheduler.cc`
+  - scheduler seeding and plan-step driven order progression

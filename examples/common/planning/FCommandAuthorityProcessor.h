@@ -6,16 +6,22 @@
 namespace sc2
 {
 
+class ICommandTaskAdmissionService;
+
 class FCommandAuthorityProcessor
 {
 public:
     void ProcessSchedulerStep(FGameStateDescriptor& GameStateDescriptorValue) const;
+    void ProcessSchedulerStep(FGameStateDescriptor& GameStateDescriptorValue,
+                              const ICommandTaskAdmissionService& CommandTaskAdmissionServiceValue) const;
 
 private:
     void InitializeOpeningPlan(FGameStateDescriptor& GameStateDescriptorValue) const;
     void UpdateCompletedOpeningSteps(FGameStateDescriptor& GameStateDescriptorValue) const;
-    void SeedReadyStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue) const;
-    void SeedGoalDrivenStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue) const;
+    void SeedReadyStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue,
+                                  const ICommandTaskAdmissionService& CommandTaskAdmissionServiceValue) const;
+    void SeedGoalDrivenStrategicOrders(FGameStateDescriptor& GameStateDescriptorValue,
+                                       const ICommandTaskAdmissionService& CommandTaskAdmissionServiceValue) const;
     void EnsureStrategicChildOrders(FGameStateDescriptor& GameStateDescriptorValue) const;
     bool AreRequiredTasksCompleted(const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
                                    const FCommandTaskDescriptor& CommandTaskDescriptorValue) const;

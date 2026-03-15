@@ -17,6 +17,7 @@
 #include "common/planning/FCommandOrderRecord.h"
 #include "common/planning/FCommandTaskDescriptor.h"
 #include "common/planning/FDefaultStrategicDirector.h"
+#include "common/planning/FTerranCommandTaskAdmissionService.h"
 #include "common/planning/FTerranCommandTaskPriorityService.h"
 
 namespace sc2
@@ -107,6 +108,12 @@ size_t GetApproximateTierQueueRetainedBytes(
     return ApproximateByteCountValue;
 }
 
+size_t GetApproximateBlockedTaskRingBufferRetainedBytes(const FBlockedTaskRingBuffer& BlockedTaskRingBufferValue)
+{
+    return sizeof(FBlockedTaskRingBuffer) +
+           (BlockedTaskRingBufferValue.GetCapacity() * sizeof(FBlockedTaskRecord));
+}
+
 size_t GetApproximateSchedulingStateRetainedBytes(const FCommandAuthoritySchedulingState& SchedulingStateValue)
 {
     size_t ApproximateByteCountValue = sizeof(FCommandAuthoritySchedulingState);
@@ -118,6 +125,8 @@ size_t GetApproximateSchedulingStateRetainedBytes(const FCommandAuthoritySchedul
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.TaskPackageKinds);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.TaskNeedKinds);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.TaskTypes);
+    ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.RetentionPolicies);
+    ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.BlockedTaskWakeKinds);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.BasePriorityValues);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.EffectivePriorityValues);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.PriorityTiers);
@@ -155,6 +164,7 @@ size_t GetApproximateSchedulingStateRetainedBytes(const FCommandAuthoritySchedul
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.LastDeferralReasons);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.LastDeferralSteps);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.LastDeferralGameLoops);
+    ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.ConsecutiveDeferralCounts);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.DispatchSteps);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.DispatchGameLoops);
     ApproximateByteCountValue += GetApproximateVectorRetainedBytes(SchedulingStateValue.ObservedCountsAtDispatch);
@@ -178,8 +188,19 @@ size_t GetApproximateSchedulingStateRetainedBytes(const FCommandAuthoritySchedul
     ApproximateByteCountValue +=
         SchedulingStateValue.OrderIdToIndex.bucket_count() *
         (sizeof(void*) + sizeof(std::pair<const uint32_t, size_t>));
+    ApproximateByteCountValue +=
+        GetApproximateBlockedTaskRingBufferRetainedBytes(SchedulingStateValue.BlockedStrategicTasks);
+    ApproximateByteCountValue +=
+        GetApproximateBlockedTaskRingBufferRetainedBytes(SchedulingStateValue.BlockedPlanningTasks);
 
     return ApproximateByteCountValue;
+}
+
+size_t GetApproximateHotOrderStoreRetainedBytes(const FCommandAuthoritySchedulingState& SchedulingStateValue)
+{
+    return GetApproximateSchedulingStateRetainedBytes(SchedulingStateValue) -
+           GetApproximateBlockedTaskRingBufferRetainedBytes(SchedulingStateValue.BlockedStrategicTasks) -
+           GetApproximateBlockedTaskRingBufferRetainedBytes(SchedulingStateValue.BlockedPlanningTasks);
 }
 
 FCommandOrderRecord CreateProfileOrder(const size_t OrderIndexValue)
@@ -281,6 +302,22 @@ FCommandOrderRecord CreateProfileOrder(const size_t OrderIndexValue)
             return CommandOrderRecordValue;
         }
     }
+}
+
+FCommandOrderRecord CreateAdmissionProfileOrder(const uint32_t SourceGoalIdValue)
+{
+    FCommandOrderRecord CommandOrderRecordValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::BUILD_BARRACKS, 180,
+        EIntentDomain::StructureBuild, 64U);
+    CommandOrderRecordValue.SourceGoalId = SourceGoalIdValue;
+    CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::ProductionScale;
+    CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
+    CommandOrderRecordValue.TaskType = ECommandTaskType::ProductionStructure;
+    CommandOrderRecordValue.RetentionPolicy = ECommandTaskRetentionPolicy::BufferedRetry;
+    CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    CommandOrderRecordValue.TargetCount = 1U;
+    return CommandOrderRecordValue;
 }
 
 void PopulateTaskDescriptors(std::vector<FCommandTaskDescriptor>& TaskDescriptorsValue, const size_t TaskCountValue)
@@ -493,6 +530,94 @@ bool TestSchedulerHotPathProfiles(int ArgC, char** ArgV)
                       << " | OrdersAfter=" << SchedulingStateValue.GetOrderCount()
                       << std::endl;
         }
+    }
+
+    {
+        constexpr uint32_t AdmissionCandidateCountValue = 256U;
+        FTerranCommandTaskAdmissionService CommandTaskAdmissionServiceValue;
+        FGameStateDescriptor GameStateDescriptorValue = CreateGoalProfileGameStateDescriptor(EMacroPhase::MidGame);
+        GameStateDescriptorValue.CurrentStep = 512U;
+        GameStateDescriptorValue.CurrentGameLoop = 512U;
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(GameStateDescriptorValue);
+
+        uint32_t AdmittedOrderCountValue = 0U;
+        const FSteadyTimePoint AdmissionStartTimeValue = FSteadyClock::now();
+        for (uint32_t GoalIndexValue = 0U; GoalIndexValue < AdmissionCandidateCountValue; ++GoalIndexValue)
+        {
+            uint32_t AdmittedOrderIdValue = 0U;
+            if (CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                    GameStateDescriptorValue, CreateAdmissionProfileOrder(1000U + GoalIndexValue),
+                    AdmittedOrderIdValue))
+            {
+                ++AdmittedOrderCountValue;
+            }
+        }
+        const FSteadyTimePoint AdmissionEndTimeValue = FSteadyClock::now();
+
+        const size_t HotOrderBytesBeforeParkingValue =
+            GetApproximateHotOrderStoreRetainedBytes(GameStateDescriptorValue.CommandAuthoritySchedulingState);
+        const size_t BlockedBufferBytesBeforeParkingValue =
+            GetApproximateBlockedTaskRingBufferRetainedBytes(
+                GameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks) +
+            GetApproximateBlockedTaskRingBufferRetainedBytes(
+                GameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedPlanningTasks);
+
+        for (size_t OrderIndexValue = 0U;
+             OrderIndexValue < GameStateDescriptorValue.CommandAuthoritySchedulingState.OrderIds.size();
+             ++OrderIndexValue)
+        {
+            GameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderDeferralState(
+                GameStateDescriptorValue.CommandAuthoritySchedulingState.OrderIds[OrderIndexValue],
+                ECommandOrderDeferralReason::NoProducer, GameStateDescriptorValue.CurrentStep,
+                GameStateDescriptorValue.CurrentGameLoop);
+        }
+
+        const FSteadyTimePoint ParkingStartTimeValue = FSteadyClock::now();
+        CommandTaskAdmissionServiceValue.ParkDeferredOrders(GameStateDescriptorValue);
+        const FSteadyTimePoint ParkingEndTimeValue = FSteadyClock::now();
+
+        const size_t HotOrderBytesAfterParkingValue =
+            GetApproximateHotOrderStoreRetainedBytes(GameStateDescriptorValue.CommandAuthoritySchedulingState);
+        const size_t BlockedBufferBytesAfterParkingValue =
+            GetApproximateBlockedTaskRingBufferRetainedBytes(
+                GameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks) +
+            GetApproximateBlockedTaskRingBufferRetainedBytes(
+                GameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedPlanningTasks);
+
+        GameStateDescriptorValue.CurrentGameLoop = 513U;
+        ++GameStateDescriptorValue.MacroState.BarracksCount;
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(GameStateDescriptorValue);
+
+        const FSteadyTimePoint ReactivationStartTimeValue = FSteadyClock::now();
+        CommandTaskAdmissionServiceValue.ReactivateBlockedTasks(GameStateDescriptorValue);
+        const FSteadyTimePoint ReactivationEndTimeValue = FSteadyClock::now();
+
+        Check(AdmittedOrderCountValue ==
+                  GameStateDescriptorValue.CommandAuthoritySchedulingState.MaxActiveStrategicOrders,
+              SuccessValue, "Admission profiling should respect the configured strategic hot-order cap.");
+        Check(GameStateDescriptorValue.CommandAuthoritySchedulingState.GetActiveOrderCountForLayer(
+                  ECommandAuthorityLayer::StrategicDirector) == 0U,
+              SuccessValue, "Parking deferred work should retire strategic hot orders out of the active frontier.");
+        Check(GameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() <=
+                  GameStateDescriptorValue.CommandAuthoritySchedulingState.MaxBlockedStrategicTasks,
+              SuccessValue, "Admission profiling should keep blocked strategic retries within the configured ring capacity.");
+
+        PrintProfileHeader("Admission");
+        std::cout << "  Candidates=" << AdmissionCandidateCountValue
+                  << " | Admitted=" << AdmittedOrderCountValue
+                  << " | AdmitUs=" << GetElapsedMicroseconds(AdmissionStartTimeValue, AdmissionEndTimeValue)
+                  << " | ParkUs=" << GetElapsedMicroseconds(ParkingStartTimeValue, ParkingEndTimeValue)
+                  << " | ReactivateUs=" << GetElapsedMicroseconds(ReactivationStartTimeValue,
+                                                                  ReactivationEndTimeValue)
+                  << " | HotBytesBefore=" << HotOrderBytesBeforeParkingValue
+                  << " | HotBytesAfter=" << HotOrderBytesAfterParkingValue
+                  << " | BlockedBytesBefore=" << BlockedBufferBytesBeforeParkingValue
+                  << " | BlockedBytesAfter=" << BlockedBufferBytesAfterParkingValue
+                  << " | BlockedStrategicCount="
+                  << GameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount()
+                  << " | Reactivated="
+                  << GameStateDescriptorValue.CommandAuthoritySchedulingState.ReactivatedBlockedTaskCount
+                  << std::endl;
     }
 
     return SuccessValue;

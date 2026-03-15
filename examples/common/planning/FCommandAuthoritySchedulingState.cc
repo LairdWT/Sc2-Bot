@@ -46,11 +46,22 @@ void FCommandAuthoritySchedulingState::Reset()
     MaxArmyOrdersPerStep = 8U;
     MaxSquadOrdersPerStep = 16U;
     MaxUnitIntentsPerStep = 32U;
+    MaxActiveStrategicOrders = 24U;
+    MaxActivePlanningOrders = 32U;
     MaxActiveUnitExecutionOrders = 128U;
+    MaxBlockedStrategicTasks = 128U;
+    MaxBlockedPlanningTasks = 192U;
     MutationBatchDepth = 0U;
     RejectedUnitExecutionAdmissionCount = 0U;
     SupersededUnitExecutionOrderCount = 0U;
+    BufferedBlockedTaskCount = 0U;
+    CoalescedBlockedTaskCount = 0U;
+    DroppedBlockedTaskCount = 0U;
+    ReactivatedBlockedTaskCount = 0U;
+    RejectedMustRunBlockedTaskCount = 0U;
     bDerivedQueuesDirty = false;
+    bPrioritiesDirty = false;
+    SchedulerStimulusState.Reset();
 
     OrderIds.clear();
     ParentOrderIds.clear();
@@ -60,6 +71,8 @@ void FCommandAuthoritySchedulingState::Reset()
     TaskPackageKinds.clear();
     TaskNeedKinds.clear();
     TaskTypes.clear();
+    RetentionPolicies.clear();
+    BlockedTaskWakeKinds.clear();
     BasePriorityValues.clear();
     EffectivePriorityValues.clear();
     PriorityTiers.clear();
@@ -90,6 +103,7 @@ void FCommandAuthoritySchedulingState::Reset()
     LastDeferralReasons.clear();
     LastDeferralSteps.clear();
     LastDeferralGameLoops.clear();
+    ConsecutiveDeferralCounts.clear();
     DispatchSteps.clear();
     DispatchGameLoops.clear();
     ObservedCountsAtDispatch.clear();
@@ -127,6 +141,9 @@ void FCommandAuthoritySchedulingState::Reset()
             ReadyQueueValue.clear();
         }
     }
+
+    BlockedStrategicTasks.Reset(MaxBlockedStrategicTasks);
+    BlockedPlanningTasks.Reset(MaxBlockedPlanningTasks);
 }
 
 void FCommandAuthoritySchedulingState::BeginMutationBatch()
@@ -158,6 +175,8 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     TaskPackageKinds.reserve(OrderCapacityValue);
     TaskNeedKinds.reserve(OrderCapacityValue);
     TaskTypes.reserve(OrderCapacityValue);
+    RetentionPolicies.reserve(OrderCapacityValue);
+    BlockedTaskWakeKinds.reserve(OrderCapacityValue);
     BasePriorityValues.reserve(OrderCapacityValue);
     EffectivePriorityValues.reserve(OrderCapacityValue);
     PriorityTiers.reserve(OrderCapacityValue);
@@ -188,6 +207,7 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     LastDeferralReasons.reserve(OrderCapacityValue);
     LastDeferralSteps.reserve(OrderCapacityValue);
     LastDeferralGameLoops.reserve(OrderCapacityValue);
+    ConsecutiveDeferralCounts.reserve(OrderCapacityValue);
     DispatchSteps.reserve(OrderCapacityValue);
     DispatchGameLoops.reserve(OrderCapacityValue);
     ObservedCountsAtDispatch.reserve(OrderCapacityValue);
@@ -217,6 +237,8 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     TaskPackageKinds.push_back(StoredOrderValue.TaskPackageKind);
     TaskNeedKinds.push_back(StoredOrderValue.TaskNeedKind);
     TaskTypes.push_back(StoredOrderValue.TaskType);
+    RetentionPolicies.push_back(StoredOrderValue.RetentionPolicy);
+    BlockedTaskWakeKinds.push_back(StoredOrderValue.BlockedTaskWakeKind);
     BasePriorityValues.push_back(StoredOrderValue.BasePriorityValue);
     EffectivePriorityValues.push_back(StoredOrderValue.EffectivePriorityValue);
     PriorityTiers.push_back(StoredOrderValue.PriorityTier);
@@ -247,6 +269,7 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     LastDeferralReasons.push_back(StoredOrderValue.LastDeferralReason);
     LastDeferralSteps.push_back(StoredOrderValue.LastDeferralStep);
     LastDeferralGameLoops.push_back(StoredOrderValue.LastDeferralGameLoop);
+    ConsecutiveDeferralCounts.push_back(StoredOrderValue.ConsecutiveDeferralCount);
     DispatchSteps.push_back(StoredOrderValue.DispatchStep);
     DispatchGameLoops.push_back(StoredOrderValue.DispatchGameLoop);
     ObservedCountsAtDispatch.push_back(StoredOrderValue.ObservedCountAtDispatch);
@@ -332,6 +355,8 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.TaskPackageKind = TaskPackageKinds[OrderIndexValue];
     CommandOrderRecordValue.TaskNeedKind = TaskNeedKinds[OrderIndexValue];
     CommandOrderRecordValue.TaskType = TaskTypes[OrderIndexValue];
+    CommandOrderRecordValue.RetentionPolicy = RetentionPolicies[OrderIndexValue];
+    CommandOrderRecordValue.BlockedTaskWakeKind = BlockedTaskWakeKinds[OrderIndexValue];
     CommandOrderRecordValue.BasePriorityValue = BasePriorityValues[OrderIndexValue];
     CommandOrderRecordValue.EffectivePriorityValue = EffectivePriorityValues[OrderIndexValue];
     CommandOrderRecordValue.PriorityTier = PriorityTiers[OrderIndexValue];
@@ -362,6 +387,7 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.LastDeferralReason = LastDeferralReasons[OrderIndexValue];
     CommandOrderRecordValue.LastDeferralStep = LastDeferralSteps[OrderIndexValue];
     CommandOrderRecordValue.LastDeferralGameLoop = LastDeferralGameLoops[OrderIndexValue];
+    CommandOrderRecordValue.ConsecutiveDeferralCount = ConsecutiveDeferralCounts[OrderIndexValue];
     CommandOrderRecordValue.DispatchStep = DispatchSteps[OrderIndexValue];
     CommandOrderRecordValue.DispatchGameLoop = DispatchGameLoops[OrderIndexValue];
     CommandOrderRecordValue.ObservedCountAtDispatch = ObservedCountsAtDispatch[OrderIndexValue];
@@ -386,6 +412,7 @@ bool FCommandAuthoritySchedulingState::SetOrderLifecycleState(const uint32_t Ord
     }
 
     LifecycleStates[OrderIndexValue] = LifecycleStateValue;
+    bPrioritiesDirty = true;
     if (IsTerminalLifecycleState(LifecycleStateValue))
     {
         ReservedPlacementSlotTypes[OrderIndexValue] = EBuildPlacementSlotType::Unknown;
@@ -406,9 +433,18 @@ bool FCommandAuthoritySchedulingState::SetOrderDeferralState(const uint32_t Orde
         return false;
     }
 
+    if (LastDeferralReasons[OrderIndexValue] == DeferralReasonValue)
+    {
+        ++ConsecutiveDeferralCounts[OrderIndexValue];
+    }
+    else
+    {
+        ConsecutiveDeferralCounts[OrderIndexValue] = 1U;
+    }
     LastDeferralReasons[OrderIndexValue] = DeferralReasonValue;
     LastDeferralSteps[OrderIndexValue] = CurrentStepValue;
     LastDeferralGameLoops[OrderIndexValue] = CurrentGameLoopValue;
+    bPrioritiesDirty = true;
     return true;
 }
 
@@ -423,6 +459,8 @@ bool FCommandAuthoritySchedulingState::ClearOrderDeferralState(const uint32_t Or
     LastDeferralReasons[OrderIndexValue] = ECommandOrderDeferralReason::None;
     LastDeferralSteps[OrderIndexValue] = 0U;
     LastDeferralGameLoops[OrderIndexValue] = 0U;
+    ConsecutiveDeferralCounts[OrderIndexValue] = 0U;
+    bPrioritiesDirty = true;
     return true;
 }
 
@@ -446,6 +484,7 @@ bool FCommandAuthoritySchedulingState::SetOrderDispatchState(const uint32_t Orde
     LastDeferralReasons[OrderIndexValue] = ECommandOrderDeferralReason::None;
     LastDeferralSteps[OrderIndexValue] = 0U;
     LastDeferralGameLoops[OrderIndexValue] = 0U;
+    ConsecutiveDeferralCounts[OrderIndexValue] = 0U;
     return true;
 }
 
@@ -511,6 +550,8 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders()
     TaskPackageKinds = BuildCompactedVector(TaskPackageKinds, RetainedOrderIndicesValue);
     TaskNeedKinds = BuildCompactedVector(TaskNeedKinds, RetainedOrderIndicesValue);
     TaskTypes = BuildCompactedVector(TaskTypes, RetainedOrderIndicesValue);
+    RetentionPolicies = BuildCompactedVector(RetentionPolicies, RetainedOrderIndicesValue);
+    BlockedTaskWakeKinds = BuildCompactedVector(BlockedTaskWakeKinds, RetainedOrderIndicesValue);
     BasePriorityValues = BuildCompactedVector(BasePriorityValues, RetainedOrderIndicesValue);
     EffectivePriorityValues = BuildCompactedVector(EffectivePriorityValues, RetainedOrderIndicesValue);
     PriorityTiers = BuildCompactedVector(PriorityTiers, RetainedOrderIndicesValue);
@@ -543,6 +584,7 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders()
     LastDeferralReasons = BuildCompactedVector(LastDeferralReasons, RetainedOrderIndicesValue);
     LastDeferralSteps = BuildCompactedVector(LastDeferralSteps, RetainedOrderIndicesValue);
     LastDeferralGameLoops = BuildCompactedVector(LastDeferralGameLoops, RetainedOrderIndicesValue);
+    ConsecutiveDeferralCounts = BuildCompactedVector(ConsecutiveDeferralCounts, RetainedOrderIndicesValue);
     DispatchSteps = BuildCompactedVector(DispatchSteps, RetainedOrderIndicesValue);
     DispatchGameLoops = BuildCompactedVector(DispatchGameLoops, RetainedOrderIndicesValue);
     ObservedCountsAtDispatch = BuildCompactedVector(ObservedCountsAtDispatch, RetainedOrderIndicesValue);
@@ -558,6 +600,25 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders()
 
     MarkDerivedQueuesDirty();
     return true;
+}
+
+size_t FCommandAuthoritySchedulingState::GetActiveOrderCountForLayer(
+    const ECommandAuthorityLayer SourceLayerValue) const
+{
+    size_t ActiveOrderCountValue = 0U;
+
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
+    {
+        if (SourceLayers[OrderIndexValue] != SourceLayerValue ||
+            IsTerminalLifecycleState(LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        ++ActiveOrderCountValue;
+    }
+
+    return ActiveOrderCountValue;
 }
 
 void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
@@ -723,7 +784,6 @@ void FCommandAuthoritySchedulingState::SortDerivedQueues()
     ArmyOrderIndices.clear();
     SquadOrderIndices.clear();
     ReadyIntentIndices.clear();
-    DispatchedOrderIndices.clear();
 
     for (size_t PriorityTierIndexValue = 0U; PriorityTierIndexValue < CommandPriorityTierCountValue;
          ++PriorityTierIndexValue)
@@ -760,11 +820,15 @@ void FCommandAuthoritySchedulingState::SortDerivedQueues()
                 ReadyIntentQueues[PriorityTierIndexValue][IntentDomainIndexValue].end());
         }
     }
+
+    std::stable_sort(DispatchedOrderIndices.begin(), DispatchedOrderIndices.end(), OrderPriorityComparatorValue);
+    std::stable_sort(CompletedOrderIndices.begin(), CompletedOrderIndices.end(), OrderPriorityComparatorValue);
 }
 
 void FCommandAuthoritySchedulingState::MarkDerivedQueuesDirty()
 {
     bDerivedQueuesDirty = true;
+    bPrioritiesDirty = true;
     if (MutationBatchDepth == 0U)
     {
         RebuildDerivedQueues();

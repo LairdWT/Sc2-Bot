@@ -2,7 +2,9 @@
 
 #include <cstdint>
 
+#include "common/planning/EBlockedTaskWakeKind.h"
 #include "common/planning/ECommandPriorityTier.h"
+#include "common/planning/ECommandTaskRetentionPolicy.h"
 #include "common/planning/ECommandTaskType.h"
 #include "common/planning/FCommandTaskDescriptor.h"
 #include "common/planning/ECommandAuthorityLayer.h"
@@ -59,6 +61,8 @@ public:
     ECommandTaskPackageKind TaskPackageKind;
     ECommandTaskNeedKind TaskNeedKind;
     ECommandTaskType TaskType;
+    ECommandTaskRetentionPolicy RetentionPolicy;
+    EBlockedTaskWakeKind BlockedTaskWakeKind;
     int BasePriorityValue;
     int EffectivePriorityValue;
     ECommandPriorityTier PriorityTier;
@@ -87,6 +91,7 @@ public:
     ECommandOrderDeferralReason LastDeferralReason;
     uint64_t LastDeferralStep;
     uint64_t LastDeferralGameLoop;
+    uint32_t ConsecutiveDeferralCount;
     uint64_t DispatchStep;
     uint64_t DispatchGameLoop;
     uint32_t ObservedCountAtDispatch;

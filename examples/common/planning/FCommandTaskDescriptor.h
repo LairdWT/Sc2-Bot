@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "common/planning/EBlockedTaskWakeKind.h"
+#include "common/planning/ECommandTaskRetentionPolicy.h"
 #include "common/planning/ECommandTaskType.h"
 #include "common/services/FBuildPlacementSlotId.h"
 #include "sc2api/sc2_gametypes.h"
@@ -67,6 +69,8 @@ public:
     ECommandTaskActionKind ActionKind;
     ECommandTaskCompletionKind CompletionKind;
     ECommandTaskType TaskType;
+    ECommandTaskRetentionPolicy RetentionPolicy;
+    EBlockedTaskWakeKind BlockedTaskWakeKind;
     int BasePriorityValue;
     uint32_t SourceGoalId;
     uint64_t TriggerMinGameLoop;

@@ -11,9 +11,12 @@
 #include "common/planning/EIntentPlaybackState.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "common/planning/EPlanningProcessorState.h"
+#include "common/planning/FBlockedTaskRecord.h"
+#include "common/planning/FBlockedTaskRingBuffer.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
 #include "common/planning/FCommandOrderRecord.h"
 #include "common/planning/FIntentSchedulingService.h"
+#include "common/planning/FTerranCommandTaskAdmissionService.h"
 
 namespace sc2
 {
@@ -35,6 +38,45 @@ bool ApproxEqual(const float LeftValue, const float RightValue)
 {
     constexpr float CoordinateToleranceValue = 0.001f;
     return std::fabs(LeftValue - RightValue) <= CoordinateToleranceValue;
+}
+
+FCommandOrderRecord CreateStrategicBuildBarracksOrder(
+    const uint32_t SourceGoalIdValue,
+    const ECommandTaskRetentionPolicy RetentionPolicyValue = ECommandTaskRetentionPolicy::BufferedRetry)
+{
+    FCommandOrderRecord CommandOrderRecordValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::BUILD_BARRACKS, 160,
+        EIntentDomain::StructureBuild, 100U);
+    CommandOrderRecordValue.SourceGoalId = SourceGoalIdValue;
+    CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::ProductionScale;
+    CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
+    CommandOrderRecordValue.TaskType = ECommandTaskType::ProductionStructure;
+    CommandOrderRecordValue.RetentionPolicy = RetentionPolicyValue;
+    CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    CommandOrderRecordValue.TargetCount = 1U;
+    return CommandOrderRecordValue;
+}
+
+FBlockedTaskRecord CreateBlockedTaskRecord(const uint32_t TaskIdValue,
+                                           const ECommandTaskRetentionPolicy RetentionPolicyValue)
+{
+    FBlockedTaskRecord BlockedTaskRecordValue;
+    BlockedTaskRecordValue.TaskId = TaskIdValue;
+    BlockedTaskRecordValue.SourceGoalId = 1000U + TaskIdValue;
+    BlockedTaskRecordValue.PackageKind = ECommandTaskPackageKind::ProductionScale;
+    BlockedTaskRecordValue.NeedKind = ECommandTaskNeedKind::Structure;
+    BlockedTaskRecordValue.TaskType = ECommandTaskType::ProductionStructure;
+    BlockedTaskRecordValue.RetentionPolicy = RetentionPolicyValue;
+    BlockedTaskRecordValue.AbilityId = ABILITY_ID::BUILD_BARRACKS;
+    BlockedTaskRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    BlockedTaskRecordValue.UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
+    BlockedTaskRecordValue.BlockingReason = ECommandOrderDeferralReason::NoProducer;
+    BlockedTaskRecordValue.WakeKind = EBlockedTaskWakeKind::ProducerAvailability;
+    BlockedTaskRecordValue.NextEligibleGameLoop = 200U;
+    BlockedTaskRecordValue.LastSeenStimulusRevision = 1U;
+    BlockedTaskRecordValue.RequestedQueueCount = 1U;
+    return BlockedTaskRecordValue;
 }
 
 }  // namespace
@@ -478,6 +520,206 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
               SuccessValue, "Compaction should remove the compacted unit-execution order mapping.");
         Check(BatchedSchedulingStateValue.TryGetOrderIndex(BatchedStrategicOrderIdValue, BatchedUnitOrderIndexValue),
               SuccessValue, "Compaction should preserve non-unit-execution scheduler work.");
+    }
+
+    {
+        FBlockedTaskRingBuffer BlockedTaskRingBufferValue;
+        BlockedTaskRingBufferValue.Reset(2U);
+
+        bool bCoalescedValue = false;
+        bool bDroppedValue = false;
+        bool bRejectedMustRunValue = false;
+
+        const FBlockedTaskRecord FirstBlockedTaskRecordValue =
+            CreateBlockedTaskRecord(1U, ECommandTaskRetentionPolicy::DiscardableDuplicate);
+        Check(BlockedTaskRingBufferValue.TryPushOrCoalesce(FirstBlockedTaskRecordValue, bCoalescedValue,
+                                                           bDroppedValue, bRejectedMustRunValue),
+              SuccessValue, "Blocked task buffer should accept the first buffered retry record.");
+        Check(BlockedTaskRingBufferValue.GetCount() == 1U, SuccessValue,
+              "Blocked task buffer should count the first record.");
+        Check(!bCoalescedValue && !bDroppedValue && !bRejectedMustRunValue, SuccessValue,
+              "First blocked task insert should be a clean admission.");
+
+        FBlockedTaskRecord DuplicateBlockedTaskRecordValue = FirstBlockedTaskRecordValue;
+        DuplicateBlockedTaskRecordValue.RetryCount = 3U;
+        Check(BlockedTaskRingBufferValue.TryPushOrCoalesce(DuplicateBlockedTaskRecordValue, bCoalescedValue,
+                                                           bDroppedValue, bRejectedMustRunValue),
+              SuccessValue, "Equivalent blocked task signatures should coalesce instead of growing the buffer.");
+        Check(bCoalescedValue, SuccessValue,
+              "Equivalent blocked task signatures should report coalescing.");
+        Check(BlockedTaskRingBufferValue.GetCount() == 1U, SuccessValue,
+              "Coalescing should keep the blocked-task count stable.");
+
+        const FBlockedTaskRecord SecondBlockedTaskRecordValue =
+            CreateBlockedTaskRecord(2U, ECommandTaskRetentionPolicy::BufferedRetry);
+        Check(BlockedTaskRingBufferValue.TryPushOrCoalesce(SecondBlockedTaskRecordValue, bCoalescedValue,
+                                                           bDroppedValue, bRejectedMustRunValue),
+              SuccessValue, "Blocked task buffer should accept a second distinct record before capacity.");
+        Check(BlockedTaskRingBufferValue.GetCount() == 2U, SuccessValue,
+              "Blocked task buffer should reach its configured capacity.");
+
+        const FBlockedTaskRecord ThirdBlockedTaskRecordValue =
+            CreateBlockedTaskRecord(3U, ECommandTaskRetentionPolicy::BufferedRetry);
+        Check(BlockedTaskRingBufferValue.TryPushOrCoalesce(ThirdBlockedTaskRecordValue, bCoalescedValue,
+                                                           bDroppedValue, bRejectedMustRunValue),
+              SuccessValue,
+              "Blocked task buffer should evict the oldest discardable duplicate when a distinct retry arrives at capacity.");
+        Check(!BlockedTaskRingBufferValue.HasEquivalentRecord(FirstBlockedTaskRecordValue), SuccessValue,
+              "Blocked task buffer should evict the discardable duplicate candidate first.");
+        Check(BlockedTaskRingBufferValue.HasEquivalentRecord(ThirdBlockedTaskRecordValue), SuccessValue,
+              "Blocked task buffer should retain the newly inserted retry after eviction.");
+
+        FBlockedTaskRingBuffer MustRunRejectedRingBufferValue;
+        MustRunRejectedRingBufferValue.Reset(1U);
+        const FBlockedTaskRecord PinnedBlockedTaskRecordValue =
+            CreateBlockedTaskRecord(10U, ECommandTaskRetentionPolicy::BufferedRetry);
+        Check(MustRunRejectedRingBufferValue.TryPushOrCoalesce(PinnedBlockedTaskRecordValue, bCoalescedValue,
+                                                               bDroppedValue, bRejectedMustRunValue),
+              SuccessValue, "Must-run rejection test should fill the buffer with a non-evictable record.");
+
+        const FBlockedTaskRecord MustRunBlockedTaskRecordValue =
+            CreateBlockedTaskRecord(11U, ECommandTaskRetentionPolicy::HotMustRun);
+        Check(!MustRunRejectedRingBufferValue.TryPushOrCoalesce(MustRunBlockedTaskRecordValue, bCoalescedValue,
+                                                                bDroppedValue, bRejectedMustRunValue),
+              SuccessValue, "Must-run retries should report rejection when no blocked-buffer capacity remains.");
+        Check(bRejectedMustRunValue, SuccessValue,
+              "Must-run retries should surface explicit rejection telemetry when blocked storage is exhausted.");
+    }
+
+    {
+        FTerranCommandTaskAdmissionService CommandTaskAdmissionServiceValue;
+        FGameStateDescriptor AdmissionGameStateDescriptorValue;
+        AdmissionGameStateDescriptorValue.CurrentStep = 100U;
+        AdmissionGameStateDescriptorValue.CurrentGameLoop = 100U;
+        AdmissionGameStateDescriptorValue.MacroState.WorkerCount = 12U;
+        AdmissionGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
+        AdmissionGameStateDescriptorValue.MacroState.BarracksCount = 1U;
+        AdmissionGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+        AdmissionGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 50U;
+        AdmissionGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+        AdmissionGameStateDescriptorValue.BuildPlanning.AvailableSupply = 4U;
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(AdmissionGameStateDescriptorValue);
+
+        uint32_t AdmittedStrategicOrderCountValue = 0U;
+        for (uint32_t GoalIndexValue = 0U;
+             GoalIndexValue <
+             (AdmissionGameStateDescriptorValue.CommandAuthoritySchedulingState.MaxActiveStrategicOrders + 6U);
+             ++GoalIndexValue)
+        {
+            uint32_t AdmittedOrderIdValue = 0U;
+            if (CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                    AdmissionGameStateDescriptorValue,
+                    CreateStrategicBuildBarracksOrder(100U + GoalIndexValue),
+                    AdmittedOrderIdValue))
+            {
+                ++AdmittedStrategicOrderCountValue;
+            }
+        }
+
+        Check(AdmittedStrategicOrderCountValue ==
+                  AdmissionGameStateDescriptorValue.CommandAuthoritySchedulingState.MaxActiveStrategicOrders,
+              SuccessValue, "Strategic hot admission should stop at the configured active-order cap.");
+        Check(AdmissionGameStateDescriptorValue.CommandAuthoritySchedulingState.GetActiveOrderCountForLayer(
+                  ECommandAuthorityLayer::StrategicDirector) ==
+                  AdmissionGameStateDescriptorValue.CommandAuthoritySchedulingState.MaxActiveStrategicOrders,
+              SuccessValue, "Strategic active-order counting should match the bounded admission cap.");
+
+        uint32_t DuplicateAdmissionOrderIdValue = 0U;
+        Check(!CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                  AdmissionGameStateDescriptorValue, CreateStrategicBuildBarracksOrder(100U),
+                  DuplicateAdmissionOrderIdValue),
+              SuccessValue, "Equivalent hot strategic work should not admit duplicate active orders.");
+
+        uint32_t MustRunOrderIdValue = 0U;
+        Check(CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                  AdmissionGameStateDescriptorValue,
+                  CreateStrategicBuildBarracksOrder(10000U, ECommandTaskRetentionPolicy::HotMustRun),
+                  MustRunOrderIdValue),
+              SuccessValue, "Hot must-run strategic work should admit even when the normal strategic cap is full.");
+
+        FGameStateDescriptor ParkingGameStateDescriptorValue;
+        ParkingGameStateDescriptorValue.CurrentStep = 200U;
+        ParkingGameStateDescriptorValue.CurrentGameLoop = 200U;
+        ParkingGameStateDescriptorValue.MacroState.WorkerCount = 12U;
+        ParkingGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
+        ParkingGameStateDescriptorValue.MacroState.BarracksCount = 1U;
+        ParkingGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+        ParkingGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 50U;
+        ParkingGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+        ParkingGameStateDescriptorValue.BuildPlanning.AvailableSupply = 4U;
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(ParkingGameStateDescriptorValue);
+
+        uint32_t ParkedOrderIdValue = 0U;
+        Check(CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                  ParkingGameStateDescriptorValue, CreateStrategicBuildBarracksOrder(2000U), ParkedOrderIdValue),
+              SuccessValue, "Deferred strategic work should admit before it can be parked.");
+        ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderDeferralState(
+            ParkedOrderIdValue, ECommandOrderDeferralReason::NoProducer,
+            ParkingGameStateDescriptorValue.CurrentStep, ParkingGameStateDescriptorValue.CurrentGameLoop);
+        CommandTaskAdmissionServiceValue.ParkDeferredOrders(ParkingGameStateDescriptorValue);
+
+        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() == 1U,
+              SuccessValue, "NoProducer deferrals should park strategic work in the blocked strategic buffer.");
+        size_t ParkedOrderIndexValue = 0U;
+        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetOrderIndex(
+                  ParkedOrderIdValue, ParkedOrderIndexValue),
+              SuccessValue, "Parked strategic orders should remain addressable in the authoritative order store.");
+        if (ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetOrderIndex(
+                ParkedOrderIdValue, ParkedOrderIndexValue))
+        {
+            const FCommandOrderRecord ParkedOrderRecordValue =
+                ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(ParkedOrderIndexValue);
+            Check(ParkedOrderRecordValue.LifecycleState == EOrderLifecycleState::Expired, SuccessValue,
+                  "Parked strategic work should retire from the hot order store immediately.");
+        }
+
+        ParkingGameStateDescriptorValue.CurrentGameLoop = 201U;
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(ParkingGameStateDescriptorValue);
+        CommandTaskAdmissionServiceValue.ReactivateBlockedTasks(ParkingGameStateDescriptorValue);
+        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() == 1U,
+              SuccessValue,
+              "Blocked producer-availability retries should remain parked when neither cooldown nor producer stimulus changes.");
+
+        ParkingGameStateDescriptorValue.MacroState.WorkerCount = 13U;
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(ParkingGameStateDescriptorValue);
+        CommandTaskAdmissionServiceValue.ReactivateBlockedTasks(ParkingGameStateDescriptorValue);
+        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() == 0U,
+              SuccessValue, "Producer stimulus changes should reactivate blocked NoProducer retries.");
+        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.ReactivatedBlockedTaskCount == 1U,
+              SuccessValue, "Blocked retry reactivation should increment the explicit reactivation counter.");
+
+        FGameStateDescriptor ProducerBusyGameStateDescriptorValue;
+        ProducerBusyGameStateDescriptorValue.CurrentStep = 300U;
+        ProducerBusyGameStateDescriptorValue.CurrentGameLoop = 300U;
+        ProducerBusyGameStateDescriptorValue.MacroState.WorkerCount = 12U;
+        ProducerBusyGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
+        ProducerBusyGameStateDescriptorValue.MacroState.BarracksCount = 1U;
+        ProducerBusyGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(ProducerBusyGameStateDescriptorValue);
+
+        uint32_t ProducerBusyOrderIdValue = 0U;
+        Check(CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                  ProducerBusyGameStateDescriptorValue, CreateStrategicBuildBarracksOrder(3000U),
+                  ProducerBusyOrderIdValue),
+              SuccessValue, "ProducerBusy parking test should admit the strategic work item.");
+
+        for (uint64_t RetryStepValue = 300U; RetryStepValue < 302U; ++RetryStepValue)
+        {
+            ProducerBusyGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderDeferralState(
+                ProducerBusyOrderIdValue, ECommandOrderDeferralReason::ProducerBusy, RetryStepValue, RetryStepValue);
+            CommandTaskAdmissionServiceValue.ParkDeferredOrders(ProducerBusyGameStateDescriptorValue);
+            Check(ProducerBusyGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() ==
+                      0U,
+                  SuccessValue,
+                  "ProducerBusy deferrals should stay hot until the short consecutive busy threshold is reached.");
+        }
+
+        ProducerBusyGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderDeferralState(
+            ProducerBusyOrderIdValue, ECommandOrderDeferralReason::ProducerBusy, 302U, 302U);
+        CommandTaskAdmissionServiceValue.ParkDeferredOrders(ProducerBusyGameStateDescriptorValue);
+        Check(ProducerBusyGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() ==
+                  1U,
+              SuccessValue, "ProducerBusy deferrals should park after three consecutive busy results.");
     }
 
     FGameStateDescriptor GameStateDescriptorValue;
