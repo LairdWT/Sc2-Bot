@@ -1,5 +1,9 @@
 #pragma once
 
+#include <unordered_map>
+
+#include "common/planning/FCommandTaskSignatureKey.h"
+#include "common/planning/FProductionBlockerResolution.h"
 #include "common/planning/IEconomyProductionOrderExpander.h"
 
 namespace sc2
@@ -13,6 +17,10 @@ public:
                                           FIntentBuffer& IntentBufferValue,
                                           const IBuildPlacementService& BuildPlacementServiceValue,
                                           const std::vector<Point2D>& ExpansionLocationsValue) const final;
+
+private:
+    mutable std::unordered_map<FCommandTaskSignatureKey, FProductionBlockerResolution, FCommandTaskSignatureKeyHash>
+        ProductionBlockerResolutions;
 };
 
 }  // namespace sc2

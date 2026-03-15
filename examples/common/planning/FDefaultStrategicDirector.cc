@@ -10,6 +10,7 @@
 #include "common/descriptors/EMacroPhase.h"
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/descriptors/FMacroStateDescriptor.h"
+#include "common/economy/EconomyForecastConstants.h"
 #include "common/goals/FAgentGoalSetDescriptor.h"
 
 namespace sc2
@@ -81,92 +82,25 @@ bool IsGoalActive(const FGoalDescriptor& GoalDescriptorValue)
     }
 }
 
-uint32_t GetObservedRefineryCount(const FGameStateDescriptor& GameStateDescriptorValue)
+uint32_t GetProjectedBuildingCount(const FGameStateDescriptor& GameStateDescriptorValue,
+                                   const UNIT_TYPEID UnitTypeIdValue)
 {
-    return static_cast<uint32_t>(
-               GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
-                   UNIT_TYPEID::TERRAN_REFINERY)]) +
-           static_cast<uint32_t>(
-               GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
-                   UNIT_TYPEID::TERRAN_REFINERYRICH)]);
+    return GameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(UnitTypeIdValue);
 }
 
-uint32_t GetObservedSupplyDepotCount(const FGameStateDescriptor& GameStateDescriptorValue)
+uint32_t GetProjectedUnitCount(const FGameStateDescriptor& GameStateDescriptorValue,
+                               const UNIT_TYPEID UnitTypeIdValue)
 {
-    return static_cast<uint32_t>(
-               GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
-                   UNIT_TYPEID::TERRAN_SUPPLYDEPOT)]) +
-           static_cast<uint32_t>(
-               GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
-                   UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED)]);
+    return GameStateDescriptorValue.ProductionState.GetProjectedUnitCount(UnitTypeIdValue);
 }
 
-uint32_t GetObservedBuildingCount(const FGameStateDescriptor& GameStateDescriptorValue,
-                                  const UNIT_TYPEID UnitTypeIdValue)
-{
-    switch (UnitTypeIdValue)
-    {
-        case UNIT_TYPEID::TERRAN_COMMANDCENTER:
-            return GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount;
-        case UNIT_TYPEID::TERRAN_ORBITALCOMMAND:
-            return GameStateDescriptorValue.BuildPlanning.ObservedOrbitalCommandCount;
-        case UNIT_TYPEID::TERRAN_REFINERY:
-            return GetObservedRefineryCount(GameStateDescriptorValue);
-        case UNIT_TYPEID::TERRAN_SUPPLYDEPOT:
-            return GetObservedSupplyDepotCount(GameStateDescriptorValue);
-        default:
-        {
-            const size_t BuildingTypeIndexValue = GetTerranBuildingTypeIndex(UnitTypeIdValue);
-            return IsTerranBuildingTypeIndexValid(BuildingTypeIndexValue)
-                       ? static_cast<uint32_t>(
-                             GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[BuildingTypeIndexValue])
-                       : 0U;
-        }
-    }
-}
-
-uint32_t GetObservedUnitCount(const FGameStateDescriptor& GameStateDescriptorValue, const UNIT_TYPEID UnitTypeIdValue)
-{
-    switch (UnitTypeIdValue)
-    {
-        case UNIT_TYPEID::TERRAN_SIEGETANK:
-            return static_cast<uint32_t>(
-                       GameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
-                           UNIT_TYPEID::TERRAN_SIEGETANK)]) +
-                   static_cast<uint32_t>(
-                       GameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
-                           UNIT_TYPEID::TERRAN_SIEGETANKSIEGED)]);
-        case UNIT_TYPEID::TERRAN_LIBERATOR:
-            return static_cast<uint32_t>(
-                       GameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
-                           UNIT_TYPEID::TERRAN_LIBERATOR)]) +
-                   static_cast<uint32_t>(
-                       GameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
-                           UNIT_TYPEID::TERRAN_LIBERATORAG)]);
-        case UNIT_TYPEID::TERRAN_HELLION:
-            return static_cast<uint32_t>(
-                       GameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
-                           UNIT_TYPEID::TERRAN_HELLION)]) +
-                   static_cast<uint32_t>(
-                       GameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[GetTerranUnitTypeIndex(
-                           UNIT_TYPEID::TERRAN_HELLIONTANK)]);
-        default:
-        {
-            const size_t UnitTypeIndexValue = GetTerranUnitTypeIndex(UnitTypeIdValue);
-            return IsTerranUnitTypeIndexValid(UnitTypeIndexValue)
-                       ? static_cast<uint32_t>(
-                             GameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[UnitTypeIndexValue])
-                       : 0U;
-        }
-    }
-}
-
-uint32_t GetObservedUpgradeCount(const FGameStateDescriptor& GameStateDescriptorValue, const UpgradeID UpgradeIdValue)
+uint32_t GetProjectedUpgradeCount(const FGameStateDescriptor& GameStateDescriptorValue, const UpgradeID UpgradeIdValue)
 {
     const size_t UpgradeTypeIndexValue = GetTerranUpgradeTypeIndex(UpgradeIdValue);
     return IsTerranUpgradeTypeIndexValid(UpgradeTypeIndexValue)
-               ? static_cast<uint32_t>(
-                     GameStateDescriptorValue.BuildPlanning.ObservedCompletedUpgradeCounts[UpgradeTypeIndexValue])
+               ? static_cast<uint32_t>(GameStateDescriptorValue.BuildPlanning
+                                           .ObservedCompletedUpgradeCounts[UpgradeTypeIndexValue]) +
+                     GameStateDescriptorValue.SchedulerOutlook.GetScheduledUpgradeCount(UpgradeIdValue)
                : 0U;
 }
 
@@ -218,16 +152,19 @@ void FDefaultStrategicDirector::AppendImmediateGoals(
     const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
     const uint32_t DesiredWorkerCountValue = DetermineDesiredWorkerCount(GameStateDescriptorValue);
     const uint32_t DesiredSupplyDepotCountValue = DetermineDesiredSupplyDepotCount(GameStateDescriptorValue);
+    const uint32_t ProjectedWorkerCountValue =
+        GetProjectedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SCV);
     const bool HasSupplyPressureValue =
-        GameStateDescriptorValue.BuildPlanning.AvailableSupply <= 4U ||
-        GetObservedSupplyDepotCount(GameStateDescriptorValue) < DesiredSupplyDepotCountValue;
+        GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <= 4U ||
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
+            DesiredSupplyDepotCountValue;
 
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(HoldOwnedBaseGoalIdValue, EGoalDomain::Defense,
                                                         EGoalHorizon::Immediate, EGoalType::HoldOwnedBase,
                                                         EGoalStatus::Active, 300));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         SaturateWorkersGoalIdValue, EGoalDomain::Economy, EGoalHorizon::Immediate, EGoalType::SaturateWorkers,
-        MacroStateDescriptorValue.WorkerCount < DesiredWorkerCountValue ? EGoalStatus::Active : EGoalStatus::Satisfied,
+        ProjectedWorkerCountValue < DesiredWorkerCountValue ? EGoalStatus::Active : EGoalStatus::Satisfied,
         250, DesiredWorkerCountValue, UNIT_TYPEID::TERRAN_SCV));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         MaintainSupplyGoalIdValue, EGoalDomain::Economy, EGoalHorizon::Immediate, EGoalType::MaintainSupply,
@@ -247,88 +184,95 @@ void FDefaultStrategicDirector::AppendNearTermGoals(
 
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         ExpandBaseCountGoalIdValue, EGoalDomain::Economy, EGoalHorizon::NearTerm, EGoalType::ExpandBaseCount,
-        MacroStateDescriptorValue.ActiveBaseCount < DesiredBaseCountValue ? EGoalStatus::Active : EGoalStatus::Satisfied,
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_COMMANDCENTER) < DesiredBaseCountValue
+            ? EGoalStatus::Active
+            : EGoalStatus::Satisfied,
         230, DesiredBaseCountValue, UNIT_TYPEID::TERRAN_COMMANDCENTER));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         RefineryGoalIdValue, EGoalDomain::Economy, EGoalHorizon::NearTerm, EGoalType::BuildProductionCapacity,
-        GetObservedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_REFINERY) < DesiredRefineryCountValue
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_REFINERY) < DesiredRefineryCountValue
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         190, DesiredRefineryCountValue, UNIT_TYPEID::TERRAN_REFINERY));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         BarracksCapacityGoalIdValue, EGoalDomain::Production, EGoalHorizon::NearTerm,
         EGoalType::BuildProductionCapacity,
-        MacroStateDescriptorValue.BarracksCount < DesiredBarracksCountValue ? EGoalStatus::Active
-                                                                            : EGoalStatus::Satisfied,
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) <
+                DesiredBarracksCountValue
+            ? EGoalStatus::Active
+            : EGoalStatus::Satisfied,
         210, DesiredBarracksCountValue, UNIT_TYPEID::TERRAN_BARRACKS));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         FactoryCapacityGoalIdValue, EGoalDomain::Production, EGoalHorizon::NearTerm,
         EGoalType::BuildProductionCapacity,
-        MacroStateDescriptorValue.FactoryCount < DesiredFactoryCountValue ? EGoalStatus::Active
-                                                                          : EGoalStatus::Satisfied,
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_FACTORY) < DesiredFactoryCountValue
+            ? EGoalStatus::Active
+            : EGoalStatus::Satisfied,
         205, DesiredFactoryCountValue, UNIT_TYPEID::TERRAN_FACTORY));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         StarportCapacityGoalIdValue, EGoalDomain::Production, EGoalHorizon::NearTerm,
         EGoalType::BuildProductionCapacity,
-        MacroStateDescriptorValue.StarportCount < DesiredStarportCountValue ? EGoalStatus::Active
-                                                                            : EGoalStatus::Satisfied,
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_STARPORT) <
+                DesiredStarportCountValue
+            ? EGoalStatus::Active
+            : EGoalStatus::Satisfied,
         205, DesiredStarportCountValue, UNIT_TYPEID::TERRAN_STARPORT));
 
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         BarracksReactorGoalIdValue, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology,
-        MacroStateDescriptorValue.BarracksCount >= 1U &&
-                GetObservedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKSREACTOR) < 1U
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 1U &&
+                GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKSREACTOR) < 1U
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         170, 1U, UNIT_TYPEID::TERRAN_BARRACKSREACTOR));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         FactoryTechLabGoalIdValue, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology,
-        MacroStateDescriptorValue.FactoryCount >= 1U &&
-                GetObservedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_FACTORYTECHLAB) < 1U
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_FACTORY) >= 1U &&
+                GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_FACTORYTECHLAB) < 1U
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         165, 1U, UNIT_TYPEID::TERRAN_FACTORYTECHLAB));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         EngineeringBayGoalIdValue, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology,
         ShouldPrioritizeUpgrades(GameStateDescriptorValue) &&
-                GetObservedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_ENGINEERINGBAY) < 1U
+                GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_ENGINEERINGBAY) < 1U
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         150, 1U, UNIT_TYPEID::TERRAN_ENGINEERINGBAY));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         StarportReactorGoalIdValue, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology,
-        MacroStateDescriptorValue.StarportCount >= 1U &&
-                GetObservedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_STARPORTREACTOR) < 1U
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_STARPORT) >= 1U &&
+                GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_STARPORTREACTOR) < 1U
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         145, 1U, UNIT_TYPEID::TERRAN_STARPORTREACTOR));
 
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         StimpackGoalIdValue, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::ResearchUpgrade,
-        MacroStateDescriptorValue.BarracksCount >= 2U &&
-                GetObservedUpgradeCount(GameStateDescriptorValue, UpgradeID(UPGRADE_ID::STIMPACK)) == 0U
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U &&
+                GetProjectedUpgradeCount(GameStateDescriptorValue, UpgradeID(UPGRADE_ID::STIMPACK)) == 0U
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         160, 1U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::STIMPACK)));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         CombatShieldGoalIdValue, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::ResearchUpgrade,
-        MacroStateDescriptorValue.BarracksCount >= 2U &&
-                GetObservedUpgradeCount(GameStateDescriptorValue, UpgradeID(UPGRADE_ID::SHIELDWALL)) == 0U
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U &&
+                GetProjectedUpgradeCount(GameStateDescriptorValue, UpgradeID(UPGRADE_ID::SHIELDWALL)) == 0U
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         140, 1U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::SHIELDWALL)));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         InfantryWeaponsGoalIdValue, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::ResearchUpgrade,
         ShouldPrioritizeUpgrades(GameStateDescriptorValue) &&
-                GetObservedUpgradeCount(GameStateDescriptorValue,
+                GetProjectedUpgradeCount(GameStateDescriptorValue,
                                         UpgradeID(UPGRADE_ID::TERRANINFANTRYWEAPONSLEVEL1)) == 0U
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         135, 1U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::TERRANINFANTRYWEAPONSLEVEL1)));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         ConcussiveShellsGoalIdValue, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::ResearchUpgrade,
-        MacroStateDescriptorValue.BarracksCount >= 2U &&
-                GetObservedUpgradeCount(GameStateDescriptorValue, UpgradeID(UPGRADE_ID::PUNISHERGRENADES)) == 0U
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U &&
+                GetProjectedUpgradeCount(GameStateDescriptorValue, UpgradeID(UPGRADE_ID::PUNISHERGRENADES)) == 0U
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         120, 1U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::PUNISHERGRENADES)));
@@ -339,42 +283,42 @@ void FDefaultStrategicDirector::AppendStrategicGoals(
 {
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         MarineProductionGoalIdValue, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy,
-        GetObservedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_MARINE) <
+        GetProjectedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_MARINE) <
                 DetermineDesiredMarineCount(GameStateDescriptorValue)
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         180, DetermineDesiredMarineCount(GameStateDescriptorValue), UNIT_TYPEID::TERRAN_MARINE));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         MarauderProductionGoalIdValue, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy,
-        GetObservedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_MARAUDER) <
+        GetProjectedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_MARAUDER) <
                 DetermineDesiredMarauderCount(GameStateDescriptorValue)
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         165, DetermineDesiredMarauderCount(GameStateDescriptorValue), UNIT_TYPEID::TERRAN_MARAUDER));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         CycloneProductionGoalIdValue, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy,
-        GetObservedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_CYCLONE) <
+        GetProjectedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_CYCLONE) <
                 DetermineDesiredCycloneCount(GameStateDescriptorValue)
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         150, DetermineDesiredCycloneCount(GameStateDescriptorValue), UNIT_TYPEID::TERRAN_CYCLONE));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         SiegeTankProductionGoalIdValue, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy,
-        GetObservedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SIEGETANK) <
+        GetProjectedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SIEGETANK) <
                 DetermineDesiredSiegeTankCount(GameStateDescriptorValue)
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         160, DetermineDesiredSiegeTankCount(GameStateDescriptorValue), UNIT_TYPEID::TERRAN_SIEGETANK));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         MedivacProductionGoalIdValue, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy,
-        GetObservedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_MEDIVAC) <
+        GetProjectedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_MEDIVAC) <
                 DetermineDesiredMedivacCount(GameStateDescriptorValue)
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
         170, DetermineDesiredMedivacCount(GameStateDescriptorValue), UNIT_TYPEID::TERRAN_MEDIVAC));
     GoalDescriptorsValue.push_back(CreateGoalDescriptor(
         LiberatorProductionGoalIdValue, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy,
-        GetObservedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_LIBERATOR) <
+        GetProjectedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_LIBERATOR) <
                 DetermineDesiredLiberatorCount(GameStateDescriptorValue)
             ? EGoalStatus::Active
             : EGoalStatus::Satisfied,
@@ -396,7 +340,12 @@ EProductionFocus FDefaultStrategicDirector::DeterminePrimaryProductionFocus(
     const FGameStateDescriptor& GameStateDescriptorValue) const
 {
     const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
-    const FBuildPlanningState& BuildPlanningStateValue = GameStateDescriptorValue.BuildPlanning;
+    const FEconomyStateDescriptor& EconomyStateDescriptorValue = GameStateDescriptorValue.EconomyState;
+    const FProductionStateDescriptor& ProductionStateDescriptorValue = GameStateDescriptorValue.ProductionState;
+    const uint32_t ProjectedWorkerCountValue =
+        ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_SCV);
+    const uint32_t ProjectedBaseCountValue =
+        ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER);
 
     if (MacroStateDescriptorValue.ActiveMacroPhase == EMacroPhase::Recovery)
     {
@@ -415,15 +364,14 @@ EProductionFocus FDefaultStrategicDirector::DeterminePrimaryProductionFocus(
         }
     }
 
-    if (BuildPlanningStateValue.AvailableSupply <= 1U)
+    if (EconomyStateDescriptorValue.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <= 1U)
     {
         return EProductionFocus::Supply;
     }
 
     const uint32_t DesiredBaseCountValue = DetermineDesiredBaseCount(GameStateDescriptorValue);
-    if (MacroStateDescriptorValue.ActiveBaseCount < DesiredBaseCountValue &&
-        MacroStateDescriptorValue.WorkerCount >=
-            (std::max<uint32_t>(1U, MacroStateDescriptorValue.ActiveBaseCount) * 16U))
+    if (ProjectedBaseCountValue < DesiredBaseCountValue &&
+        ProjectedWorkerCountValue >= (std::max<uint32_t>(1U, ProjectedBaseCountValue) * 16U))
     {
         const uint32_t ExpansionArmyThresholdValue = DesiredBaseCountValue <= 2U ? 12U : 30U;
         if (MacroStateDescriptorValue.ArmySupply >= ExpansionArmyThresholdValue)
@@ -432,12 +380,12 @@ EProductionFocus FDefaultStrategicDirector::DeterminePrimaryProductionFocus(
         }
     }
 
-    if (MacroStateDescriptorValue.WorkerCount < DetermineDesiredWorkerCount(GameStateDescriptorValue))
+    if (ProjectedWorkerCountValue < DetermineDesiredWorkerCount(GameStateDescriptorValue))
     {
         return EProductionFocus::Workers;
     }
 
-    if (BuildPlanningStateValue.AvailableMinerals >= 500U)
+    if (EconomyStateDescriptorValue.ProjectedAvailableMineralsByHorizon[ShortForecastHorizonIndexValue] >= 500U)
     {
         return EProductionFocus::Production;
     }
@@ -527,7 +475,8 @@ uint32_t FDefaultStrategicDirector::DetermineDesiredRefineryCount(
         case EMacroPhase::LateGame:
             return 8U;
         case EMacroPhase::Recovery:
-            return std::min<uint32_t>(1U, GetObservedRefineryCount(GameStateDescriptorValue));
+            return std::min<uint32_t>(1U, GetProjectedBuildingCount(GameStateDescriptorValue,
+                                                                    UNIT_TYPEID::TERRAN_REFINERY));
         default:
             return 2U;
     }
@@ -561,7 +510,8 @@ uint32_t FDefaultStrategicDirector::DetermineDesiredBarracksCount(
         case EMacroPhase::LateGame:
             return 5U;
         case EMacroPhase::Recovery:
-            return std::max<uint32_t>(1U, GameStateDescriptorValue.MacroState.BarracksCount);
+            return std::max<uint32_t>(1U, GetProjectedBuildingCount(GameStateDescriptorValue,
+                                                                    UNIT_TYPEID::TERRAN_BARRACKS));
         default:
             return 2U;
     }
@@ -580,7 +530,8 @@ uint32_t FDefaultStrategicDirector::DetermineDesiredFactoryCount(
         case EMacroPhase::LateGame:
             return 2U;
         case EMacroPhase::Recovery:
-            return std::min<uint32_t>(1U, GameStateDescriptorValue.MacroState.FactoryCount);
+            return std::min<uint32_t>(1U, GetProjectedBuildingCount(GameStateDescriptorValue,
+                                                                    UNIT_TYPEID::TERRAN_FACTORY));
         default:
             return 1U;
     }
@@ -599,7 +550,8 @@ uint32_t FDefaultStrategicDirector::DetermineDesiredStarportCount(
         case EMacroPhase::LateGame:
             return 2U;
         case EMacroPhase::Recovery:
-            return std::min<uint32_t>(1U, GameStateDescriptorValue.MacroState.StarportCount);
+            return std::min<uint32_t>(1U, GetProjectedBuildingCount(GameStateDescriptorValue,
+                                                                    UNIT_TYPEID::TERRAN_STARPORT));
         default:
             return 1U;
     }
@@ -722,8 +674,8 @@ uint32_t FDefaultStrategicDirector::DetermineDesiredLiberatorCount(
 
 bool FDefaultStrategicDirector::ShouldPrioritizeUpgrades(const FGameStateDescriptor& GameStateDescriptorValue) const
 {
-    const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
-    return MacroStateDescriptorValue.ActiveBaseCount >= 2U && MacroStateDescriptorValue.BarracksCount >= 2U;
+    return GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_COMMANDCENTER) >= 2U &&
+           GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U;
 }
 
 EArmyGoal FDefaultStrategicDirector::DeterminePrimaryArmyGoal(

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <unordered_map>
+
+#include "common/planning/FUnitExecutionCacheEntry.h"
 #include "common/planning/IUnitExecutionPlanner.h"
 
 namespace sc2
@@ -12,6 +15,9 @@ public:
                                        const FGameStateDescriptor& GameStateDescriptorValue,
                                        const Point2D& RallyPointValue,
                                        FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue) const final;
+
+private:
+    mutable std::unordered_map<Tag, FUnitExecutionCacheEntry> UnitExecutionCacheEntries;
 };
 
 }  // namespace sc2

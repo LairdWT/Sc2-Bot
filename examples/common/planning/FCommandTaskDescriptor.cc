@@ -16,6 +16,7 @@ void FCommandTaskDescriptor::Reset()
     ActionKind = ECommandTaskActionKind::Unknown;
     CompletionKind = ECommandTaskCompletionKind::Unknown;
     TaskType = ECommandTaskType::Unknown;
+    Origin = ECommandTaskOrigin::GoalMacro;
     RetentionPolicy = ECommandTaskRetentionPolicy::BufferedRetry;
     BlockedTaskWakeKind = EBlockedTaskWakeKind::CooldownOnly;
     BasePriorityValue = 0;

@@ -5,7 +5,13 @@
 #include <string>
 
 #include "common/agent_framework.h"
+#include "common/bot_status_models.h"
+#include "common/build_orders/FOpeningPlanExecutionState.h"
+#include "common/descriptors/FTerranForecastStateBuilder.h"
+#include "common/descriptors/FTerranGameStateDescriptorBuilder.h"
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/economy/EconomyForecastConstants.h"
+#include "common/economy/FEconomyDomainState.h"
 #include "common/planning/ECommandAuthorityLayer.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/EIntentPlaybackState.h"
@@ -77,6 +83,46 @@ FBlockedTaskRecord CreateBlockedTaskRecord(const uint32_t TaskIdValue,
     BlockedTaskRecordValue.LastSeenStimulusRevision = 1U;
     BlockedTaskRecordValue.RequestedQueueCount = 1U;
     return BlockedTaskRecordValue;
+}
+
+void PopulateForecastStimulusState(FGameStateDescriptor& GameStateDescriptorValue,
+                                   const uint32_t ProjectedAvailableMineralsValue,
+                                   const uint32_t ProjectedAvailableVespeneValue,
+                                   const uint32_t ProjectedAvailableSupplyValue,
+                                   const uint32_t ProjectedWorkerCountValue,
+                                   const uint32_t ProjectedTownHallCountValue,
+                                   const uint32_t ProjectedBarracksCountValue,
+                                   const uint32_t ProjectedFactoryCountValue,
+                                   const uint32_t ProjectedStarportCountValue)
+{
+    GameStateDescriptorValue.EconomyState.BudgetedMinerals = ProjectedAvailableMineralsValue;
+    GameStateDescriptorValue.EconomyState.BudgetedVespene = ProjectedAvailableVespeneValue;
+    GameStateDescriptorValue.EconomyState.BudgetedSupplyAvailable = ProjectedAvailableSupplyValue;
+    GameStateDescriptorValue.EconomyState.ProjectedAvailableMineralsByHorizon[ShortForecastHorizonIndexValue] =
+        ProjectedAvailableMineralsValue;
+    GameStateDescriptorValue.EconomyState.ProjectedAvailableVespeneByHorizon[ShortForecastHorizonIndexValue] =
+        ProjectedAvailableVespeneValue;
+    GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] =
+        ProjectedAvailableSupplyValue;
+
+    GameStateDescriptorValue.ProductionState.ProjectedUnitCounts[GetTerranUnitTypeIndex(UNIT_TYPEID::TERRAN_SCV)] =
+        ProjectedWorkerCountValue;
+    GameStateDescriptorValue.ProductionState.ProjectedBuildingCounts[GetTerranBuildingTypeIndex(
+        UNIT_TYPEID::TERRAN_COMMANDCENTER)] = ProjectedTownHallCountValue;
+    GameStateDescriptorValue.ProductionState.ProjectedBuildingCounts[GetTerranBuildingTypeIndex(
+        UNIT_TYPEID::TERRAN_BARRACKS)] = ProjectedBarracksCountValue;
+    GameStateDescriptorValue.ProductionState.ProjectedBuildingCounts[GetTerranBuildingTypeIndex(
+        UNIT_TYPEID::TERRAN_FACTORY)] = ProjectedFactoryCountValue;
+    GameStateDescriptorValue.ProductionState.ProjectedBuildingCounts[GetTerranBuildingTypeIndex(
+        UNIT_TYPEID::TERRAN_STARPORT)] = ProjectedStarportCountValue;
+    GameStateDescriptorValue.ProductionState.CurrentTownHallCapacity = ProjectedTownHallCountValue;
+    GameStateDescriptorValue.ProductionState.NearTermTownHallCapacity = ProjectedTownHallCountValue;
+    GameStateDescriptorValue.ProductionState.CurrentBarracksCapacity = ProjectedBarracksCountValue;
+    GameStateDescriptorValue.ProductionState.NearTermBarracksCapacity = ProjectedBarracksCountValue;
+    GameStateDescriptorValue.ProductionState.CurrentFactoryCapacity = ProjectedFactoryCountValue;
+    GameStateDescriptorValue.ProductionState.NearTermFactoryCapacity = ProjectedFactoryCountValue;
+    GameStateDescriptorValue.ProductionState.CurrentStarportCapacity = ProjectedStarportCountValue;
+    GameStateDescriptorValue.ProductionState.NearTermStarportCapacity = ProjectedStarportCountValue;
 }
 
 }  // namespace
@@ -523,6 +569,44 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
     }
 
     {
+        FCommandAuthoritySchedulingState TerminalCompactionSchedulingStateValue;
+        const uint32_t GoalStrategicOrderIdValue = IntentSchedulingServiceValue.SubmitOrder(
+            TerminalCompactionSchedulingStateValue, CreateStrategicBuildBarracksOrder(2200U));
+        TerminalCompactionSchedulingStateValue.SetOrderLifecycleState(GoalStrategicOrderIdValue,
+                                                                     EOrderLifecycleState::Completed);
+
+        Check(TerminalCompactionSchedulingStateValue.CompactTerminalOrders(), SuccessValue,
+              "Completed non-opening strategic work should compact out of the hot scheduling store.");
+        Check(TerminalCompactionSchedulingStateValue.GetOrderCount() == 0U, SuccessValue,
+              "Compaction should remove completed goal-driven strategic work.");
+    }
+
+    {
+        FCommandAuthoritySchedulingState OpeningCompactionSchedulingStateValue;
+        FOpeningPlanExecutionState OpeningPlanExecutionStateValue;
+        OpeningPlanExecutionStateValue.SetActivePlan(EOpeningPlanId::TerranTwoBaseMMMFrameOpening);
+
+        FCommandOrderRecord OpeningStrategicOrderValue = CreateStrategicBuildBarracksOrder(2300U);
+        OpeningStrategicOrderValue.PlanStepId = 9U;
+        const uint32_t OpeningStrategicOrderIdValue =
+            IntentSchedulingServiceValue.SubmitOrder(OpeningCompactionSchedulingStateValue, OpeningStrategicOrderValue);
+        OpeningPlanExecutionStateValue.RecordSeededStep(9U, OpeningStrategicOrderIdValue);
+        OpeningCompactionSchedulingStateValue.SetOrderLifecycleState(OpeningStrategicOrderIdValue,
+                                                                    EOrderLifecycleState::Aborted);
+
+        Check(!OpeningCompactionSchedulingStateValue.CompactTerminalOrders(&OpeningPlanExecutionStateValue),
+              SuccessValue, "Aborted seeded opening work should remain available for reopening.");
+        Check(OpeningCompactionSchedulingStateValue.GetOrderCount() == 1U, SuccessValue,
+              "Compaction should preserve seeded opening work that is still authoritative.");
+
+        OpeningPlanExecutionStateValue.UnseedStep(9U);
+        Check(OpeningCompactionSchedulingStateValue.CompactTerminalOrders(&OpeningPlanExecutionStateValue),
+              SuccessValue, "Unseeded opening work should compact once it no longer owns the step.");
+        Check(OpeningCompactionSchedulingStateValue.GetOrderCount() == 0U, SuccessValue,
+              "Compaction should remove unseeded aborted opening work.");
+    }
+
+    {
         FBlockedTaskRingBuffer BlockedTaskRingBufferValue;
         BlockedTaskRingBufferValue.Reset(2U);
 
@@ -598,6 +682,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         AdmissionGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 50U;
         AdmissionGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
         AdmissionGameStateDescriptorValue.BuildPlanning.AvailableSupply = 4U;
+        PopulateForecastStimulusState(AdmissionGameStateDescriptorValue, 50U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(AdmissionGameStateDescriptorValue);
 
         uint32_t AdmittedStrategicOrderCountValue = 0U;
@@ -647,6 +732,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         ParkingGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 50U;
         ParkingGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
         ParkingGameStateDescriptorValue.BuildPlanning.AvailableSupply = 4U;
+        PopulateForecastStimulusState(ParkingGameStateDescriptorValue, 50U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(ParkingGameStateDescriptorValue);
 
         uint32_t ParkedOrderIdValue = 0U;
@@ -681,6 +767,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
               "Blocked producer-availability retries should remain parked when neither cooldown nor producer stimulus changes.");
 
         ParkingGameStateDescriptorValue.MacroState.WorkerCount = 13U;
+        PopulateForecastStimulusState(ParkingGameStateDescriptorValue, 50U, 0U, 4U, 13U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(ParkingGameStateDescriptorValue);
         CommandTaskAdmissionServiceValue.ReactivateBlockedTasks(ParkingGameStateDescriptorValue);
         Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() == 0U,
@@ -700,6 +787,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         ProducerBusyGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
         ProducerBusyGameStateDescriptorValue.MacroState.BarracksCount = 1U;
         ProducerBusyGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+        PopulateForecastStimulusState(ProducerBusyGameStateDescriptorValue, 50U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(ProducerBusyGameStateDescriptorValue);
 
         uint32_t ProducerBusyOrderIdValue = 0U;
@@ -725,6 +813,117 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         Check(ProducerBusyGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() ==
                   1U,
               SuccessValue, "ProducerBusy deferrals should park after three consecutive busy results.");
+
+        FGameStateDescriptor ResourceWakeGameStateDescriptorValue;
+        ResourceWakeGameStateDescriptorValue.CurrentStep = 350U;
+        ResourceWakeGameStateDescriptorValue.CurrentGameLoop = 350U;
+        ResourceWakeGameStateDescriptorValue.MacroState.WorkerCount = 12U;
+        ResourceWakeGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
+        ResourceWakeGameStateDescriptorValue.MacroState.BarracksCount = 1U;
+        ResourceWakeGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+        PopulateForecastStimulusState(ResourceWakeGameStateDescriptorValue, 50U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(ResourceWakeGameStateDescriptorValue);
+
+        uint32_t ResourceWakeOrderIdValue = 0U;
+        Check(CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                  ResourceWakeGameStateDescriptorValue, CreateStrategicBuildBarracksOrder(3500U),
+                  ResourceWakeOrderIdValue),
+              SuccessValue, "Resource wake test should admit the strategic work item before it is parked.");
+        ResourceWakeGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderDeferralState(
+            ResourceWakeOrderIdValue, ECommandOrderDeferralReason::InsufficientResources,
+            ResourceWakeGameStateDescriptorValue.CurrentStep, ResourceWakeGameStateDescriptorValue.CurrentGameLoop);
+        CommandTaskAdmissionServiceValue.ParkDeferredOrders(ResourceWakeGameStateDescriptorValue);
+        Check(ResourceWakeGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() == 1U,
+              SuccessValue, "Insufficient-resources deferrals should park strategic work in the blocked buffer.");
+
+        ResourceWakeGameStateDescriptorValue.CurrentGameLoop = 351U;
+        PopulateForecastStimulusState(ResourceWakeGameStateDescriptorValue, 250U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(ResourceWakeGameStateDescriptorValue);
+        CommandTaskAdmissionServiceValue.ReactivateBlockedTasks(ResourceWakeGameStateDescriptorValue);
+        Check(ResourceWakeGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() == 0U,
+              SuccessValue, "Forecasted mineral availability changes should reactivate blocked resource retries.");
+        Check(ResourceWakeGameStateDescriptorValue.CommandAuthoritySchedulingState.TotalReactivatedBlockedTaskCount == 1U,
+              SuccessValue, "Resource-driven blocked retry reactivation should increment the explicit reactivation counter.");
+    }
+
+    {
+        FTerranGameStateDescriptorBuilder GameStateDescriptorBuilderValue;
+        FTerranForecastStateBuilder ForecastStateBuilderValue;
+        FEconomyDomainState EconomyDomainStateValue;
+
+        FAgentState SeedAgentStateValue;
+        SeedAgentStateValue.Economy.Minerals = 100U;
+        SeedAgentStateValue.Economy.Vespene = 0U;
+        SeedAgentStateValue.Economy.Supply = 14U;
+        SeedAgentStateValue.Economy.SupplyCap = 23U;
+        SeedAgentStateValue.Economy.SupplyAvailable = 9U;
+        SeedAgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 14U);
+        SeedAgentStateValue.Units.Update();
+        SeedAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 1U);
+        SeedAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 1U);
+
+        FGameStateDescriptor SeedDescriptorValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(10U, 100U, SeedAgentStateValue, SeedDescriptorValue);
+        ForecastStateBuilderValue.RebuildForecastState(SeedAgentStateValue, EconomyDomainStateValue, SeedDescriptorValue);
+
+        FAgentState ForecastAgentStateValue;
+        ForecastAgentStateValue.Economy.Minerals = 90U;
+        ForecastAgentStateValue.Economy.Vespene = 0U;
+        ForecastAgentStateValue.Economy.Supply = 15U;
+        ForecastAgentStateValue.Economy.SupplyCap = 23U;
+        ForecastAgentStateValue.Economy.SupplyAvailable = 8U;
+        ForecastAgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 14U);
+        ForecastAgentStateValue.Units.Update();
+        ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 1U);
+        ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 1U);
+        ForecastAgentStateValue.Buildings.SetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 1U);
+
+        FGameStateDescriptor ForecastGameStateDescriptorValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(11U, 196U, ForecastAgentStateValue,
+                                                                  ForecastGameStateDescriptorValue);
+
+        FCommandOrderRecord MaterializedSupplyDepotOrderValue = FCommandOrderRecord::CreateNoTarget(
+            ECommandAuthorityLayer::UnitExecution, NullTag, ABILITY_ID::BUILD_SUPPLYDEPOT, 160,
+            EIntentDomain::StructureBuild, 196U);
+        MaterializedSupplyDepotOrderValue.TaskType = ECommandTaskType::Supply;
+        MaterializedSupplyDepotOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+        MaterializedSupplyDepotOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
+        MaterializedSupplyDepotOrderValue.TargetCount = 2U;
+        const uint32_t MaterializedSupplyDepotOrderIdValue =
+            ForecastGameStateDescriptorValue.CommandAuthoritySchedulingState.EnqueueOrder(
+                MaterializedSupplyDepotOrderValue);
+        ForecastGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderDispatchState(
+            MaterializedSupplyDepotOrderIdValue, 11U, 196U, 1U, 0U);
+        ForecastGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
+            MaterializedSupplyDepotOrderIdValue, EOrderLifecycleState::Dispatched);
+
+        FCommandOrderRecord MarineOrderValue = FCommandOrderRecord::CreateNoTarget(
+            ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::TRAIN_MARINE, 150,
+            EIntentDomain::UnitProduction, 196U);
+        MarineOrderValue.TaskType = ECommandTaskType::UnitProduction;
+        MarineOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+        MarineOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_MARINE;
+        MarineOrderValue.TargetCount = 1U;
+        const uint32_t MarineOrderIdValue =
+            ForecastGameStateDescriptorValue.CommandAuthoritySchedulingState.EnqueueOrder(MarineOrderValue);
+        ForecastGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
+            MarineOrderIdValue, EOrderLifecycleState::Ready);
+
+        ForecastStateBuilderValue.RebuildForecastState(ForecastAgentStateValue, EconomyDomainStateValue,
+                                                       ForecastGameStateDescriptorValue);
+
+        Check(ForecastGameStateDescriptorValue.SchedulerOutlook.ActiveLeafOrderCount == 1U, SuccessValue,
+              "Forecast projection should skip leaf orders that have already materialized into observation.");
+        Check(ForecastGameStateDescriptorValue.SchedulerOutlook.GetScheduledBuildingCount(
+                  UNIT_TYPEID::TERRAN_SUPPLYDEPOT) == 0U,
+              SuccessValue, "Materialized supply depots should not remain in scheduled building projections.");
+        Check(ForecastGameStateDescriptorValue.SchedulerOutlook.GetScheduledUnitCount(UNIT_TYPEID::TERRAN_MARINE) == 1U,
+              SuccessValue, "Unmaterialized marine production should remain visible in scheduled unit projections.");
+        Check(ForecastGameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(
+                  UNIT_TYPEID::TERRAN_SUPPLYDEPOT) == 2U,
+              SuccessValue, "Projected supply depot count should combine observed and in-progress state without double counting scheduled rows.");
+        Check(ForecastGameStateDescriptorValue.ProductionState.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_MARINE) == 1U,
+              SuccessValue, "Projected marine count should include unmaterialized scheduled unit production.");
     }
 
     FGameStateDescriptor GameStateDescriptorValue;

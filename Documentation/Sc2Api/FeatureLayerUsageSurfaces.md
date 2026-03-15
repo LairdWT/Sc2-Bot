@@ -157,6 +157,36 @@ If any load fails, `Reset()` is called and `Valid` remains false.
 - Test-backed verification:
   - `tests\test_singularity_framework.cc` verifies valid channel + metric derivation and verifies invalid-input reset behavior where missing required textures keeps channels and metrics invalid.
 
+## Feature-Layer Setup Provenance Boundary
+
+- Selected topic: `SC2-API-FEATURE-LAYER-SETUP-PROVENANCE-BOUNDARY`
+- Source-proven setup ownership chain:
+  - `Coordinator::SetFeatureLayers(const FeatureLayerSettings& settings)` sets `imp_->interface_settings_.use_feature_layers = true` and copies `imp_->interface_settings_.feature_layer_settings = settings` in `src\sc2api\sc2_coordinator.cc`.
+  - `ControlImp::RequestJoinGame(...)` writes those values into `SC2APIProtocol::InterfaceOptions::feature_layer` (`width`, `resolution`, `minimap_resolution`) in `src\sc2api\sc2_client.cc`.
+  - `ObservationImp::GetGameInfo()` converts `ResponseGameInfo::options` into `GameInfo::options` via `Convert(response_game_info_ptr->options(), game_info.options)` in `src\sc2api\sc2_proto_to_pods.cc`.
+  - `FAgentSpatialChannels::Update(const FFrameContext& Frame)` copies `FeatureLayerSetup = Frame.GameInfo->options.feature_layer` in `examples\common\agent_framework.h`.
+- Boundary conclusion:
+  - `FAgentSpatialChannels::FeatureLayerSetup` is sourced from `GameInfo::options.feature_layer` (join-game interface contract), not from `RawObservation::feature_layer_data()` textures.
+  - If per-frame feature-layer textures are missing, `FAgentSpatialChannels::Update(...)` resets `Valid` to `false`, but the setup provenance remains on the `GameInfo` path.
+
+## Feature-Layer Height-Map Gate Versus Consumer Boundary
+
+- Selected topic: `SC2-API-FEATURE-LAYER-HEIGHTMAP-GATE-CONSUMER-BOUNDARY`
+- Ingestion gate in `FAgentSpatialChannels::Update(const FFrameContext& Frame)`:
+  - requires `minimap_renders().has_height_map()` before channels can become valid
+  - requires `MinimapHeightMap.Load(MinimapLayers.height_map())` to succeed, otherwise `Reset()` and invalid channels
+- Derivation boundary in `FAgentSpatialMetrics::Update(const FAgentSpatialChannels& Channels)`:
+  - reads `Channels.MapPlayerRelative` and `Channels.MinimapPlayerRelative`
+  - does not read `Channels.MinimapHeightMap`
+- Terran consumer boundary:
+  - no source-proven `TerranAgent::OnStep()` planner, scheduler, or intent execution path currently reads `AgentState.SpatialChannels.MinimapHeightMap`
+  - no source-proven `TerranAgent` call path reads a metric derived from `MinimapHeightMap`
+- Test boundary:
+  - `tests\test_singularity_framework.cc` `SetValidFeatureLayers(...)` includes a height-map payload and verifies channels and metrics valid path
+  - current test pass verifies that missing required textures keeps channels invalid, but does not isolate a height-map-only omission case
+- Source-proven implication:
+  - current channel validity depends on height-map availability even when active Terran decision inputs and derived occupancy metrics do not consume height-map data
+
 ## Remaining Ambiguities After This Pass
 - `FL-001`
   - `TerranAgent` declares `DrawFeatureLayer1BPP(...)`, `DrawFeatureLayerUnits8BPP(...)`, and `DrawFeatureLayerHeightMap8BPP(...)` in `terran.h`.
@@ -168,3 +198,9 @@ If any load fails, `Reset()` is called and `Valid` remains false.
   - `FAgentSpatialChannels::ConvertWorldToMinimap(...)` and `FAgentSpatialChannels::ConvertWorldToCamera(...)` are declared in `examples\common\agent_framework.h`.
   - No source-proven `TerranAgent` call path currently consumes those helpers during `OnStep()` scheduling or execution.
   - Follow-up needed: establish an owned Terran decision-input consumer or move these helpers to a test-only/shared utility boundary.
+
+- `FL-004`
+  - `FAgentSpatialChannels::Update(...)` requires and loads `MinimapHeightMap` from `minimap_renders().height_map()`.
+  - `FAgentSpatialMetrics::Update(...)` does not consume `MinimapHeightMap`, and no source-proven `TerranAgent` decision path currently consumes that channel.
+  - Follow-up needed: either add an owned consumer for height-map channel data or relax the channel-validity gate so unused height-map absence does not invalidate all feature-layer channels.
+

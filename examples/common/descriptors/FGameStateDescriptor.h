@@ -5,7 +5,10 @@
 #include "common/armies/FArmyDomainState.h"
 #include "common/build_orders/FOpeningPlanExecutionState.h"
 #include "common/build_planning/FBuildPlanningState.h"
+#include "common/descriptors/FEconomyStateDescriptor.h"
 #include "common/descriptors/FObservedRampWallState.h"
+#include "common/descriptors/FProductionStateDescriptor.h"
+#include "common/descriptors/FSchedulerOutlookDescriptor.h"
 #include "common/descriptors/FMacroStateDescriptor.h"
 #include "common/goals/FAgentGoalSetDescriptor.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
@@ -24,8 +27,11 @@ struct FGameStateDescriptor
     FMacroStateDescriptor MacroState;
     FArmyDomainState ArmyState;
     FBuildPlanningState BuildPlanning;
+    FEconomyStateDescriptor EconomyState;
+    FProductionStateDescriptor ProductionState;
     FOpeningPlanExecutionState OpeningPlanExecutionState;
     FCommandAuthoritySchedulingState CommandAuthoritySchedulingState;
+    FSchedulerOutlookDescriptor SchedulerOutlook;
     FSpatialFieldSet SpatialFields;
     FRampWallDescriptor RampWallDescriptor;
     FMainBaseLayoutDescriptor MainBaseLayoutDescriptor;

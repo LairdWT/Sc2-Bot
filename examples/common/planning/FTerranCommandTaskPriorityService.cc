@@ -4,6 +4,7 @@
 
 #include "common/armies/EArmyMissionType.h"
 #include "common/descriptors/FMacroStateDescriptor.h"
+#include "common/economy/EconomyForecastConstants.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
 
 namespace sc2
@@ -20,10 +21,14 @@ uint32_t GetWorkerSaturationTargetCount(const FMacroStateDescriptor& MacroStateD
 
 bool IsExpansionEconomicallyStable(const FGameStateDescriptor& GameStateDescriptorValue)
 {
-    const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
-    const FBuildPlanningState& BuildPlanningStateValue = GameStateDescriptorValue.BuildPlanning;
-    return BuildPlanningStateValue.AvailableMinerals >= 300U &&
-           MacroStateDescriptorValue.WorkerCount >= (MacroStateDescriptorValue.ActiveBaseCount * 14U);
+    const FEconomyStateDescriptor& EconomyStateDescriptorValue = GameStateDescriptorValue.EconomyState;
+    const FProductionStateDescriptor& ProductionStateDescriptorValue = GameStateDescriptorValue.ProductionState;
+    const uint32_t ProjectedBaseCountValue =
+        ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER);
+    const uint32_t ProjectedWorkerCountValue =
+        ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_SCV);
+    return EconomyStateDescriptorValue.ProjectedAvailableMineralsByHorizon[ShortForecastHorizonIndexValue] >= 300U &&
+           ProjectedWorkerCountValue >= (std::max<uint32_t>(1U, ProjectedBaseCountValue) * 14U);
 }
 
 bool IsDefenseEmergency(const FGameStateDescriptor& GameStateDescriptorValue)
@@ -40,6 +45,92 @@ bool IsDefenseEmergency(const FGameStateDescriptor& GameStateDescriptorValue)
             return true;
         default:
             return false;
+    }
+}
+
+bool IsOpeningIncomplete(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return GameStateDescriptorValue.OpeningPlanExecutionState.LifecycleState != EOpeningPlanLifecycleState::Completed;
+}
+
+bool IsOpeningBlendLimitedGoalTaskType(const ECommandTaskType CommandTaskTypeValue)
+{
+    switch (CommandTaskTypeValue)
+    {
+        case ECommandTaskType::AddOn:
+        case ECommandTaskType::UpgradeResearch:
+        case ECommandTaskType::UnitProduction:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool HasImminentSupplyRelief(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return GameStateDescriptorValue.SchedulerOutlook.ExpectedSupplyAvailableDelta > 0;
+}
+
+bool IsProjectedSupplyEmergency(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <= 1U &&
+           !HasImminentSupplyRelief(GameStateDescriptorValue);
+}
+
+bool HasProjectedProductionBottleneck(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    const FProductionStateDescriptor& ProductionStateDescriptorValue = GameStateDescriptorValue.ProductionState;
+    const uint32_t CurrentCombatProducerCapacityValue = ProductionStateDescriptorValue.CurrentBarracksCapacity +
+                                                        ProductionStateDescriptorValue.CurrentFactoryCapacity +
+                                                        ProductionStateDescriptorValue.CurrentStarportCapacity;
+    const uint32_t CurrentCombatProducerOccupancyValue = ProductionStateDescriptorValue.CurrentBarracksOccupancy +
+                                                         ProductionStateDescriptorValue.CurrentFactoryOccupancy +
+                                                         ProductionStateDescriptorValue.CurrentStarportOccupancy;
+    return CurrentCombatProducerCapacityValue > 0U &&
+           CurrentCombatProducerOccupancyValue >= CurrentCombatProducerCapacityValue;
+}
+
+ECommandPriorityTier ApplyOpeningBlendPriorityTierClamp(
+    const FGameStateDescriptor& GameStateDescriptorValue, const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+    const size_t OrderIndexValue, const ECommandPriorityTier PriorityTierValue)
+{
+    if (!IsOpeningIncomplete(GameStateDescriptorValue))
+    {
+        return PriorityTierValue;
+    }
+
+    switch (CommandAuthoritySchedulingStateValue.TaskOrigins[OrderIndexValue])
+    {
+        case ECommandTaskOrigin::Opening:
+            switch (PriorityTierValue)
+            {
+                case ECommandPriorityTier::Low:
+                case ECommandPriorityTier::Normal:
+                    return ECommandPriorityTier::High;
+                case ECommandPriorityTier::Critical:
+                case ECommandPriorityTier::High:
+                default:
+                    return PriorityTierValue;
+            }
+        case ECommandTaskOrigin::GoalMacro:
+            if (!IsOpeningBlendLimitedGoalTaskType(CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue]))
+            {
+                return PriorityTierValue;
+            }
+
+            switch (PriorityTierValue)
+            {
+                case ECommandPriorityTier::Critical:
+                case ECommandPriorityTier::High:
+                    return ECommandPriorityTier::Normal;
+                case ECommandPriorityTier::Normal:
+                case ECommandPriorityTier::Low:
+                default:
+                    return PriorityTierValue;
+            }
+        case ECommandTaskOrigin::Recovery:
+        default:
+            return PriorityTierValue;
     }
 }
 
@@ -68,9 +159,12 @@ void FTerranCommandTaskPriorityService::UpdateTaskPriorities(FGameStateDescripto
                                                               CommandAuthoritySchedulingStateValue,
                                                               OrderIndexValue);
         CommandAuthoritySchedulingStateValue.EffectivePriorityValues[OrderIndexValue] = EffectivePriorityValue;
-        CommandAuthoritySchedulingStateValue.PriorityTiers[OrderIndexValue] =
+        const ECommandPriorityTier RawPriorityTierValue =
             DeterminePriorityTier(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue, OrderIndexValue,
                                   EffectivePriorityValue);
+        CommandAuthoritySchedulingStateValue.PriorityTiers[OrderIndexValue] =
+            ApplyOpeningBlendPriorityTierClamp(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue,
+                                               OrderIndexValue, RawPriorityTierValue);
     }
 
     CommandAuthoritySchedulingStateValue.bDerivedQueuesDirty = true;
@@ -220,10 +314,11 @@ int FTerranCommandTaskPriorityService::GetEmergencyWeight(
 {
     int EmergencyWeightValue = 0;
     const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
-    const FBuildPlanningState& BuildPlanningStateValue = GameStateDescriptorValue.BuildPlanning;
+    const FEconomyStateDescriptor& EconomyStateDescriptorValue = GameStateDescriptorValue.EconomyState;
+    const FProductionStateDescriptor& ProductionStateDescriptorValue = GameStateDescriptorValue.ProductionState;
     const ECommandTaskType CommandTaskTypeValue = CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue];
 
-    if (BuildPlanningStateValue.AvailableSupply <= 1U)
+    if (IsProjectedSupplyEmergency(GameStateDescriptorValue))
     {
         switch (CommandTaskTypeValue)
         {
@@ -249,7 +344,8 @@ int FTerranCommandTaskPriorityService::GetEmergencyWeight(
         EmergencyWeightValue += 350;
     }
 
-    if (MacroStateDescriptorValue.WorkerCount < GetWorkerSaturationTargetCount(MacroStateDescriptorValue) &&
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_SCV) <
+            GetWorkerSaturationTargetCount(MacroStateDescriptorValue) &&
         CommandTaskTypeValue == ECommandTaskType::WorkerProduction)
     {
         EmergencyWeightValue += 300;
@@ -272,13 +368,19 @@ int FTerranCommandTaskPriorityService::GetEmergencyWeight(
         }
     }
 
-    if (BuildPlanningStateValue.AvailableMinerals >= 500U)
+    if (EconomyStateDescriptorValue.ProjectedAvailableMineralsByHorizon[ShortForecastHorizonIndexValue] >= 500U)
     {
         switch (CommandTaskTypeValue)
         {
             case ECommandTaskType::ProductionStructure:
+                EmergencyWeightValue += HasProjectedProductionBottleneck(GameStateDescriptorValue) ? 350 : 250;
+                break;
             case ECommandTaskType::UnitProduction:
-                EmergencyWeightValue += 250;
+                EmergencyWeightValue += ProductionStateDescriptorValue.CurrentBarracksCapacity > 0U ||
+                                                ProductionStateDescriptorValue.CurrentFactoryCapacity > 0U ||
+                                                ProductionStateDescriptorValue.CurrentStarportCapacity > 0U
+                                            ? 250
+                                            : 100;
                 break;
             default:
                 break;
@@ -294,7 +396,7 @@ ECommandPriorityTier FTerranCommandTaskPriorityService::DeterminePriorityTier(
     const int EffectivePriorityValue) const
 {
     const bool IsDefenseEmergencyValue = IsDefenseEmergency(GameStateDescriptorValue);
-    const bool IsSupplyEmergencyValue = GameStateDescriptorValue.BuildPlanning.AvailableSupply <= 1U;
+    const bool IsSupplyEmergencyValue = IsProjectedSupplyEmergency(GameStateDescriptorValue);
     const ECommandTaskType CommandTaskTypeValue = CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue];
 
     if (CommandTaskTypeValue == ECommandTaskType::Recovery ||

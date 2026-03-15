@@ -4,6 +4,7 @@
 
 #include "common/planning/EBlockedTaskWakeKind.h"
 #include "common/planning/ECommandPriorityTier.h"
+#include "common/planning/ECommandTaskOrigin.h"
 #include "common/planning/ECommandTaskRetentionPolicy.h"
 #include "common/planning/ECommandTaskType.h"
 #include "common/planning/FCommandTaskDescriptor.h"
@@ -61,6 +62,7 @@ public:
     ECommandTaskPackageKind TaskPackageKind;
     ECommandTaskNeedKind TaskNeedKind;
     ECommandTaskType TaskType;
+    ECommandTaskOrigin Origin;
     ECommandTaskRetentionPolicy RetentionPolicy;
     EBlockedTaskWakeKind BlockedTaskWakeKind;
     int BasePriorityValue;

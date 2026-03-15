@@ -3,7 +3,12 @@
 #include <iostream>
 
 #include "common/bot_status_models.h"
+#include "common/descriptors/FTerranForecastStateBuilder.h"
+#include "common/descriptors/FTerranGameStateDescriptorBuilder.h"
+#include "common/descriptors/FGameStateDescriptor.h"
 #include "common/economic_models.h"
+#include "common/economy/EconomyForecastConstants.h"
+#include "common/economy/FEconomyDomainState.h"
 #include "common/terran_models.h"
 
 namespace sc2
@@ -151,6 +156,90 @@ bool TestTerranEconomicModels(int ArgC, char** ArgV)
           "Invalid building type should not mutate building counts.");
     Check(AgentBuildingsValue.GetCurrentlyInConstruction(InvalidBuildingTypeValue) == 0U, SuccessValue,
           "Invalid building type should not mutate in-construction building counts.");
+
+    {
+        FTerranGameStateDescriptorBuilder GameStateDescriptorBuilderValue;
+        FTerranForecastStateBuilder ForecastStateBuilderValue;
+        FEconomyDomainState EconomyDomainStateValue;
+
+        FAgentState SeedAgentStateValue;
+        SeedAgentStateValue.Economy.Minerals = 50U;
+        SeedAgentStateValue.Economy.Vespene = 0U;
+        SeedAgentStateValue.Economy.Supply = 14U;
+        SeedAgentStateValue.Economy.SupplyCap = 23U;
+        SeedAgentStateValue.Economy.SupplyAvailable = 9U;
+        SeedAgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 14U);
+        SeedAgentStateValue.Units.Update();
+        SeedAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 1U);
+        SeedAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 1U);
+
+        FGameStateDescriptor SeedDescriptorValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(1U, 100U, SeedAgentStateValue, SeedDescriptorValue);
+        ForecastStateBuilderValue.RebuildForecastState(SeedAgentStateValue, EconomyDomainStateValue,
+                                                       SeedDescriptorValue);
+
+        FAgentState SpendingAgentStateValue;
+        SpendingAgentStateValue.Economy.Minerals = 40U;
+        SpendingAgentStateValue.Economy.Vespene = 0U;
+        SpendingAgentStateValue.Economy.Supply = 15U;
+        SpendingAgentStateValue.Economy.SupplyCap = 23U;
+        SpendingAgentStateValue.Economy.SupplyAvailable = 8U;
+        SpendingAgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 14U);
+        SpendingAgentStateValue.Units.SetUnitsInConstruction(UNIT_TYPEID::TERRAN_SCV, 1U);
+        SpendingAgentStateValue.Units.Update();
+        SpendingAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 1U);
+        SpendingAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 1U);
+        SpendingAgentStateValue.Buildings.SetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 1U);
+        EconomyDomainStateValue.Update(SpendingAgentStateValue, 196U);
+
+        FAgentState CompletionAgentStateValue;
+        CompletionAgentStateValue.Economy.Minerals = 80U;
+        CompletionAgentStateValue.Economy.Vespene = 0U;
+        CompletionAgentStateValue.Economy.Supply = 15U;
+        CompletionAgentStateValue.Economy.SupplyCap = 31U;
+        CompletionAgentStateValue.Economy.SupplyAvailable = 16U;
+        CompletionAgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 15U);
+        CompletionAgentStateValue.Units.Update();
+        CompletionAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 1U);
+        CompletionAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 2U);
+
+        FGameStateDescriptor CompletionDescriptorValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(2U, 292U, CompletionAgentStateValue,
+                                                                  CompletionDescriptorValue);
+        ForecastStateBuilderValue.RebuildForecastState(CompletionAgentStateValue, EconomyDomainStateValue,
+                                                       CompletionDescriptorValue);
+
+        Check(EconomyDomainStateValue.GetElapsedGameLoopsForHorizon(ShortForecastHorizonIndexValue) == 96U,
+              SuccessValue, "Short-horizon economy windows should use the configured 96 game-loop span when history is available.");
+        Check(EconomyDomainStateValue.GetElapsedGameLoopsForHorizon(MediumForecastHorizonIndexValue) == 192U,
+              SuccessValue, "Medium-horizon economy windows should fall back to the oldest retained sample when history is shorter than the configured horizon.");
+        Check(EconomyDomainStateValue.GetGrossMineralIncomeForHorizon(ShortForecastHorizonIndexValue) == 40U,
+              SuccessValue, "Short-horizon gross mineral income should exclude earlier spend and gather samples.");
+        Check(EconomyDomainStateValue.GetGrossMineralIncomeForHorizon(MediumForecastHorizonIndexValue) == 180U,
+              SuccessValue, "Medium-horizon gross mineral income should follow bank delta plus confirmed spend accounting.");
+        Check(EconomyDomainStateValue.GetNetMineralDeltaForHorizon(ShortForecastHorizonIndexValue) == 40,
+              SuccessValue, "Short-horizon net mineral delta should track the observed bank change across the retained sample window.");
+        Check(EconomyDomainStateValue.GetUnitCompletionCountForHorizon(UNIT_TYPEID::TERRAN_SCV,
+                                                                       ShortForecastHorizonIndexValue) == 1U,
+              SuccessValue, "Short-horizon unit completion counts should record completed SCVs.");
+        Check(EconomyDomainStateValue.GetBuildingCompletionCountForHorizon(UNIT_TYPEID::TERRAN_SUPPLYDEPOT,
+                                                                           ShortForecastHorizonIndexValue) == 1U,
+              SuccessValue, "Short-horizon building completion counts should record completed supply depots.");
+        Check(CompletionDescriptorValue.EconomyState.GrossMineralIncomeAverageByHorizon[ShortForecastHorizonIndexValue] >
+                      0.4f &&
+                  CompletionDescriptorValue.EconomyState.GrossMineralIncomeAverageByHorizon[
+                      ShortForecastHorizonIndexValue] < 0.5f,
+              SuccessValue, "Economy forecast should expose moving averages for gross mineral gather rates.");
+        Check(CompletionDescriptorValue.ProductionState.UnitCompletionAveragesByHorizon[GetTerranUnitTypeIndex(
+                  UNIT_TYPEID::TERRAN_SCV)][ShortForecastHorizonIndexValue] > 0.0f,
+              SuccessValue, "Production forecast should expose moving averages for per-unit completion rates.");
+        Check(CompletionDescriptorValue.ProductionState.BuildingCompletionAveragesByHorizon[GetTerranBuildingTypeIndex(
+                  UNIT_TYPEID::TERRAN_SUPPLYDEPOT)][ShortForecastHorizonIndexValue] > 0.0f,
+              SuccessValue, "Production forecast should expose moving averages for per-building completion rates.");
+        Check(CompletionDescriptorValue.EconomyState.ProjectedMineralsByHorizon[ShortForecastHorizonIndexValue] >
+                  CompletionDescriptorValue.EconomyState.CurrentMinerals,
+              SuccessValue, "Economy forecast should project short-horizon minerals from the moving gross-gather average.");
+    }
 
     return SuccessValue;
 }

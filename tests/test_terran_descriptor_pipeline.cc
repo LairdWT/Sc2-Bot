@@ -7,12 +7,16 @@
 #include "common/bot_status_models.h"
 #include "common/descriptors/EGamePlan.h"
 #include "common/descriptors/EMacroPhase.h"
+#include "common/descriptors/FTerranForecastStateBuilder.h"
 #include "common/descriptors/FTerranGameStateDescriptorBuilder.h"
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/economy/EconomyForecastConstants.h"
+#include "common/economy/FEconomyDomainState.h"
 #include "common/goals/EGoalStatus.h"
 #include "common/goals/EGoalType.h"
 #include "common/goals/FGoalDescriptor.h"
 #include "common/planning/FDefaultStrategicDirector.h"
+#include "common/planning/FCommandOrderRecord.h"
 
 namespace sc2
 {
@@ -36,6 +40,21 @@ bool HasGoalOfType(const std::vector<FGoalDescriptor>& GoalDescriptorsValue, con
     for (const FGoalDescriptor& GoalDescriptorValue : GoalDescriptorsValue)
     {
         if (GoalDescriptorValue.GoalType == GoalTypeValue && GoalDescriptorValue.GoalStatus == GoalStatusValue)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool HasGoalOfTypeForTarget(const std::vector<FGoalDescriptor>& GoalDescriptorsValue, const EGoalType GoalTypeValue,
+                            const EGoalStatus GoalStatusValue, const UNIT_TYPEID TargetUnitTypeIdValue)
+{
+    for (const FGoalDescriptor& GoalDescriptorValue : GoalDescriptorsValue)
+    {
+        if (GoalDescriptorValue.GoalType == GoalTypeValue && GoalDescriptorValue.GoalStatus == GoalStatusValue &&
+            GoalDescriptorValue.TargetUnitTypeId == TargetUnitTypeIdValue)
         {
             return true;
         }
@@ -205,6 +224,89 @@ bool TestTerranDescriptorPipeline(int ArgC, char** ArgV)
         Check(GameStateDescriptorValue.ArmyState.ArmyGoals.size() > 1U &&
                   GameStateDescriptorValue.ArmyState.ArmyGoals[1] == EArmyGoal::HoldBase,
               SuccessValue, "The second army anchor should default to HoldBase.");
+    }
+
+    {
+        FTerranForecastStateBuilder ForecastStateBuilderValue;
+        FEconomyDomainState EconomyDomainStateSeedValue;
+        FAgentState SeedAgentStateValue;
+        ConfigureOpeningState(SeedAgentStateValue);
+
+        FGameStateDescriptor SeedDescriptorValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(850U, 2400U, SeedAgentStateValue,
+                                                                  SeedDescriptorValue);
+        ForecastStateBuilderValue.RebuildForecastState(SeedAgentStateValue, EconomyDomainStateSeedValue,
+                                                       SeedDescriptorValue);
+
+        FAgentState ForecastAgentStateValue;
+        ForecastAgentStateValue.Economy.Minerals = 120U;
+        ForecastAgentStateValue.Economy.Vespene = 100U;
+        ForecastAgentStateValue.Economy.Supply = 30U;
+        ForecastAgentStateValue.Economy.SupplyCap = 30U;
+        ForecastAgentStateValue.Economy.SupplyAvailable = 0U;
+        ForecastAgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_SCV, 32U);
+        ForecastAgentStateValue.Units.SetUnitCount(UNIT_TYPEID::TERRAN_MARINE, 20U);
+        ForecastAgentStateValue.Units.Update();
+        ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER, 2U);
+        ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 2U);
+        ForecastAgentStateValue.Buildings.SetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 1U);
+        ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS, 2U);
+        ForecastAgentStateValue.Buildings.SetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_BARRACKS, 1U);
+        ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_FACTORY, 1U);
+        ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_STARPORT, 1U);
+
+        FEconomyDomainState EconomyDomainStateValue = EconomyDomainStateSeedValue;
+        FEconomyDomainState EconomyDomainStateCopyValue = EconomyDomainStateSeedValue;
+        FGameStateDescriptor ForecastDescriptorValue;
+        FGameStateDescriptor ForecastDescriptorCopyValue;
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(851U, 2496U, ForecastAgentStateValue,
+                                                                  ForecastDescriptorValue);
+        GameStateDescriptorBuilderValue.RebuildGameStateDescriptor(851U, 2496U, ForecastAgentStateValue,
+                                                                  ForecastDescriptorCopyValue);
+
+        FCommandOrderRecord MarineOrderValue = FCommandOrderRecord::CreateNoTarget(
+            ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::TRAIN_MARINE, 180,
+            EIntentDomain::UnitProduction, 2496U);
+        MarineOrderValue.TaskType = ECommandTaskType::UnitProduction;
+        MarineOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+        MarineOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_MARINE;
+        MarineOrderValue.TargetCount = 21U;
+        const uint32_t ForecastMarineOrderIdValue =
+            ForecastDescriptorValue.CommandAuthoritySchedulingState.EnqueueOrder(MarineOrderValue);
+        ForecastDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(ForecastMarineOrderIdValue,
+                                                                                       EOrderLifecycleState::Ready);
+        const uint32_t ForecastMarineOrderCopyIdValue =
+            ForecastDescriptorCopyValue.CommandAuthoritySchedulingState.EnqueueOrder(MarineOrderValue);
+        ForecastDescriptorCopyValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
+            ForecastMarineOrderCopyIdValue, EOrderLifecycleState::Ready);
+
+        ForecastStateBuilderValue.RebuildForecastState(ForecastAgentStateValue, EconomyDomainStateValue,
+                                                       ForecastDescriptorValue);
+        ForecastStateBuilderValue.RebuildForecastState(ForecastAgentStateValue, EconomyDomainStateCopyValue,
+                                                       ForecastDescriptorCopyValue);
+        StrategicDirectorValue.UpdateGameStateDescriptor(ForecastDescriptorValue);
+
+        Check(ForecastDescriptorValue.SchedulerOutlook.GetScheduledUnitCount(UNIT_TYPEID::TERRAN_MARINE) == 1U,
+              SuccessValue, "Forecast rebuild should project scheduled marine production from active scheduler work.");
+        Check(ForecastDescriptorValue.ProductionState.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS) == 3U,
+              SuccessValue, "Forecast rebuild should project in-progress barracks into near-term capacity.");
+        Check(ForecastDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] ==
+                  7U,
+              SuccessValue, "Forecast rebuild should project imminent supply relief minus scheduled unit demand.");
+        Check(HasGoalOfTypeForTarget(ForecastDescriptorValue.GoalSet.NearTermGoals,
+                                     EGoalType::BuildProductionCapacity, EGoalStatus::Satisfied,
+                                     UNIT_TYPEID::TERRAN_BARRACKS),
+              SuccessValue, "Strategic direction should satisfy barracks capacity goals from projected near-term state.");
+        Check(ForecastDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] ==
+                  ForecastDescriptorCopyValue.EconomyState
+                      .ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] &&
+                  ForecastDescriptorValue.SchedulerOutlook.GetScheduledUnitCount(UNIT_TYPEID::TERRAN_MARINE) ==
+                      ForecastDescriptorCopyValue.SchedulerOutlook.GetScheduledUnitCount(
+                          UNIT_TYPEID::TERRAN_MARINE) &&
+                  ForecastDescriptorValue.ProductionState.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS) ==
+                      ForecastDescriptorCopyValue.ProductionState.GetProjectedBuildingCount(
+                          UNIT_TYPEID::TERRAN_BARRACKS),
+              SuccessValue, "Forecast rebuild should remain deterministic when replayed from the same observed and scheduler inputs.");
     }
 
     return SuccessValue;

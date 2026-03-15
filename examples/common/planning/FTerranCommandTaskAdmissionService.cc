@@ -4,9 +4,11 @@
 #include <vector>
 
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/economy/EconomyForecastConstants.h"
 #include "common/planning/FBlockedTaskRecord.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
 #include "common/planning/FCommandOrderRecord.h"
+#include "common/planning/FCommandTaskSignatureKey.h"
 
 namespace sc2
 {
@@ -19,14 +21,6 @@ constexpr uint64_t NoProducerRetryDelayGameLoopsValue = 224U;
 constexpr uint64_t InsufficientResourcesRetryDelayGameLoopsValue = 16U;
 constexpr uint64_t PlacementRetryDelayGameLoopsValue = 32U;
 constexpr uint64_t ProducerBusyRetryDelayGameLoopsValue = 24U;
-
-FBuildPlacementSlotId CreateBuildPlacementSlotId(const EBuildPlacementSlotType SlotTypeValue, const uint8_t OrdinalValue)
-{
-    FBuildPlacementSlotId BuildPlacementSlotIdValue;
-    BuildPlacementSlotIdValue.SlotType = SlotTypeValue;
-    BuildPlacementSlotIdValue.Ordinal = OrdinalValue;
-    return BuildPlacementSlotIdValue;
-}
 
 uint64_t CombineFingerprint(const uint64_t CurrentFingerprintValue, const uint64_t NextValue)
 {
@@ -100,6 +94,131 @@ uint64_t BuildPlacementFingerprint(const FGameStateDescriptor& GameStateDescript
     PlacementFingerprintValue = CombineFingerprint(
         PlacementFingerprintValue, static_cast<uint64_t>(GameStateDescriptorValue.ObservedRampWallState.RightDepotState));
     return PlacementFingerprintValue;
+}
+
+uint64_t QuantizePositiveRate(const float RateValue)
+{
+    return RateValue > 0.0f ? static_cast<uint64_t>((RateValue * 1000.0f) + 0.5f) : 0U;
+}
+
+uint64_t BuildResourceFingerprint(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    const FEconomyStateDescriptor& EconomyStateDescriptorValue = GameStateDescriptorValue.EconomyState;
+    uint64_t ResourceFingerprintValue = 0U;
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue, EconomyStateDescriptorValue.BudgetedMinerals);
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue, EconomyStateDescriptorValue.BudgetedVespene);
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue, EconomyStateDescriptorValue.BudgetedSupplyAvailable);
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue, GameStateDescriptorValue.BuildPlanning.AvailableMinerals);
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue, GameStateDescriptorValue.BuildPlanning.AvailableVespene);
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue, GameStateDescriptorValue.BuildPlanning.AvailableSupply);
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomyStateDescriptorValue.ProjectedAvailableMineralsByHorizon[ShortForecastHorizonIndexValue]);
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomyStateDescriptorValue.ProjectedAvailableVespeneByHorizon[ShortForecastHorizonIndexValue]);
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomyStateDescriptorValue.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue]);
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue,
+                           EconomyStateDescriptorValue.GrossMineralIncomeByHorizon[ShortForecastHorizonIndexValue]);
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue,
+                           EconomyStateDescriptorValue.GrossVespeneIncomeByHorizon[ShortForecastHorizonIndexValue]);
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        QuantizePositiveRate(
+            EconomyStateDescriptorValue.GrossMineralIncomeAverageByHorizon[ShortForecastHorizonIndexValue]));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        QuantizePositiveRate(
+            EconomyStateDescriptorValue.GrossVespeneIncomeAverageByHorizon[ShortForecastHorizonIndexValue]));
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue,
+                           static_cast<uint64_t>(GameStateDescriptorValue.SchedulerOutlook.ExpectedSupplyCapDelta));
+    ResourceFingerprintValue =
+        CombineFingerprint(ResourceFingerprintValue,
+                           static_cast<uint64_t>(GameStateDescriptorValue.SchedulerOutlook.ExpectedSupplyUsedDelta));
+    return ResourceFingerprintValue;
+}
+
+uint64_t BuildProducerFingerprint(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    const FProductionStateDescriptor& ProductionStateDescriptorValue = GameStateDescriptorValue.ProductionState;
+    uint64_t ProducerFingerprintValue = 0U;
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, GameStateDescriptorValue.MacroState.WorkerCount);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, GameStateDescriptorValue.MacroState.BarracksCount);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, GameStateDescriptorValue.MacroState.FactoryCount);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, GameStateDescriptorValue.MacroState.StarportCount);
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_SCV));
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER));
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS));
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_FACTORY));
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_STARPORT));
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.CurrentTownHallCapacity);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.CurrentTownHallOccupancy);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.NearTermTownHallCapacity);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.CurrentBarracksCapacity);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.CurrentBarracksOccupancy);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.NearTermBarracksCapacity);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.CurrentFactoryCapacity);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.CurrentFactoryOccupancy);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.NearTermFactoryCapacity);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.CurrentStarportCapacity);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.CurrentStarportOccupancy);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ProductionStateDescriptorValue.NearTermStarportCapacity);
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        QuantizePositiveRate(
+            ProductionStateDescriptorValue.TownHallThroughputAveragesByHorizon[ShortForecastHorizonIndexValue]));
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        QuantizePositiveRate(
+            ProductionStateDescriptorValue.BarracksThroughputAveragesByHorizon[ShortForecastHorizonIndexValue]));
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        QuantizePositiveRate(
+            ProductionStateDescriptorValue.FactoryThroughputAveragesByHorizon[ShortForecastHorizonIndexValue]));
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue,
+        QuantizePositiveRate(
+            ProductionStateDescriptorValue.StarportThroughputAveragesByHorizon[ShortForecastHorizonIndexValue]));
+    return ProducerFingerprintValue;
 }
 
 uint64_t BuildArmyMissionFingerprint(const FGameStateDescriptor& GameStateDescriptorValue)
@@ -188,85 +307,18 @@ bool IsStrategicBufferLayer(const ECommandAuthorityLayer SourceLayerValue)
     }
 }
 
-bool DoesTaskSignatureMatch(const uint32_t LeftTaskIdValue, const uint32_t LeftSourceGoalIdValue,
-                            const AbilityID LeftAbilityIdValue, const UNIT_TYPEID LeftResultUnitTypeIdValue,
-                            const UpgradeID LeftUpgradeIdValue,
-                            const FBuildPlacementSlotId& LeftPreferredPlacementSlotIdValue,
-                            const uint32_t RightTaskIdValue, const uint32_t RightSourceGoalIdValue,
-                            const AbilityID RightAbilityIdValue, const UNIT_TYPEID RightResultUnitTypeIdValue,
-                            const UpgradeID RightUpgradeIdValue,
-                            const FBuildPlacementSlotId& RightPreferredPlacementSlotIdValue)
-{
-    if (LeftTaskIdValue != 0U || RightTaskIdValue != 0U)
-    {
-        return LeftTaskIdValue == RightTaskIdValue;
-    }
-
-    return LeftSourceGoalIdValue == RightSourceGoalIdValue && LeftAbilityIdValue == RightAbilityIdValue &&
-           LeftResultUnitTypeIdValue == RightResultUnitTypeIdValue && LeftUpgradeIdValue == RightUpgradeIdValue &&
-           LeftPreferredPlacementSlotIdValue == RightPreferredPlacementSlotIdValue;
-}
-
 bool DoesHotOrderMatchOpeningTask(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                   const FCommandTaskDescriptor& CommandTaskDescriptorValue)
 {
-    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
-         ++OrderIndexValue)
-    {
-        if (IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
-        {
-            continue;
-        }
-
-        const FBuildPlacementSlotId PreferredPlacementSlotIdValue = CreateBuildPlacementSlotId(
-            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdTypes[OrderIndexValue],
-            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdOrdinals[OrderIndexValue]);
-        if (DoesTaskSignatureMatch(
-                CommandAuthoritySchedulingStateValue.PlanStepIds[OrderIndexValue],
-                CommandAuthoritySchedulingStateValue.SourceGoalIds[OrderIndexValue],
-                CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue],
-                CommandAuthoritySchedulingStateValue.ResultUnitTypeIds[OrderIndexValue],
-                CommandAuthoritySchedulingStateValue.UpgradeIds[OrderIndexValue], PreferredPlacementSlotIdValue,
-                CommandTaskDescriptorValue.TaskId, CommandTaskDescriptorValue.SourceGoalId,
-                CommandTaskDescriptorValue.ActionAbilityId, CommandTaskDescriptorValue.ActionResultUnitTypeId,
-                CommandTaskDescriptorValue.ActionUpgradeId, CommandTaskDescriptorValue.ActionPreferredPlacementSlotId))
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return CommandAuthoritySchedulingStateValue.HasEquivalentActiveTaskSignature(
+        FCommandTaskSignatureKey::FromTaskDescriptor(CommandTaskDescriptorValue));
 }
 
 bool DoesHotOrderMatchOrderSignature(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                      const FCommandOrderRecord& CommandOrderRecordValue)
 {
-    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
-         ++OrderIndexValue)
-    {
-        if (IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
-        {
-            continue;
-        }
-
-        const FBuildPlacementSlotId PreferredPlacementSlotIdValue = CreateBuildPlacementSlotId(
-            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdTypes[OrderIndexValue],
-            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdOrdinals[OrderIndexValue]);
-        if (DoesTaskSignatureMatch(
-                CommandAuthoritySchedulingStateValue.PlanStepIds[OrderIndexValue],
-                CommandAuthoritySchedulingStateValue.SourceGoalIds[OrderIndexValue],
-                CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue],
-                CommandAuthoritySchedulingStateValue.ResultUnitTypeIds[OrderIndexValue],
-                CommandAuthoritySchedulingStateValue.UpgradeIds[OrderIndexValue], PreferredPlacementSlotIdValue,
-                CommandOrderRecordValue.PlanStepId, CommandOrderRecordValue.SourceGoalId,
-                CommandOrderRecordValue.AbilityId, CommandOrderRecordValue.ResultUnitTypeId,
-                CommandOrderRecordValue.UpgradeId, CommandOrderRecordValue.PreferredPlacementSlotId))
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return CommandAuthoritySchedulingStateValue.HasEquivalentActiveTaskSignature(
+        FCommandTaskSignatureKey::FromOrderRecord(CommandOrderRecordValue));
 }
 
 bool HasEquivalentBlockedTask(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
@@ -284,16 +336,21 @@ FBlockedTaskRecord CreateBlockedTaskRecord(const FCommandOrderRecord& CommandOrd
     FBlockedTaskRecord BlockedTaskRecordValue;
     BlockedTaskRecordValue.TaskId = CommandOrderRecordValue.PlanStepId;
     BlockedTaskRecordValue.SourceGoalId = CommandOrderRecordValue.SourceGoalId;
+    BlockedTaskRecordValue.SourceLayer = CommandOrderRecordValue.SourceLayer;
     BlockedTaskRecordValue.PackageKind = CommandOrderRecordValue.TaskPackageKind;
     BlockedTaskRecordValue.NeedKind = CommandOrderRecordValue.TaskNeedKind;
     BlockedTaskRecordValue.TaskType = CommandOrderRecordValue.TaskType;
+    BlockedTaskRecordValue.Origin = CommandOrderRecordValue.Origin;
     BlockedTaskRecordValue.RetentionPolicy = CommandOrderRecordValue.RetentionPolicy;
+    BlockedTaskRecordValue.BasePriorityValue = CommandOrderRecordValue.BasePriorityValue;
     BlockedTaskRecordValue.AbilityId = CommandOrderRecordValue.AbilityId;
+    BlockedTaskRecordValue.ProducerUnitTypeId = CommandOrderRecordValue.ProducerUnitTypeId;
     BlockedTaskRecordValue.ResultUnitTypeId = CommandOrderRecordValue.ResultUnitTypeId;
     BlockedTaskRecordValue.UpgradeId = CommandOrderRecordValue.UpgradeId;
     BlockedTaskRecordValue.PreferredPlacementSlotId = CommandOrderRecordValue.PreferredPlacementSlotId;
     BlockedTaskRecordValue.BlockingReason = DeferralReasonValue;
     BlockedTaskRecordValue.RequestedQueueCount = CommandOrderRecordValue.RequestedQueueCount;
+    BlockedTaskRecordValue.TargetCount = CommandOrderRecordValue.TargetCount;
     BlockedTaskRecordValue.RetryCount = CommandOrderRecordValue.ConsecutiveDeferralCount;
     BlockedTaskRecordValue.LastSeenStimulusRevision = LastSeenStimulusRevisionValue;
 
@@ -372,6 +429,7 @@ FCommandOrderRecord CreateStrategicOrderFromTaskDescriptor(const FCommandTaskDes
     StrategicOrderValue.TaskPackageKind = CommandTaskDescriptorValue.PackageKind;
     StrategicOrderValue.TaskNeedKind = CommandTaskDescriptorValue.NeedKind;
     StrategicOrderValue.TaskType = CommandTaskDescriptorValue.TaskType;
+    StrategicOrderValue.Origin = CommandTaskDescriptorValue.Origin;
     StrategicOrderValue.RetentionPolicy = CommandTaskDescriptorValue.RetentionPolicy;
     StrategicOrderValue.BlockedTaskWakeKind = CommandTaskDescriptorValue.BlockedTaskWakeKind;
     StrategicOrderValue.SourceGoalId = CommandTaskDescriptorValue.SourceGoalId;
@@ -385,6 +443,31 @@ FCommandOrderRecord CreateStrategicOrderFromTaskDescriptor(const FCommandTaskDes
     StrategicOrderValue.PreferredPlacementSlotId = CommandTaskDescriptorValue.ActionPreferredPlacementSlotId;
     StrategicOrderValue.IntentDomain = DetermineIntentDomainFromAbility(StrategicOrderValue);
     return StrategicOrderValue;
+}
+
+FCommandOrderRecord CreateOrderFromBlockedTaskRecord(const FBlockedTaskRecord& BlockedTaskRecordValue,
+                                                     const uint64_t CurrentGameLoopValue)
+{
+    FCommandOrderRecord CommandOrderRecordValue = FCommandOrderRecord::CreateNoTarget(
+        BlockedTaskRecordValue.SourceLayer, NullTag, BlockedTaskRecordValue.AbilityId,
+        BlockedTaskRecordValue.BasePriorityValue, EIntentDomain::StructureBuild, CurrentGameLoopValue);
+    CommandOrderRecordValue.SourceGoalId = BlockedTaskRecordValue.SourceGoalId;
+    CommandOrderRecordValue.TaskPackageKind = BlockedTaskRecordValue.PackageKind;
+    CommandOrderRecordValue.TaskNeedKind = BlockedTaskRecordValue.NeedKind;
+    CommandOrderRecordValue.TaskType = BlockedTaskRecordValue.TaskType;
+    CommandOrderRecordValue.Origin = BlockedTaskRecordValue.Origin;
+    CommandOrderRecordValue.RetentionPolicy = BlockedTaskRecordValue.RetentionPolicy;
+    CommandOrderRecordValue.BlockedTaskWakeKind = BlockedTaskRecordValue.WakeKind;
+    CommandOrderRecordValue.PlanStepId = BlockedTaskRecordValue.TaskId;
+    CommandOrderRecordValue.TargetCount = BlockedTaskRecordValue.TargetCount;
+    CommandOrderRecordValue.RequestedQueueCount = BlockedTaskRecordValue.RequestedQueueCount;
+    CommandOrderRecordValue.ProducerUnitTypeId = BlockedTaskRecordValue.ProducerUnitTypeId;
+    CommandOrderRecordValue.ResultUnitTypeId = BlockedTaskRecordValue.ResultUnitTypeId;
+    CommandOrderRecordValue.UpgradeId = BlockedTaskRecordValue.UpgradeId;
+    CommandOrderRecordValue.PreferredPlacementSlotId = BlockedTaskRecordValue.PreferredPlacementSlotId;
+    CommandOrderRecordValue.PreferredPlacementSlotType = BlockedTaskRecordValue.PreferredPlacementSlotId.SlotType;
+    CommandOrderRecordValue.IntentDomain = DetermineIntentDomainFromAbility(CommandOrderRecordValue);
+    return CommandOrderRecordValue;
 }
 
 bool CanAdmitOrder(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
@@ -432,28 +515,18 @@ void FTerranCommandTaskAdmissionService::RefreshStimulusState(FGameStateDescript
         CommandAuthoritySchedulingStateValue.bPrioritiesDirty = true;
     }
 
-    if (GameStateDescriptorValue.BuildPlanning.AvailableMinerals != SchedulerStimulusStateValue.LastAvailableMinerals ||
-        GameStateDescriptorValue.BuildPlanning.AvailableVespene != SchedulerStimulusStateValue.LastAvailableVespene ||
-        GameStateDescriptorValue.BuildPlanning.AvailableSupply != SchedulerStimulusStateValue.LastAvailableSupply)
+    const uint64_t ResourceFingerprintValue = BuildResourceFingerprint(GameStateDescriptorValue);
+    if (ResourceFingerprintValue != SchedulerStimulusStateValue.LastResourceFingerprint)
     {
-        SchedulerStimulusStateValue.LastAvailableMinerals = GameStateDescriptorValue.BuildPlanning.AvailableMinerals;
-        SchedulerStimulusStateValue.LastAvailableVespene = GameStateDescriptorValue.BuildPlanning.AvailableVespene;
-        SchedulerStimulusStateValue.LastAvailableSupply = GameStateDescriptorValue.BuildPlanning.AvailableSupply;
+        SchedulerStimulusStateValue.LastResourceFingerprint = ResourceFingerprintValue;
         ++SchedulerStimulusStateValue.ResourceRevision;
         CommandAuthoritySchedulingStateValue.bPrioritiesDirty = true;
     }
 
-    if (GameStateDescriptorValue.MacroState.WorkerCount != SchedulerStimulusStateValue.LastWorkerCount ||
-        GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount != SchedulerStimulusStateValue.LastTownHallCount ||
-        GameStateDescriptorValue.MacroState.BarracksCount != SchedulerStimulusStateValue.LastBarracksCount ||
-        GameStateDescriptorValue.MacroState.FactoryCount != SchedulerStimulusStateValue.LastFactoryCount ||
-        GameStateDescriptorValue.MacroState.StarportCount != SchedulerStimulusStateValue.LastStarportCount)
+    const uint64_t ProducerFingerprintValue = BuildProducerFingerprint(GameStateDescriptorValue);
+    if (ProducerFingerprintValue != SchedulerStimulusStateValue.LastProducerFingerprint)
     {
-        SchedulerStimulusStateValue.LastWorkerCount = GameStateDescriptorValue.MacroState.WorkerCount;
-        SchedulerStimulusStateValue.LastTownHallCount = GameStateDescriptorValue.BuildPlanning.ObservedTownHallCount;
-        SchedulerStimulusStateValue.LastBarracksCount = GameStateDescriptorValue.MacroState.BarracksCount;
-        SchedulerStimulusStateValue.LastFactoryCount = GameStateDescriptorValue.MacroState.FactoryCount;
-        SchedulerStimulusStateValue.LastStarportCount = GameStateDescriptorValue.MacroState.StarportCount;
+        SchedulerStimulusStateValue.LastProducerFingerprint = ProducerFingerprintValue;
         ++SchedulerStimulusStateValue.ProducerRevision;
         CommandAuthoritySchedulingStateValue.bPrioritiesDirty = true;
     }
@@ -495,10 +568,47 @@ void FTerranCommandTaskAdmissionService::ReactivateBlockedTasks(FGameStateDescri
         return;
     }
 
-    CommandAuthoritySchedulingStateValue.TotalReactivatedBlockedTaskCount +=
-        static_cast<uint32_t>(ReactivatedTaskRecordsValue.size());
-    CommandAuthoritySchedulingStateValue.RecentReactivatedBlockedTaskCount +=
-        static_cast<uint32_t>(ReactivatedTaskRecordsValue.size());
+    for (const FBlockedTaskRecord& BlockedTaskRecordValue : ReactivatedTaskRecordsValue)
+    {
+        const FCommandOrderRecord ReactivatedOrderValue =
+            CreateOrderFromBlockedTaskRecord(BlockedTaskRecordValue, GameStateDescriptorValue.CurrentGameLoop);
+        if (DoesHotOrderMatchOrderSignature(CommandAuthoritySchedulingStateValue, ReactivatedOrderValue))
+        {
+            continue;
+        }
+
+        if (!CanAdmitOrder(CommandAuthoritySchedulingStateValue, ReactivatedOrderValue))
+        {
+            FBlockedTaskRecord DeferredBlockedTaskRecordValue = BlockedTaskRecordValue;
+            DeferredBlockedTaskRecordValue.LastSeenStimulusRevision = GetStimulusRevisionForWakeKind(
+                CommandAuthoritySchedulingStateValue.SchedulerStimulusState, BlockedTaskRecordValue.WakeKind);
+            DeferredBlockedTaskRecordValue.NextEligibleGameLoop =
+                std::max<uint64_t>(DeferredBlockedTaskRecordValue.NextEligibleGameLoop,
+                                   GameStateDescriptorValue.CurrentGameLoop + 8U);
+            FBlockedTaskRingBuffer& BlockedTaskRingBufferValue =
+                IsStrategicBufferLayer(BlockedTaskRecordValue.SourceLayer)
+                    ? CommandAuthoritySchedulingStateValue.BlockedStrategicTasks
+                    : CommandAuthoritySchedulingStateValue.BlockedPlanningTasks;
+            bool bCoalescedValue = false;
+            bool bDroppedValue = false;
+            bool bRejectedMustRunValue = false;
+            BlockedTaskRingBufferValue.TryPushOrCoalesce(DeferredBlockedTaskRecordValue, bCoalescedValue,
+                                                         bDroppedValue, bRejectedMustRunValue);
+            continue;
+        }
+
+        const uint32_t ReactivatedOrderIdValue =
+            CommandAuthoritySchedulingStateValue.EnqueueOrder(ReactivatedOrderValue);
+        if (BlockedTaskRecordValue.TaskId != 0U)
+        {
+            GameStateDescriptorValue.OpeningPlanExecutionState.RecordSeededStep(BlockedTaskRecordValue.TaskId,
+                                                                                ReactivatedOrderIdValue);
+        }
+
+        ++CommandAuthoritySchedulingStateValue.TotalReactivatedBlockedTaskCount;
+        ++CommandAuthoritySchedulingStateValue.RecentReactivatedBlockedTaskCount;
+    }
+
     CommandAuthoritySchedulingStateValue.bPrioritiesDirty = true;
 }
 

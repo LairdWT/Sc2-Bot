@@ -7,6 +7,7 @@
 #include "common/descriptors/EMacroPhase.h"
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/descriptors/FMacroStateDescriptor.h"
+#include "common/economy/EconomyForecastConstants.h"
 #include "common/goals/FAgentGoalSetDescriptor.h"
 
 namespace sc2
@@ -184,22 +185,12 @@ void ApplyGoalDrivenBuildPlan(const FGameStateDescriptor& GameStateDescriptorVal
 
 uint32_t GetObservedSupplyDepotCount(const FGameStateDescriptor& GameStateDescriptorValue)
 {
-    return static_cast<uint32_t>(
-               GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
-                   UNIT_TYPEID::TERRAN_SUPPLYDEPOT)]) +
-           static_cast<uint32_t>(
-               GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
-                   UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED)]);
+    return GameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT);
 }
 
 uint32_t GetObservedRefineryCount(const FGameStateDescriptor& GameStateDescriptorValue)
 {
-    return static_cast<uint32_t>(
-               GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
-                   UNIT_TYPEID::TERRAN_REFINERY)]) +
-           static_cast<uint32_t>(
-               GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetTerranBuildingTypeIndex(
-                   UNIT_TYPEID::TERRAN_REFINERYRICH)]);
+    return GameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_REFINERY);
 }
 
 void ApplyBuildTargetAtOrAfterGameLoop(const uint64_t CurrentGameLoopValue, const uint64_t TargetGameLoopValue,
@@ -275,18 +266,21 @@ void FTerranTimingAttackBuildPlanner::ProduceMacroBuildPlan(const FGameStateDesc
 uint32_t FTerranTimingAttackBuildPlanner::CountOutstandingNeeds(
     const FGameStateDescriptor& GameStateDescriptorValue, const FBuildPlanningState& BuildPlanningStateValue) const
 {
-    const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
+    const FProductionStateDescriptor& ProductionStateDescriptorValue = GameStateDescriptorValue.ProductionState;
+    const FEconomyStateDescriptor& EconomyStateDescriptorValue = GameStateDescriptorValue.EconomyState;
     uint32_t OutstandingNeedCountValue = 0U;
 
-    if (MacroStateDescriptorValue.ActiveBaseCount < BuildPlanningStateValue.DesiredTownHallCount)
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_COMMANDCENTER) <
+        BuildPlanningStateValue.DesiredTownHallCount)
     {
         ++OutstandingNeedCountValue;
     }
-    if (BuildPlanningStateValue.AvailableSupply <= 2U)
+    if (EconomyStateDescriptorValue.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <= 2U)
     {
         ++OutstandingNeedCountValue;
     }
-    if (MacroStateDescriptorValue.WorkerCount < BuildPlanningStateValue.DesiredWorkerCount)
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_SCV) <
+        BuildPlanningStateValue.DesiredWorkerCount)
     {
         ++OutstandingNeedCountValue;
     }
@@ -298,19 +292,23 @@ uint32_t FTerranTimingAttackBuildPlanner::CountOutstandingNeeds(
     {
         ++OutstandingNeedCountValue;
     }
-    if (MacroStateDescriptorValue.BarracksCount < BuildPlanningStateValue.DesiredBarracksCount)
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_BARRACKS) <
+        BuildPlanningStateValue.DesiredBarracksCount)
     {
         ++OutstandingNeedCountValue;
     }
-    if (MacroStateDescriptorValue.FactoryCount < BuildPlanningStateValue.DesiredFactoryCount)
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_FACTORY) <
+        BuildPlanningStateValue.DesiredFactoryCount)
     {
         ++OutstandingNeedCountValue;
     }
-    if (MacroStateDescriptorValue.StarportCount < BuildPlanningStateValue.DesiredStarportCount)
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_STARPORT) <
+        BuildPlanningStateValue.DesiredStarportCount)
     {
         ++OutstandingNeedCountValue;
     }
-    if (MacroStateDescriptorValue.ArmyUnitCount < BuildPlanningStateValue.DesiredMarineCount)
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_MARINE) <
+        BuildPlanningStateValue.DesiredMarineCount)
     {
         ++OutstandingNeedCountValue;
     }

@@ -7,6 +7,8 @@ namespace sc2
 namespace
 {
 
+constexpr float SquadObjectiveRefreshDistanceSquaredValue = 1.0f;
+
 const FArmyMissionDescriptor* GetMissionDescriptorForArmyIndex(const FGameStateDescriptor& GameStateDescriptorValue,
                                                                const int32_t OwningArmyIndexValue)
 {
@@ -22,6 +24,25 @@ const FArmyMissionDescriptor* GetMissionDescriptorForArmyIndex(const FGameStateD
     }
 
     return &GameStateDescriptorValue.ArmyState.ArmyMissions[ArmyIndexValue];
+}
+
+bool DoesExistingSquadOrderMatchMission(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                        const size_t ExistingSquadOrderIndexValue,
+                                        const FCommandOrderRecord& ArmyOrderValue,
+                                        const Point2D& ObjectivePointValue)
+{
+    if (!CommandAuthoritySchedulingStateValue.IsOrderIndexValid(ExistingSquadOrderIndexValue) ||
+        CommandAuthoritySchedulingStateValue.SourceLayers[ExistingSquadOrderIndexValue] !=
+            ECommandAuthorityLayer::Squad ||
+        IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[ExistingSquadOrderIndexValue]))
+    {
+        return false;
+    }
+
+    return CommandAuthoritySchedulingStateValue.SourceGoalIds[ExistingSquadOrderIndexValue] ==
+               ArmyOrderValue.SourceGoalId &&
+           DistanceSquared2D(CommandAuthoritySchedulingStateValue.TargetPoints[ExistingSquadOrderIndexValue],
+                             ObjectivePointValue) <= SquadObjectiveRefreshDistanceSquaredValue;
 }
 
 }  // namespace
@@ -49,17 +70,24 @@ void FTerranSquadOrderExpander::ExpandSquadOrders(
             continue;
         }
 
-        size_t ExistingSquadOrderIndexValue = 0U;
-        if (CommandAuthoritySchedulingStateValue.TryGetActiveChildOrderIndex(
-                ArmyOrderValue.OrderId, ECommandAuthorityLayer::Squad, ExistingSquadOrderIndexValue))
-        {
-            continue;
-        }
-
         const FArmyMissionDescriptor* MissionDescriptorPtrValue =
             GetMissionDescriptorForArmyIndex(GameStateDescriptorValue, ArmyOrderValue.OwningArmyIndex);
         const Point2D ObjectivePointValue =
             MissionDescriptorPtrValue != nullptr ? MissionDescriptorPtrValue->ObjectivePoint : RallyPointValue;
+
+        size_t ExistingSquadOrderIndexValue = 0U;
+        if (CommandAuthoritySchedulingStateValue.TryGetActiveChildOrderIndex(
+                ArmyOrderValue.OrderId, ECommandAuthorityLayer::Squad, ExistingSquadOrderIndexValue))
+        {
+            if (DoesExistingSquadOrderMatchMission(CommandAuthoritySchedulingStateValue, ExistingSquadOrderIndexValue,
+                                                   ArmyOrderValue, ObjectivePointValue))
+            {
+                continue;
+            }
+
+            CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(
+                CommandAuthoritySchedulingStateValue.OrderIds[ExistingSquadOrderIndexValue], EOrderLifecycleState::Expired);
+        }
 
         FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
             ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, ObjectivePointValue,
@@ -69,12 +97,11 @@ void FTerranSquadOrderExpander::ExpandSquadOrders(
         SquadOrderValue.TaskPackageKind = ArmyOrderValue.TaskPackageKind;
         SquadOrderValue.TaskNeedKind = ArmyOrderValue.TaskNeedKind;
         SquadOrderValue.TaskType = ArmyOrderValue.TaskType;
+        SquadOrderValue.Origin = ArmyOrderValue.Origin;
         SquadOrderValue.EffectivePriorityValue = ArmyOrderValue.EffectivePriorityValue;
         SquadOrderValue.PriorityTier = ArmyOrderValue.PriorityTier;
 
         CommandAuthoritySchedulingStateValue.EnqueueOrder(SquadOrderValue);
-        CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(ArmyOrderValue.OrderId,
-                                                                   EOrderLifecycleState::Completed);
         ++ExpandedSquadOrderCountValue;
     }
 }

@@ -1,0 +1,402 @@
+#include "common/economy/FEconomyDomainState.h"
+
+#include <algorithm>
+
+#include "common/bot_status_models.h"
+#include "common/economic_models.h"
+
+namespace sc2
+{
+namespace
+{
+
+uint64_t GetConfirmedMineralSpend(const FAgentState& AgentStateValue,
+                                  const std::array<uint16_t, NUM_TERRAN_UNITS>& LastObservedUnitsInConstructionValue,
+                                  const std::array<uint16_t, NUM_TERRAN_BUILDINGS>&
+                                      LastObservedBuildingsInConstructionValue)
+{
+    uint64_t ConfirmedMineralSpendValue = 0U;
+
+    for (const UNIT_TYPEID UnitTypeIdValue : TERRAN_UNIT_TYPES)
+    {
+        const size_t UnitTypeIndexValue = GetTerranUnitTypeIndex(UnitTypeIdValue);
+        if (!IsTerranUnitTypeIndexValid(UnitTypeIndexValue))
+        {
+            continue;
+        }
+
+        const uint16_t CurrentInConstructionCountValue = AgentStateValue.Units.UnitsInConstruction[UnitTypeIndexValue];
+        const uint16_t LastInConstructionCountValue = LastObservedUnitsInConstructionValue[UnitTypeIndexValue];
+        if (CurrentInConstructionCountValue <= LastInConstructionCountValue)
+        {
+            continue;
+        }
+
+        const uint16_t StartedCountValue = CurrentInConstructionCountValue - LastInConstructionCountValue;
+        const FUnitCostData& UnitCostDataValue = TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitTypeIdValue);
+        ConfirmedMineralSpendValue +=
+            static_cast<uint64_t>(StartedCountValue) * static_cast<uint64_t>(UnitCostDataValue.CostData.Minerals);
+    }
+
+    for (const UNIT_TYPEID BuildingTypeIdValue : TERRAN_BUILDING_TYPES)
+    {
+        const size_t BuildingTypeIndexValue = GetTerranBuildingTypeIndex(BuildingTypeIdValue);
+        if (!IsTerranBuildingTypeIndexValid(BuildingTypeIndexValue))
+        {
+            continue;
+        }
+
+        const uint16_t CurrentInConstructionCountValue =
+            AgentStateValue.Buildings.CurrentlyInConstruction[BuildingTypeIndexValue];
+        const uint16_t LastInConstructionCountValue = LastObservedBuildingsInConstructionValue[BuildingTypeIndexValue];
+        if (CurrentInConstructionCountValue <= LastInConstructionCountValue)
+        {
+            continue;
+        }
+
+        const uint16_t StartedCountValue = CurrentInConstructionCountValue - LastInConstructionCountValue;
+        const FBuildingCostData& BuildingCostDataValue = TERRAN_ECONOMIC_DATA.GetBuildingCostData(BuildingTypeIdValue);
+        ConfirmedMineralSpendValue +=
+            static_cast<uint64_t>(StartedCountValue) * static_cast<uint64_t>(BuildingCostDataValue.CostData.Minerals);
+    }
+
+    return ConfirmedMineralSpendValue;
+}
+
+uint64_t GetConfirmedVespeneSpend(const FAgentState& AgentStateValue,
+                                  const std::array<uint16_t, NUM_TERRAN_UNITS>& LastObservedUnitsInConstructionValue,
+                                  const std::array<uint16_t, NUM_TERRAN_BUILDINGS>&
+                                      LastObservedBuildingsInConstructionValue)
+{
+    uint64_t ConfirmedVespeneSpendValue = 0U;
+
+    for (const UNIT_TYPEID UnitTypeIdValue : TERRAN_UNIT_TYPES)
+    {
+        const size_t UnitTypeIndexValue = GetTerranUnitTypeIndex(UnitTypeIdValue);
+        if (!IsTerranUnitTypeIndexValid(UnitTypeIndexValue))
+        {
+            continue;
+        }
+
+        const uint16_t CurrentInConstructionCountValue = AgentStateValue.Units.UnitsInConstruction[UnitTypeIndexValue];
+        const uint16_t LastInConstructionCountValue = LastObservedUnitsInConstructionValue[UnitTypeIndexValue];
+        if (CurrentInConstructionCountValue <= LastInConstructionCountValue)
+        {
+            continue;
+        }
+
+        const uint16_t StartedCountValue = CurrentInConstructionCountValue - LastInConstructionCountValue;
+        const FUnitCostData& UnitCostDataValue = TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitTypeIdValue);
+        ConfirmedVespeneSpendValue +=
+            static_cast<uint64_t>(StartedCountValue) * static_cast<uint64_t>(UnitCostDataValue.CostData.Vespine);
+    }
+
+    for (const UNIT_TYPEID BuildingTypeIdValue : TERRAN_BUILDING_TYPES)
+    {
+        const size_t BuildingTypeIndexValue = GetTerranBuildingTypeIndex(BuildingTypeIdValue);
+        if (!IsTerranBuildingTypeIndexValid(BuildingTypeIndexValue))
+        {
+            continue;
+        }
+
+        const uint16_t CurrentInConstructionCountValue =
+            AgentStateValue.Buildings.CurrentlyInConstruction[BuildingTypeIndexValue];
+        const uint16_t LastInConstructionCountValue = LastObservedBuildingsInConstructionValue[BuildingTypeIndexValue];
+        if (CurrentInConstructionCountValue <= LastInConstructionCountValue)
+        {
+            continue;
+        }
+
+        const uint16_t StartedCountValue = CurrentInConstructionCountValue - LastInConstructionCountValue;
+        const FBuildingCostData& BuildingCostDataValue = TERRAN_ECONOMIC_DATA.GetBuildingCostData(BuildingTypeIdValue);
+        ConfirmedVespeneSpendValue +=
+            static_cast<uint64_t>(StartedCountValue) * static_cast<uint64_t>(BuildingCostDataValue.CostData.Vespine);
+    }
+
+    return ConfirmedVespeneSpendValue;
+}
+
+}  // namespace
+
+FEconomyDomainState::FEconomyDomainState()
+{
+    Reset();
+}
+
+void FEconomyDomainState::Reset()
+{
+    CurrentGameLoop = 0U;
+    bHasObservedState = false;
+    LastObservedMinerals = 0U;
+    LastObservedVespene = 0U;
+    LastObservedUnitCounts.fill(0U);
+    LastObservedUnitsInConstruction.fill(0U);
+    LastObservedBuildingCounts.fill(0U);
+    LastObservedBuildingsInConstruction.fill(0U);
+    CumulativeGrossMineralIncome = 0U;
+    CumulativeGrossVespeneIncome = 0U;
+    CumulativeUnitCompletionCounts.fill(0U);
+    CumulativeBuildingCompletionCounts.fill(0U);
+    SampleGameLoops.clear();
+    SampleMineralBanks.clear();
+    SampleVespeneBanks.clear();
+    SampleCumulativeGrossMineralIncome.clear();
+    SampleCumulativeGrossVespeneIncome.clear();
+    SampleCumulativeUnitCompletionCounts.clear();
+    SampleCumulativeBuildingCompletionCounts.clear();
+}
+
+void FEconomyDomainState::Update(const FAgentState& AgentStateValue, const uint64_t CurrentGameLoopValue)
+{
+    CurrentGameLoop = CurrentGameLoopValue;
+
+    const uint32_t CurrentMineralsValue = AgentStateValue.Economy.Minerals;
+    const uint32_t CurrentVespeneValue = AgentStateValue.Economy.Vespene;
+    if (!bHasObservedState)
+    {
+        bHasObservedState = true;
+        LastObservedMinerals = CurrentMineralsValue;
+        LastObservedVespene = CurrentVespeneValue;
+        LastObservedUnitCounts = AgentStateValue.Units.UnitCounts;
+        LastObservedUnitsInConstruction = AgentStateValue.Units.UnitsInConstruction;
+        LastObservedBuildingCounts = AgentStateValue.Buildings.BuildingCounts;
+        LastObservedBuildingsInConstruction = AgentStateValue.Buildings.CurrentlyInConstruction;
+        RecordCurrentSample(CurrentMineralsValue, CurrentVespeneValue);
+        return;
+    }
+
+    const uint64_t ConfirmedMineralSpendValue =
+        GetConfirmedMineralSpend(AgentStateValue, LastObservedUnitsInConstruction, LastObservedBuildingsInConstruction);
+    const uint64_t ConfirmedVespeneSpendValue =
+        GetConfirmedVespeneSpend(AgentStateValue, LastObservedUnitsInConstruction, LastObservedBuildingsInConstruction);
+
+    const int64_t MineralBankDeltaValue =
+        static_cast<int64_t>(CurrentMineralsValue) - static_cast<int64_t>(LastObservedMinerals);
+    const int64_t VespeneBankDeltaValue =
+        static_cast<int64_t>(CurrentVespeneValue) - static_cast<int64_t>(LastObservedVespene);
+
+    const int64_t GrossMineralIncomeValue =
+        MineralBankDeltaValue + static_cast<int64_t>(ConfirmedMineralSpendValue);
+    const int64_t GrossVespeneIncomeValue =
+        VespeneBankDeltaValue + static_cast<int64_t>(ConfirmedVespeneSpendValue);
+
+    if (GrossMineralIncomeValue > 0)
+    {
+        CumulativeGrossMineralIncome += static_cast<uint64_t>(GrossMineralIncomeValue);
+    }
+    if (GrossVespeneIncomeValue > 0)
+    {
+        CumulativeGrossVespeneIncome += static_cast<uint64_t>(GrossVespeneIncomeValue);
+    }
+
+    for (const UNIT_TYPEID UnitTypeIdValue : TERRAN_UNIT_TYPES)
+    {
+        const size_t UnitTypeIndexValue = GetTerranUnitTypeIndex(UnitTypeIdValue);
+        if (!IsTerranUnitTypeIndexValid(UnitTypeIndexValue))
+        {
+            continue;
+        }
+
+        const uint16_t CurrentObservedCountValue = AgentStateValue.Units.UnitCounts[UnitTypeIndexValue];
+        const uint16_t LastObservedCountValue = LastObservedUnitCounts[UnitTypeIndexValue];
+        if (CurrentObservedCountValue > LastObservedCountValue)
+        {
+            CumulativeUnitCompletionCounts[UnitTypeIndexValue] +=
+                static_cast<uint64_t>(CurrentObservedCountValue - LastObservedCountValue);
+        }
+    }
+
+    for (const UNIT_TYPEID BuildingTypeIdValue : TERRAN_BUILDING_TYPES)
+    {
+        const size_t BuildingTypeIndexValue = GetTerranBuildingTypeIndex(BuildingTypeIdValue);
+        if (!IsTerranBuildingTypeIndexValid(BuildingTypeIndexValue))
+        {
+            continue;
+        }
+
+        const uint16_t CurrentObservedCountValue = AgentStateValue.Buildings.BuildingCounts[BuildingTypeIndexValue];
+        const uint16_t LastObservedCountValue = LastObservedBuildingCounts[BuildingTypeIndexValue];
+        if (CurrentObservedCountValue > LastObservedCountValue)
+        {
+            CumulativeBuildingCompletionCounts[BuildingTypeIndexValue] +=
+                static_cast<uint64_t>(CurrentObservedCountValue - LastObservedCountValue);
+        }
+    }
+
+    LastObservedMinerals = CurrentMineralsValue;
+    LastObservedVespene = CurrentVespeneValue;
+    LastObservedUnitCounts = AgentStateValue.Units.UnitCounts;
+    LastObservedUnitsInConstruction = AgentStateValue.Units.UnitsInConstruction;
+    LastObservedBuildingCounts = AgentStateValue.Buildings.BuildingCounts;
+    LastObservedBuildingsInConstruction = AgentStateValue.Buildings.CurrentlyInConstruction;
+
+    RecordCurrentSample(CurrentMineralsValue, CurrentVespeneValue);
+    TrimHistory();
+}
+
+size_t FEconomyDomainState::GetSampleCount() const
+{
+    return SampleGameLoops.size();
+}
+
+uint64_t FEconomyDomainState::GetElapsedGameLoopsForHorizon(const size_t HorizonIndexValue) const
+{
+    if (HorizonIndexValue >= ForecastHorizonCountValue || SampleGameLoops.empty())
+    {
+        return 0U;
+    }
+
+    const size_t SampleIndexValue = GetSampleIndexForHorizon(HorizonIndexValue);
+    return CurrentGameLoop >= SampleGameLoops[SampleIndexValue] ? CurrentGameLoop - SampleGameLoops[SampleIndexValue]
+                                                                : 0U;
+}
+
+uint64_t FEconomyDomainState::GetGrossMineralIncomeForHorizon(const size_t HorizonIndexValue) const
+{
+    if (HorizonIndexValue >= ForecastHorizonCountValue || SampleGameLoops.empty())
+    {
+        return 0U;
+    }
+
+    const size_t SampleIndexValue = GetSampleIndexForHorizon(HorizonIndexValue);
+    return CumulativeGrossMineralIncome >= SampleCumulativeGrossMineralIncome[SampleIndexValue]
+               ? CumulativeGrossMineralIncome - SampleCumulativeGrossMineralIncome[SampleIndexValue]
+               : 0U;
+}
+
+uint64_t FEconomyDomainState::GetGrossVespeneIncomeForHorizon(const size_t HorizonIndexValue) const
+{
+    if (HorizonIndexValue >= ForecastHorizonCountValue || SampleGameLoops.empty())
+    {
+        return 0U;
+    }
+
+    const size_t SampleIndexValue = GetSampleIndexForHorizon(HorizonIndexValue);
+    return CumulativeGrossVespeneIncome >= SampleCumulativeGrossVespeneIncome[SampleIndexValue]
+               ? CumulativeGrossVespeneIncome - SampleCumulativeGrossVespeneIncome[SampleIndexValue]
+               : 0U;
+}
+
+int64_t FEconomyDomainState::GetNetMineralDeltaForHorizon(const size_t HorizonIndexValue) const
+{
+    if (HorizonIndexValue >= ForecastHorizonCountValue || SampleGameLoops.empty())
+    {
+        return 0;
+    }
+
+    const size_t SampleIndexValue = GetSampleIndexForHorizon(HorizonIndexValue);
+    return static_cast<int64_t>(LastObservedMinerals) - static_cast<int64_t>(SampleMineralBanks[SampleIndexValue]);
+}
+
+int64_t FEconomyDomainState::GetNetVespeneDeltaForHorizon(const size_t HorizonIndexValue) const
+{
+    if (HorizonIndexValue >= ForecastHorizonCountValue || SampleGameLoops.empty())
+    {
+        return 0;
+    }
+
+    const size_t SampleIndexValue = GetSampleIndexForHorizon(HorizonIndexValue);
+    return static_cast<int64_t>(LastObservedVespene) - static_cast<int64_t>(SampleVespeneBanks[SampleIndexValue]);
+}
+
+uint64_t FEconomyDomainState::GetUnitCompletionCountForHorizon(const UNIT_TYPEID UnitTypeIdValue,
+                                                               const size_t HorizonIndexValue) const
+{
+    const size_t UnitTypeIndexValue = GetTerranUnitTypeIndex(UnitTypeIdValue);
+    if (!IsTerranUnitTypeIndexValid(UnitTypeIndexValue) || HorizonIndexValue >= ForecastHorizonCountValue ||
+        SampleGameLoops.empty())
+    {
+        return 0U;
+    }
+
+    const size_t SampleIndexValue = GetSampleIndexForHorizon(HorizonIndexValue);
+    return CumulativeUnitCompletionCounts[UnitTypeIndexValue] >=
+                   SampleCumulativeUnitCompletionCounts[SampleIndexValue][UnitTypeIndexValue]
+               ? CumulativeUnitCompletionCounts[UnitTypeIndexValue] -
+                     SampleCumulativeUnitCompletionCounts[SampleIndexValue][UnitTypeIndexValue]
+               : 0U;
+}
+
+uint64_t FEconomyDomainState::GetBuildingCompletionCountForHorizon(const UNIT_TYPEID BuildingTypeIdValue,
+                                                                   const size_t HorizonIndexValue) const
+{
+    const size_t BuildingTypeIndexValue = GetTerranBuildingTypeIndex(BuildingTypeIdValue);
+    if (!IsTerranBuildingTypeIndexValid(BuildingTypeIndexValue) || HorizonIndexValue >= ForecastHorizonCountValue ||
+        SampleGameLoops.empty())
+    {
+        return 0U;
+    }
+
+    const size_t SampleIndexValue = GetSampleIndexForHorizon(HorizonIndexValue);
+    return CumulativeBuildingCompletionCounts[BuildingTypeIndexValue] >=
+                   SampleCumulativeBuildingCompletionCounts[SampleIndexValue][BuildingTypeIndexValue]
+               ? CumulativeBuildingCompletionCounts[BuildingTypeIndexValue] -
+                     SampleCumulativeBuildingCompletionCounts[SampleIndexValue][BuildingTypeIndexValue]
+               : 0U;
+}
+
+size_t FEconomyDomainState::GetSampleIndexForHorizon(const size_t HorizonIndexValue) const
+{
+    if (SampleGameLoops.empty())
+    {
+        return 0U;
+    }
+
+    const uint64_t HorizonGameLoopsValue = ForecastHorizonGameLoopsValue[HorizonIndexValue];
+    const uint64_t TargetGameLoopValue =
+        CurrentGameLoop >= HorizonGameLoopsValue ? CurrentGameLoop - HorizonGameLoopsValue : 0U;
+
+    for (size_t SampleIndexValue = SampleGameLoops.size(); SampleIndexValue > 0U; --SampleIndexValue)
+    {
+        const size_t CandidateSampleIndexValue = SampleIndexValue - 1U;
+        if (SampleGameLoops[CandidateSampleIndexValue] <= TargetGameLoopValue)
+        {
+            return CandidateSampleIndexValue;
+        }
+    }
+
+    return 0U;
+}
+
+void FEconomyDomainState::TrimHistory()
+{
+    const uint64_t MinimumRetainedGameLoopValue =
+        CurrentGameLoop > ForecastHorizonGameLoopsValue[LongForecastHorizonIndexValue]
+            ? CurrentGameLoop - ForecastHorizonGameLoopsValue[LongForecastHorizonIndexValue]
+            : 0U;
+
+    while (SampleGameLoops.size() > 1U && SampleGameLoops[1U] <= MinimumRetainedGameLoopValue)
+    {
+        SampleGameLoops.erase(SampleGameLoops.begin());
+        SampleMineralBanks.erase(SampleMineralBanks.begin());
+        SampleVespeneBanks.erase(SampleVespeneBanks.begin());
+        SampleCumulativeGrossMineralIncome.erase(SampleCumulativeGrossMineralIncome.begin());
+        SampleCumulativeGrossVespeneIncome.erase(SampleCumulativeGrossVespeneIncome.begin());
+        SampleCumulativeUnitCompletionCounts.erase(SampleCumulativeUnitCompletionCounts.begin());
+        SampleCumulativeBuildingCompletionCounts.erase(SampleCumulativeBuildingCompletionCounts.begin());
+    }
+}
+
+void FEconomyDomainState::RecordCurrentSample(const uint32_t CurrentMineralsValue, const uint32_t CurrentVespeneValue)
+{
+    if (!SampleGameLoops.empty() && SampleGameLoops.back() == CurrentGameLoop)
+    {
+        SampleMineralBanks.back() = CurrentMineralsValue;
+        SampleVespeneBanks.back() = CurrentVespeneValue;
+        SampleCumulativeGrossMineralIncome.back() = CumulativeGrossMineralIncome;
+        SampleCumulativeGrossVespeneIncome.back() = CumulativeGrossVespeneIncome;
+        SampleCumulativeUnitCompletionCounts.back() = CumulativeUnitCompletionCounts;
+        SampleCumulativeBuildingCompletionCounts.back() = CumulativeBuildingCompletionCounts;
+        return;
+    }
+
+    SampleGameLoops.push_back(CurrentGameLoop);
+    SampleMineralBanks.push_back(CurrentMineralsValue);
+    SampleVespeneBanks.push_back(CurrentVespeneValue);
+    SampleCumulativeGrossMineralIncome.push_back(CumulativeGrossMineralIncome);
+    SampleCumulativeGrossVespeneIncome.push_back(CumulativeGrossVespeneIncome);
+    SampleCumulativeUnitCompletionCounts.push_back(CumulativeUnitCompletionCounts);
+    SampleCumulativeBuildingCompletionCounts.push_back(CumulativeBuildingCompletionCounts);
+}
+
+}  // namespace sc2

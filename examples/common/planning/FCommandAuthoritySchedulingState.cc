@@ -2,12 +2,15 @@
 
 #include <algorithm>
 
+#include "common/build_orders/FOpeningPlanExecutionState.h"
+
 namespace sc2
 {
 namespace
 {
 
 constexpr uint64_t RecentBlockedTaskCounterWindowStepCountValue = 120U;
+constexpr size_t CommandAuthorityLayerCountValue = 6U;
 
 template <typename TValueType>
 std::vector<TValueType> BuildCompactedVector(const std::vector<TValueType>& SourceValues,
@@ -23,12 +26,101 @@ std::vector<TValueType> BuildCompactedVector(const std::vector<TValueType>& Sour
     return CompactedValues;
 }
 
+bool HasNonTerminalChildOrder(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                              const uint32_t ParentOrderIdValue)
+{
+    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ParentOrderIds[OrderIndexValue] != ParentOrderIdValue ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 bool ShouldCompactTerminalOrder(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                const FOpeningPlanExecutionState* OpeningPlanExecutionStatePtrValue,
                                 const size_t OrderIndexValue)
 {
-    return CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] ==
-               ECommandAuthorityLayer::UnitExecution &&
-           IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]);
+    if (!IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+    {
+        return false;
+    }
+
+    if (HasNonTerminalChildOrder(CommandAuthoritySchedulingStateValue,
+                                 CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue]))
+    {
+        return false;
+    }
+
+    if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] == ECommandAuthorityLayer::UnitExecution)
+    {
+        return true;
+    }
+
+    const uint32_t PlanStepIdValue = CommandAuthoritySchedulingStateValue.PlanStepIds[OrderIndexValue];
+    if (PlanStepIdValue == 0U)
+    {
+        return true;
+    }
+
+    if (CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue] == EOrderLifecycleState::Completed)
+    {
+        return true;
+    }
+
+    return OpeningPlanExecutionStatePtrValue != nullptr &&
+           !OpeningPlanExecutionStatePtrValue->HasSeededStep(PlanStepIdValue);
+}
+
+size_t GetCommandAuthorityLayerIndex(const ECommandAuthorityLayer CommandAuthorityLayerValue)
+{
+    switch (CommandAuthorityLayerValue)
+    {
+        case ECommandAuthorityLayer::Agent:
+            return 0U;
+        case ECommandAuthorityLayer::StrategicDirector:
+            return 1U;
+        case ECommandAuthorityLayer::EconomyAndProduction:
+            return 2U;
+        case ECommandAuthorityLayer::Army:
+            return 3U;
+        case ECommandAuthorityLayer::Squad:
+            return 4U;
+        case ECommandAuthorityLayer::UnitExecution:
+            return 5U;
+        default:
+            return 0U;
+    }
+}
+
+uint64_t BuildActiveChildOrderKey(const uint32_t ParentOrderIdValue, const ECommandAuthorityLayer SourceLayerValue)
+{
+    return (static_cast<uint64_t>(ParentOrderIdValue) << 8U) |
+           static_cast<uint64_t>(GetCommandAuthorityLayerIndex(SourceLayerValue));
+}
+
+FCommandTaskSignatureKey BuildTaskSignatureKeyForOrderIndex(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const size_t OrderIndexValue)
+{
+    FCommandTaskSignatureKey CommandTaskSignatureKeyValue;
+    CommandTaskSignatureKeyValue.TaskId = CommandAuthoritySchedulingStateValue.PlanStepIds[OrderIndexValue];
+    CommandTaskSignatureKeyValue.SourceGoalId = CommandAuthoritySchedulingStateValue.SourceGoalIds[OrderIndexValue];
+    CommandTaskSignatureKeyValue.AbilityId = CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue];
+    CommandTaskSignatureKeyValue.ResultUnitTypeId =
+        CommandAuthoritySchedulingStateValue.ResultUnitTypeIds[OrderIndexValue];
+    CommandTaskSignatureKeyValue.UpgradeId = CommandAuthoritySchedulingStateValue.UpgradeIds[OrderIndexValue];
+    CommandTaskSignatureKeyValue.PreferredPlacementSlotId.SlotType =
+        CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdTypes[OrderIndexValue];
+    CommandTaskSignatureKeyValue.PreferredPlacementSlotId.Ordinal =
+        CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdOrdinals[OrderIndexValue];
+    return CommandTaskSignatureKeyValue;
 }
 
 }  // namespace
@@ -79,6 +171,7 @@ void FCommandAuthoritySchedulingState::Reset()
     TaskPackageKinds.clear();
     TaskNeedKinds.clear();
     TaskTypes.clear();
+    TaskOrigins.clear();
     RetentionPolicies.clear();
     BlockedTaskWakeKinds.clear();
     BasePriorityValues.clear();
@@ -152,6 +245,11 @@ void FCommandAuthoritySchedulingState::Reset()
 
     BlockedStrategicTasks.Reset(MaxBlockedStrategicTasks);
     BlockedPlanningTasks.Reset(MaxBlockedPlanningTasks);
+    ActiveExecutionOrderIndexByActorTag.clear();
+    ActiveStrategicOrderIndexByGoalId.clear();
+    ActiveTaskSignatureCounts.clear();
+    ActiveChildOrderIndexByParentAndLayer.clear();
+    ActiveOrderCountsByLayer.fill(0U);
 }
 
 void FCommandAuthoritySchedulingState::AdvanceRecentBlockedTaskCounterWindow(const uint64_t CurrentStepValue)
@@ -198,6 +296,7 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     TaskPackageKinds.reserve(OrderCapacityValue);
     TaskNeedKinds.reserve(OrderCapacityValue);
     TaskTypes.reserve(OrderCapacityValue);
+    TaskOrigins.reserve(OrderCapacityValue);
     RetentionPolicies.reserve(OrderCapacityValue);
     BlockedTaskWakeKinds.reserve(OrderCapacityValue);
     BasePriorityValues.reserve(OrderCapacityValue);
@@ -260,6 +359,7 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     TaskPackageKinds.push_back(StoredOrderValue.TaskPackageKind);
     TaskNeedKinds.push_back(StoredOrderValue.TaskNeedKind);
     TaskTypes.push_back(StoredOrderValue.TaskType);
+    TaskOrigins.push_back(StoredOrderValue.Origin);
     RetentionPolicies.push_back(StoredOrderValue.RetentionPolicy);
     BlockedTaskWakeKinds.push_back(StoredOrderValue.BlockedTaskWakeKind);
     BasePriorityValues.push_back(StoredOrderValue.BasePriorityValue);
@@ -341,10 +441,55 @@ bool FCommandAuthoritySchedulingState::TryGetActiveChildOrderIndex(const uint32_
                                                                    const ECommandAuthorityLayer SourceLayerValue,
                                                                    size_t& OutOrderIndexValue) const
 {
+    if (!bDerivedQueuesDirty)
+    {
+        const std::unordered_map<uint64_t, size_t>::const_iterator FoundOrderIndexValue =
+            ActiveChildOrderIndexByParentAndLayer.find(BuildActiveChildOrderKey(ParentOrderIdValue, SourceLayerValue));
+        if (FoundOrderIndexValue != ActiveChildOrderIndexByParentAndLayer.end())
+        {
+            OutOrderIndexValue = FoundOrderIndexValue->second;
+            return true;
+        }
+
+        return false;
+    }
+
     for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
     {
         if (ParentOrderIds[OrderIndexValue] != ParentOrderIdValue ||
             SourceLayers[OrderIndexValue] != SourceLayerValue ||
+            IsTerminalLifecycleState(LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        OutOrderIndexValue = OrderIndexValue;
+        return true;
+    }
+
+    return false;
+}
+
+bool FCommandAuthoritySchedulingState::TryGetActiveExecutionOrderIndexForActor(const Tag ActorTagValue,
+                                                                               size_t& OutOrderIndexValue) const
+{
+    if (!bDerivedQueuesDirty)
+    {
+        const std::unordered_map<Tag, size_t>::const_iterator FoundOrderIndexValue =
+            ActiveExecutionOrderIndexByActorTag.find(ActorTagValue);
+        if (FoundOrderIndexValue != ActiveExecutionOrderIndexByActorTag.end())
+        {
+            OutOrderIndexValue = FoundOrderIndexValue->second;
+            return true;
+        }
+
+        return false;
+    }
+
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
+    {
+        if (SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution ||
+            ActorTags[OrderIndexValue] != ActorTagValue ||
             IsTerminalLifecycleState(LifecycleStates[OrderIndexValue]))
         {
             continue;
@@ -378,6 +523,7 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.TaskPackageKind = TaskPackageKinds[OrderIndexValue];
     CommandOrderRecordValue.TaskNeedKind = TaskNeedKinds[OrderIndexValue];
     CommandOrderRecordValue.TaskType = TaskTypes[OrderIndexValue];
+    CommandOrderRecordValue.Origin = TaskOrigins[OrderIndexValue];
     CommandOrderRecordValue.RetentionPolicy = RetentionPolicies[OrderIndexValue];
     CommandOrderRecordValue.BlockedTaskWakeKind = BlockedTaskWakeKinds[OrderIndexValue];
     CommandOrderRecordValue.BasePriorityValue = BasePriorityValues[OrderIndexValue];
@@ -418,6 +564,59 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
         ObservedInConstructionCountsAtDispatch[OrderIndexValue];
     CommandOrderRecordValue.DispatchAttemptCount = DispatchAttemptCounts[OrderIndexValue];
     return CommandOrderRecordValue;
+}
+
+bool FCommandAuthoritySchedulingState::HasActiveStrategicOrderForGoalId(const uint32_t SourceGoalIdValue) const
+{
+    if (SourceGoalIdValue == 0U)
+    {
+        return false;
+    }
+
+    if (!bDerivedQueuesDirty)
+    {
+        return ActiveStrategicOrderIndexByGoalId.find(SourceGoalIdValue) != ActiveStrategicOrderIndexByGoalId.end();
+    }
+
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
+    {
+        if (SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::StrategicDirector ||
+            SourceGoalIds[OrderIndexValue] != SourceGoalIdValue ||
+            IsTerminalLifecycleState(LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool FCommandAuthoritySchedulingState::HasEquivalentActiveTaskSignature(
+    const FCommandTaskSignatureKey& CommandTaskSignatureKeyValue) const
+{
+    if (!bDerivedQueuesDirty)
+    {
+        const std::unordered_map<FCommandTaskSignatureKey, uint32_t, FCommandTaskSignatureKeyHash>::const_iterator
+            FoundActiveSignatureValue = ActiveTaskSignatureCounts.find(CommandTaskSignatureKeyValue);
+        return FoundActiveSignatureValue != ActiveTaskSignatureCounts.end() && FoundActiveSignatureValue->second > 0U;
+    }
+
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
+    {
+        if (IsTerminalLifecycleState(LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        if (BuildTaskSignatureKeyForOrderIndex(*this, OrderIndexValue) == CommandTaskSignatureKeyValue)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool FCommandAuthoritySchedulingState::SetOrderLifecycleState(const uint32_t OrderIdValue,
@@ -538,7 +737,8 @@ bool FCommandAuthoritySchedulingState::ClearOrderReservedPlacementSlot(const uin
     return true;
 }
 
-bool FCommandAuthoritySchedulingState::CompactTerminalOrders()
+bool FCommandAuthoritySchedulingState::CompactTerminalOrders(
+    const FOpeningPlanExecutionState* OpeningPlanExecutionStatePtrValue)
 {
     if (OrderIds.empty())
     {
@@ -551,7 +751,7 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders()
     bool bCompactedAnyOrderValue = false;
     for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
     {
-        if (ShouldCompactTerminalOrder(*this, OrderIndexValue))
+        if (ShouldCompactTerminalOrder(*this, OpeningPlanExecutionStatePtrValue, OrderIndexValue))
         {
             bCompactedAnyOrderValue = true;
             continue;
@@ -573,6 +773,7 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders()
     TaskPackageKinds = BuildCompactedVector(TaskPackageKinds, RetainedOrderIndicesValue);
     TaskNeedKinds = BuildCompactedVector(TaskNeedKinds, RetainedOrderIndicesValue);
     TaskTypes = BuildCompactedVector(TaskTypes, RetainedOrderIndicesValue);
+    TaskOrigins = BuildCompactedVector(TaskOrigins, RetainedOrderIndicesValue);
     RetentionPolicies = BuildCompactedVector(RetentionPolicies, RetainedOrderIndicesValue);
     BlockedTaskWakeKinds = BuildCompactedVector(BlockedTaskWakeKinds, RetainedOrderIndicesValue);
     BasePriorityValues = BuildCompactedVector(BasePriorityValues, RetainedOrderIndicesValue);
@@ -628,6 +829,11 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders()
 size_t FCommandAuthoritySchedulingState::GetActiveOrderCountForLayer(
     const ECommandAuthorityLayer SourceLayerValue) const
 {
+    if (!bDerivedQueuesDirty)
+    {
+        return ActiveOrderCountsByLayer[GetCommandAuthorityLayerIndex(SourceLayerValue)];
+    }
+
     size_t ActiveOrderCountValue = 0U;
 
     for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
@@ -654,6 +860,11 @@ void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
     ReadyIntentIndices.clear();
     DispatchedOrderIndices.clear();
     CompletedOrderIndices.clear();
+    ActiveExecutionOrderIndexByActorTag.clear();
+    ActiveStrategicOrderIndexByGoalId.clear();
+    ActiveTaskSignatureCounts.clear();
+    ActiveChildOrderIndexByParentAndLayer.clear();
+    ActiveOrderCountsByLayer.fill(0U);
     for (std::vector<size_t>& StrategicQueueValue : StrategicQueues)
     {
         StrategicQueueValue.clear();
@@ -680,6 +891,39 @@ void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
 
     for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderIds.size(); ++OrderIndexValue)
     {
+        if (!IsTerminalLifecycleState(LifecycleStates[OrderIndexValue]))
+        {
+            ++ActiveOrderCountsByLayer[GetCommandAuthorityLayerIndex(SourceLayers[OrderIndexValue])];
+            ++ActiveTaskSignatureCounts[BuildTaskSignatureKeyForOrderIndex(*this, OrderIndexValue)];
+
+            if (SourceLayers[OrderIndexValue] == ECommandAuthorityLayer::StrategicDirector &&
+                SourceGoalIds[OrderIndexValue] != 0U &&
+                ActiveStrategicOrderIndexByGoalId.find(SourceGoalIds[OrderIndexValue]) ==
+                    ActiveStrategicOrderIndexByGoalId.end())
+            {
+                ActiveStrategicOrderIndexByGoalId.emplace(SourceGoalIds[OrderIndexValue], OrderIndexValue);
+            }
+
+            if (SourceLayers[OrderIndexValue] == ECommandAuthorityLayer::UnitExecution &&
+                ActorTags[OrderIndexValue] != NullTag &&
+                ActiveExecutionOrderIndexByActorTag.find(ActorTags[OrderIndexValue]) ==
+                    ActiveExecutionOrderIndexByActorTag.end())
+            {
+                ActiveExecutionOrderIndexByActorTag.emplace(ActorTags[OrderIndexValue], OrderIndexValue);
+            }
+
+            if (ParentOrderIds[OrderIndexValue] != 0U)
+            {
+                const uint64_t ActiveChildOrderKeyValue =
+                    BuildActiveChildOrderKey(ParentOrderIds[OrderIndexValue], SourceLayers[OrderIndexValue]);
+                if (ActiveChildOrderIndexByParentAndLayer.find(ActiveChildOrderKeyValue) ==
+                    ActiveChildOrderIndexByParentAndLayer.end())
+                {
+                    ActiveChildOrderIndexByParentAndLayer.emplace(ActiveChildOrderKeyValue, OrderIndexValue);
+                }
+            }
+        }
+
         switch (LifecycleStates[OrderIndexValue])
         {
             case EOrderLifecycleState::Queued:

@@ -16,8 +16,11 @@ void FGameStateDescriptor::Reset()
     MacroState.Reset();
     ArmyState.Reset();
     BuildPlanning.Reset();
+    EconomyState.Reset();
+    ProductionState.Reset();
     OpeningPlanExecutionState.Reset();
     CommandAuthoritySchedulingState.Reset();
+    SchedulerOutlook.Reset();
     SpatialFields.Reset();
     RampWallDescriptor.Reset();
     MainBaseLayoutDescriptor.Reset();

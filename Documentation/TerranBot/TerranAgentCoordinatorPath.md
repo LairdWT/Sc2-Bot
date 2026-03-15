@@ -2,12 +2,12 @@
 
 ## Purpose
 
-This document captures the current coordinator path implemented by `TerranAgent` in:
+This page documents the current authoritative coordinator order in:
 
 - `L:\Sc2_Bot\examples\terran\terran.h`
 - `L:\Sc2_Bot\examples\terran\terran.cc`
 
-`TerranAgent` owns frame orchestration order. Builder, planner, scheduler, placement, and telemetry types own domain behavior.
+Use this as the first runtime entrypoint reference before domain pages.
 
 ## Runtime Entry Points
 
@@ -18,41 +18,50 @@ This document captures the current coordinator path implemented by `TerranAgent`
 - `OnGameEnd()`
 - `OnUnitIdle(const Unit* UnitPtr)`
 - `OnUnitCreated(const Unit* UnitPtr)`
+- `OnBuildingConstructionComplete(const Unit* UnitPtr)`
 
-`OnGameStart()` and `OnStep()` are the authoritative coordinator paths.
+`OnGameStart()` and `OnStep()` own the frame pipeline.
 
 ## OnGameStart Pipeline
 
-`OnGameStart()` executes in this order:
+`OnGameStart()` executes this ordered sequence:
 
 1. Set `CurrentStep = 0`.
-2. Cache `Observation()` into `ObservationPtr`; return if null.
-3. Rebuild `ExpansionLocations` from `search::CalculateExpansionLocations(ObservationPtr, Query())` when `Query()` is valid.
+2. Cache `Observation()` in `ObservationPtr`; return if null.
+3. Rebuild `ExpansionLocations` from `search::CalculateExpansionLocations(...)` when `Query()` is valid.
 4. Reset runtime state:
    - `GameStateDescriptor`
+   - `EconomyDomainState`
    - `ExecutionTelemetry`
-   - `PendingProductionRallyStructureTags`
-   - `CurrentWallGateState`
-   - `LastArmyExecutionOrderCount`
-5. Build `FFrameContext` through `FFrameContext::Create(ObservationPtr, Query(), CurrentStep)`.
+   - `ProductionRallyStates`
+   - `PendingProductionRallyIntents`
+   - wall and scheduler counters (`CurrentWallGateState`, `LastArmyExecutionOrderCount`, `LastTerminalCompactionStep`, and related timing and count fields)
+5. Build `FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep)`.
 6. Call, in order:
    - `UpdateAgentState(Frame)`
    - `InitializeRampWallDescriptor(Frame)`
    - `InitializeMainBaseLayoutDescriptor(Frame)`
-   - `RebuildGameStateDescriptor(Frame)`
+   - `RebuildObservedGameStateDescriptor(Frame)`
+   - `RebuildForecastState()`
+   - `UpdateStrategicAndPlanningState()`
    - `PrintAgentState()`
 
 ## OnStep Pipeline
 
-`OnStep()` is the authoritative per-frame order:
+`OnStep()` executes this authoritative per-frame order:
 
 1. Increment `CurrentStep`.
-2. Cache `Observation()` into `ObservationPtr`; return if null.
-3. Build `FFrameContext`.
+2. Cache `Observation()` in `ObservationPtr`; return if null.
+3. Build `FFrameContext Frame`.
 4. `UpdateAgentState(Frame)`.
-5. `RebuildGameStateDescriptor(Frame)`.
-6. `UpdateDispatchedSchedulerOrders(Frame)`.
-7. `IntentBuffer.Reset()`.
+5. `UpdateDispatchedSchedulerOrders(Frame)`.
+6. Descriptor and planning refresh:
+   - `RebuildObservedGameStateDescriptor(Frame)`
+   - `RebuildForecastState()`
+   - `UpdateStrategicAndPlanningState()`
+7. Reset per-step buffers:
+   - `IntentBuffer.Reset()`
+   - `PendingProductionRallyIntents.clear()`
 8. Produce intents in fixed order:
    - `ProduceSchedulerIntents(Frame)`
    - `ProduceProductionRallyIntents()`
@@ -61,15 +70,17 @@ This document captures the current coordinator path implemented by `TerranAgent`
    - `ProduceRecoveryIntents(Frame)`
 9. `UpdateExecutionTelemetry(Frame)`.
 10. `ResolvedIntents = IntentArbiter.Resolve(Frame, AgentState.UnitContainer, IntentBuffer)`.
-11. `ExecuteResolvedIntents(Frame, ResolvedIntents)`.
+11. Command issue:
+   - `ExecuteResolvedIntents(Frame, ResolvedIntents)`
+   - `ExecuteProductionRallyIntents()`
 12. `CaptureNewlyDispatchedSchedulerOrders(Frame)`.
 13. `PrintAgentState()` every 120 steps.
 
 `OnStep()` also records phase durations in:
 
 - `LastAgentStateUpdateMicroseconds`
-- `LastDescriptorRebuildMicroseconds`
 - `LastDispatchMaintenanceMicroseconds`
+- `LastDescriptorRebuildMicroseconds`
 - `LastSchedulerStrategicProcessingMicroseconds`
 - `LastSchedulerEconomyProcessingMicroseconds`
 - `LastSchedulerArmyProcessingMicroseconds`
@@ -81,107 +92,120 @@ This document captures the current coordinator path implemented by `TerranAgent`
 - `LastDispatchCaptureMicroseconds`
 - `LastStepMicroseconds`
 
-## Descriptor Rebuild Boundary
+## Descriptor And Planning Boundary
 
-`RebuildGameStateDescriptor(const FFrameContext& Frame)` runs:
+The descriptor and planning refresh is split across three functions:
 
-1. `GameStateDescriptorBuilder->RebuildGameStateDescriptor(...)` when `GameStateDescriptorBuilder` is valid.
-2. Fallback assignment of `CurrentStep` and `CurrentGameLoop` when no builder is configured.
-3. `StrategicDirector->UpdateGameStateDescriptor(GameStateDescriptor)`.
-4. `BuildPlanner->ProduceBuildPlan(GameStateDescriptor, GameStateDescriptor.BuildPlanning)`.
-5. `ArmyPlanner->ProduceArmyPlan(GameStateDescriptor, GameStateDescriptor.ArmyState)`.
-6. `UpdateRallyAnchor()`.
+1. `RebuildObservedGameStateDescriptor(const FFrameContext& Frame)`
+2. `RebuildForecastState()`
+3. `UpdateStrategicAndPlanningState()`
 
-This keeps descriptor and planning state rebuild ahead of scheduler production and arbitration.
+`UpdateStrategicAndPlanningState()` applies:
 
-## Scheduler Production Boundary
+- `StrategicDirector->UpdateGameStateDescriptor(...)`
+- `BuildPlanner->ProduceBuildPlan(...)`
+- `ArmyPlanner->ProduceArmyPlan(...)`
+- `UpdateRallyAnchor()`
 
-`ProduceSchedulerIntents(const FFrameContext& Frame)` runs this order:
+## Scheduler Boundary
 
-1. `CommandAuthorityProcessor.ProcessSchedulerStep(GameStateDescriptor, *CommandTaskAdmissionService)` when admission service exists, else `ProcessSchedulerStep(GameStateDescriptor)`.
-2. Economy stage under mutation batch:
-   - `EconomyProductionOrderExpander->ExpandEconomyAndProductionOrders(...)`
-   - `CommandTaskAdmissionService->ParkDeferredOrders(GameStateDescriptor)` when admission service exists.
-3. Army stage under mutation batch:
-   - `ArmyOrderExpander->ExpandArmyOrders(...)`
-   - `ArmyPlanner->ProduceArmyPlan(...)`.
-4. Squad stage under mutation batch:
-   - `SquadOrderExpander->ExpandSquadOrders(...)`.
-5. Unit execution stage under mutation batch:
-   - `LastArmyExecutionOrderCount = UnitExecutionPlanner->ExpandUnitExecutionOrders(...)`.
-6. `CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor)` when configured.
-7. `IntentSchedulingService.DrainReadyIntents(...)` into `IntentBuffer` bounded by `MaxUnitIntentsPerStep`.
+`ProduceSchedulerIntents(const FFrameContext& Frame)` applies this order:
+
+1. `CommandAuthorityProcessor.ProcessSchedulerStep(...)` (with or without `ICommandTaskAdmissionService`).
+2. Economy stage (mutation batch):
+   - `IEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(...)`
+   - `ICommandTaskAdmissionService::ParkDeferredOrders(...)` when configured.
+3. Army stage (mutation batch):
+   - `IArmyOrderExpander::ExpandArmyOrders(...)`
+   - `IArmyPlanner::ProduceArmyPlan(...)` when configured.
+4. Squad stage (mutation batch): `ISquadOrderExpander::ExpandSquadOrders(...)`.
+5. Unit execution stage (mutation batch):
+   - `IUnitExecutionPlanner::ExpandUnitExecutionOrders(...)`
+   - refresh `LastActiveIndexedExecutionOrderCount`.
+6. `ICommandTaskPriorityService::UpdateTaskPriorities(...)` when configured.
+7. `FIntentSchedulingService::DrainReadyIntents(...)` into `IntentBuffer`, bounded by `MaxUnitIntentsPerStep`.
 
 ## Dispatch Maintenance And Capture Boundary
 
-`UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)` inspects only `UnitExecution` orders in `EOrderLifecycleState::Dispatched` and applies:
+`UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)` inspects only `UnitExecution` orders in `EOrderLifecycleState::Dispatched` and marks:
 
-- `Completed` when observed completed count increases from `ObservedCountAtDispatch`.
-- `Completed` when observed in-construction count increases from `ObservedInConstructionCountAtDispatch`.
+- `Completed` when observed completed count increases since dispatch snapshot.
+- `Completed` when observed in-construction count increases since dispatch snapshot.
 - `Completed` when `HasProducerConfirmedDispatchedOrder(...)` succeeds.
-- `Aborted` when the actor is missing after dispatch game loop.
-- `Aborted` when dispatch confirmation timeout exceeds 96 game loops.
+- `Aborted` when actor is missing after dispatch loop.
+- `Aborted` when dispatch confirmation exceeds `DispatchConfirmationTimeoutGameLoopsValue` (96 loops).
 
-After updates it calls:
+Compaction runs only when both conditions hold:
 
-- `CompactTerminalOrders()`
-- `EndMutationBatch()`
+- interval reached: `CurrentStep >= LastTerminalCompactionStep + TerminalOrderCompactionIntervalStepCountValue`
+- threshold reached: `OrderIds.size() >= TerminalOrderCompactionTriggerCountValue`
 
-`CaptureNewlyDispatchedSchedulerOrders(const FFrameContext& Frame)` records first dispatch snapshots through `SetOrderDispatchState(...)` for `UnitExecution` orders that are:
+`CaptureNewlyDispatchedSchedulerOrders(const FFrameContext& Frame)` captures first dispatch snapshots through `SetOrderDispatchState(...)` for `UnitExecution` orders where:
 
-- `EOrderLifecycleState::Dispatched`
-- `DispatchAttemptCounts == 0`
+- `LifecycleStates[OrderIndex] == EOrderLifecycleState::Dispatched`
+- `DispatchAttemptCounts[OrderIndex] == 0`
 
-Captured fields are `CurrentStep`, `Frame.GameLoop`, `GetObservedCountForOrder(...)`, and `GetObservedInConstructionCountForOrder(...)`.
+Captured fields:
 
-## Execution Telemetry Boundary
+- `CurrentStep`
+- `Frame.GameLoop`
+- `GetObservedCountForOrder(...)`
+- `GetObservedInConstructionCountForOrder(...)`
 
-`UpdateExecutionTelemetry(const FFrameContext& Frame)` records:
+## Telemetry Boundary
 
-- supply-block transitions from `BuildPlanning.AvailableSupply` and `ObservationPtr->GetFoodCap()` through `UpdateSupplyBlockState(...)`
-- mineral-bank transitions (`AvailableMinerals >= 400`) through `UpdateMineralBankState(...)`
-- per-actor conflicting intents in `IntentBuffer` through `RecordActorIntentConflict(...)`
-- idle marine production conflicts for idle completed `TERRAN_BARRACKS` when marine demand exists
-- idle worker production conflicts for idle town halls when worker demand exists
-- scheduler deferral events for orders whose `LastDeferralSteps` equal `CurrentStep` and whose `LastDeferralReasons` are not `None`
+`UpdateExecutionTelemetry(const FFrameContext& Frame)` runs after producers and before arbiter resolve. It records:
+
+- supply-block transitions
+- mineral-bank transitions
+- actor-intent conflicts from `IntentBuffer`
+- idle-production conflicts (barracks and town halls)
+- scheduler deferral events for orders deferred on `CurrentStep`
+
+Wall telemetry events are emitted in other coordinator functions:
+
+- `InitializeRampWallDescriptor(...)` -> `RecordWallDescriptorInvalid(...)`
+- `ProduceWallGateIntents(...)` -> `RecordWallThreatDetected(...)`, `RecordWallClosed(...)`, `RecordWallOpened(...)`
 
 ## Arbiter And Execution Boundary
 
-`FIntentArbiter::Resolve(...)` is the only conflict-resolution boundary before command issue:
+`FIntentArbiter::Resolve(...)` (implemented in `L:\Sc2_Bot\examples\common\agent_framework.h`) is the conflict-resolution boundary before command issue:
 
-- one winner per actor by higher `Priority`, then `EIntentDomain` order
-- stable original-buffer order when winner values match
+- one winner per actor (priority, then `EIntentDomain`, then stable original order)
 - actor and target validation against current frame state
-- one structure-build reservation per actor in a resolve pass
-- point target normalization and optional placement/pathing checks
+- point-target normalization and optional placement/pathing checks
+- one structure-build reservation per actor per resolve pass
 
-`ExecuteResolvedIntents(...)` is the only command-issue boundary and dispatches by `EIntentTargetKind`:
+Execution is split:
 
-- `None` -> `Actions()->UnitCommand(actor, ability, queued)`
-- `Point` -> `Actions()->UnitCommand(actor, ability, point, queued)`
-- `Unit` -> `Actions()->UnitCommand(actor, ability, targetTag, queued)`
+- `ExecuteResolvedIntents(...)` issues resolved intents from `IntentBuffer`.
+- `ExecuteProductionRallyIntents()` issues deferred rally commands from `PendingProductionRallyIntents`.
 
-## Additional Producer Seams
+## Producer Seams
 
 - `ProduceProductionRallyIntents()`:
-  - uses 120-step cadence full refresh
-  - immediately refreshes newly created production structures via `PendingProductionRallyStructureTags`
+  - tracks per-structure state in `ProductionRallyStates`
+  - enqueues `RALLY_UNITS` point intents when initial apply is needed or rally point moved
 - `ProduceWallGateIntents(...)`:
   - computes desired `EWallGateState`
-  - emits transition-only intents through `IWallGateController`
-  - records wall threat/open/close events into `ExecutionTelemetry`
+  - emits transition intents via `IWallGateController`
+  - records wall transition telemetry
 - `ProduceWorkerHarvestIntents(...)`:
   - fills under-saturated refineries
   - relieves over-saturated refineries
-  - excludes actors already reserved by intents or active scheduler orders
+  - excludes workers already reserved by intents or active scheduler orders
 - `ProduceRecoveryIntents(...)`:
-  - converts idle workers and idle callbacks into mineral-smart fallback commands
-  - falls back to `ATTACK_ATTACK` toward `GetEnemyTargetLocation()` when no mineral patch exists
+  - converts idle SCVs and pending recovery callbacks into safe fallback commands
+
+## Cross Links
+
+- [IntentSchedulingAndCommandAuthority.md](./IntentSchedulingAndCommandAuthority.md)
+- [TelemetryAndGameRecordStore.md](./TelemetryAndGameRecordStore.md)
 
 ## Invariants
 
 - `ObservationPtr` must be valid before descriptor, scheduler, telemetry, and execution work.
-- `FFrameContext` is the authoritative per-step frame transport.
-- Descriptor and planning rebuild always execute before scheduler intent production.
-- Telemetry updates execute after all producers and before arbitration.
-- `TerranAgent` orchestrates ordering only; composed services own domain decisions.
+- `FFrameContext` is the per-step transport passed across coordinator boundaries.
+- Dispatch maintenance executes before descriptor rebuild in `OnStep()`.
+- Telemetry executes after intent production and before `FIntentArbiter::Resolve(...)`.
+- `CaptureNewlyDispatchedSchedulerOrders(...)` records only orders that are already `Dispatched` and not yet captured.

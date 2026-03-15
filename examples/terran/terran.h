@@ -3,12 +3,15 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "common/bot_status_models.h"
 #include "common/descriptors/FTerranGameStateDescriptorBuilder.h"
+#include "common/descriptors/FTerranForecastStateBuilder.h"
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/economy/FEconomyDomainState.h"
 #include "common/logging.h"
 #include "common/planning/FTerranArmyPlanner.h"
 #include "common/planning/FTerranArmyOrderExpander.h"
@@ -25,6 +28,7 @@
 #include "common/planning/IArmyOrderExpander.h"
 #include "common/planning/IBuildPlanner.h"
 #include "common/planning/ICommandTaskPriorityService.h"
+#include "common/planning/FProductionRallyState.h"
 #include "common/planning/IEconomyProductionOrderExpander.h"
 #include "common/planning/FIntentSchedulingService.h"
 #include "common/planning/ISquadOrderExpander.h"
@@ -55,11 +59,14 @@ public:
     void OnGameEnd() final;
     void OnUnitIdle(const Unit* UnitPtr) final;
     void OnUnitCreated(const Unit* UnitPtr) final;
+    void OnBuildingConstructionComplete(const Unit* UnitPtr) final;
 
     void UpdateAgentState(const FFrameContext& Frame);
     void InitializeRampWallDescriptor(const FFrameContext& Frame);
     void InitializeMainBaseLayoutDescriptor(const FFrameContext& Frame);
-    void RebuildGameStateDescriptor(const FFrameContext& Frame);
+    void RebuildObservedGameStateDescriptor(const FFrameContext& Frame);
+    void RebuildForecastState();
+    void UpdateStrategicAndPlanningState();
     void UpdateRallyAnchor();
     void PrintAgentState();
     void PrintWallState() const;
@@ -70,6 +77,7 @@ public:
     void ProduceWallGateIntents(const FFrameContext& Frame);
     void ProduceWorkerHarvestIntents(const FFrameContext& Frame);
     void ProduceProductionRallyIntents();
+    void ExecuteProductionRallyIntents();
     void UpdateExecutionTelemetry(const FFrameContext& Frame);
     void ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents);
     void UpdateDispatchedSchedulerOrders(const FFrameContext& Frame);
@@ -85,7 +93,7 @@ public:
     Point2D GetEnemyTargetLocation() const;
 
     Units NeutralUnits;
-    Point2D BarracksRally;
+    Point2D ArmyAssemblyPoint;
     FAgentState AgentState;
     std::vector<FUnitIntent> ResolvedIntents;
 
@@ -114,8 +122,10 @@ private:
     FIntentArbiter IntentArbiter;
     std::unordered_set<Tag> PendingRecoveryWorkers;
     FGameStateDescriptor GameStateDescriptor;
+    FEconomyDomainState EconomyDomainState;
     FTerranGameStateDescriptorBuilder DefaultGameStateDescriptorBuilder;
     const IGameStateDescriptorBuilder* GameStateDescriptorBuilder{&DefaultGameStateDescriptorBuilder};
+    FTerranForecastStateBuilder DefaultForecastStateBuilder;
     FDefaultStrategicDirector DefaultStrategicDirector;
     const IStrategicDirector* StrategicDirector{&DefaultStrategicDirector};
     FTerranTimingAttackBuildPlanner DefaultBuildPlanner;
@@ -141,7 +151,8 @@ private:
     const IBuildPlacementService* BuildPlacementService{&DefaultBuildPlacementService};
     FIntentSchedulingService IntentSchedulingService;
     std::vector<Point2D> ExpansionLocations;
-    std::unordered_set<Tag> PendingProductionRallyStructureTags;
+    std::unordered_map<Tag, FProductionRallyState> ProductionRallyStates;
+    std::vector<FUnitIntent> PendingProductionRallyIntents;
     FAgentExecutionTelemetry ExecutionTelemetry;
     EWallGateState CurrentWallGateState{EWallGateState::Unavailable};
     uint32_t LastArmyExecutionOrderCount{0U};
@@ -158,6 +169,12 @@ private:
     uint64_t LastIntentResolutionMicroseconds{0U};
     uint64_t LastIntentExecutionMicroseconds{0U};
     uint64_t LastDispatchCaptureMicroseconds{0U};
+    uint32_t LastProductionRallyApplyCount{0U};
+    uint32_t LastBlockerReliefMoveCount{0U};
+    uint32_t LastRelocationTaskCount{0U};
+    uint32_t LastUnitExecutionReplanCount{0U};
+    uint32_t LastActiveIndexedExecutionOrderCount{0U};
+    uint64_t LastTerminalCompactionStep{0U};
 };
 
 }  // namespace sc2

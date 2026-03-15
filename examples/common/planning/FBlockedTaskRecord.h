@@ -3,7 +3,9 @@
 #include <cstdint>
 
 #include "common/planning/EBlockedTaskWakeKind.h"
+#include "common/planning/ECommandAuthorityLayer.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
+#include "common/planning/ECommandTaskOrigin.h"
 #include "common/planning/ECommandTaskRetentionPolicy.h"
 #include "common/planning/ECommandTaskType.h"
 #include "common/planning/FCommandTaskDescriptor.h"
@@ -28,11 +30,15 @@ public:
 public:
     uint32_t TaskId;
     uint32_t SourceGoalId;
+    ECommandAuthorityLayer SourceLayer;
     ECommandTaskPackageKind PackageKind;
     ECommandTaskNeedKind NeedKind;
     ECommandTaskType TaskType;
+    ECommandTaskOrigin Origin;
     ECommandTaskRetentionPolicy RetentionPolicy;
+    int BasePriorityValue;
     AbilityID AbilityId;
+    UNIT_TYPEID ProducerUnitTypeId;
     UNIT_TYPEID ResultUnitTypeId;
     UpgradeID UpgradeId;
     FBuildPlacementSlotId PreferredPlacementSlotId;
@@ -41,6 +47,7 @@ public:
     uint64_t NextEligibleGameLoop;
     uint64_t LastSeenStimulusRevision;
     uint32_t RetryCount;
+    uint32_t TargetCount;
     uint32_t RequestedQueueCount;
 };
 

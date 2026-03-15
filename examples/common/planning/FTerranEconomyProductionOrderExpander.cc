@@ -6,6 +6,7 @@
 
 #include "common/bot_status_models.h"
 #include "common/economic_models.h"
+#include "common/economy/EconomyForecastConstants.h"
 #include "sc2api/sc2_map_info.h"
 #include "sc2api/sc2_unit_filters.h"
 
@@ -17,6 +18,8 @@ namespace
 constexpr int FriendlyBlockerReliefIntentPriorityValue = 5000;
 constexpr float ExistingMoveOrderDistanceSquaredToleranceValue = 1.0f;
 constexpr float DisplacementFootprintPaddingValue = 1.5f;
+constexpr uint64_t BlockerReliefRetryDelayGameLoopsValue = 32U;
+constexpr uint32_t MaxSoftBlockWindowCountValue = 3U;
 
 bool IsReactorUnitType(const UNIT_TYPEID UnitTypeValue)
 {
@@ -214,6 +217,30 @@ uint32_t GetObservedCountForOrder(const FBuildPlanningState& BuildPlanningStateV
     return GetObservedUnitCount(BuildPlanningStateValue, CommandOrderRecordValue.ResultUnitTypeId);
 }
 
+uint32_t GetProjectedCountForOrder(const FGameStateDescriptor& GameStateDescriptorValue,
+                                   const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    if (CommandOrderRecordValue.UpgradeId.ToType() != UPGRADE_ID::INVALID)
+    {
+        const size_t UpgradeTypeIndexValue = GetTerranUpgradeTypeIndex(CommandOrderRecordValue.UpgradeId);
+        return IsTerranUpgradeTypeIndexValid(UpgradeTypeIndexValue)
+                   ? static_cast<uint32_t>(GameStateDescriptorValue.BuildPlanning
+                                               .ObservedCompletedUpgradeCounts[UpgradeTypeIndexValue]) +
+                         GameStateDescriptorValue.SchedulerOutlook.GetScheduledUpgradeCount(
+                             CommandOrderRecordValue.UpgradeId)
+                   : 0U;
+    }
+
+    if (IsTerranBuilding(CommandOrderRecordValue.ResultUnitTypeId) ||
+        CommandOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_COMMANDCENTER)
+    {
+        return GameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(
+            CommandOrderRecordValue.ResultUnitTypeId);
+    }
+
+    return GameStateDescriptorValue.ProductionState.GetProjectedUnitCount(CommandOrderRecordValue.ResultUnitTypeId);
+}
+
 bool DoesOrderTargetMatchObservedState(const FGameStateDescriptor& GameStateDescriptorValue,
                                        const FCommandOrderRecord& CommandOrderRecordValue)
 {
@@ -374,6 +401,7 @@ uint32_t CountActiveUnitProductionSchedulerOrdersForActor(
     {
         if (CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != ActorTagValue ||
             IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]) ||
+            CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue] == EOrderLifecycleState::Dispatched ||
             CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution ||
             CommandAuthoritySchedulingStateValue.IntentDomains[OrderIndexValue] != EIntentDomain::UnitProduction)
         {
@@ -650,9 +678,106 @@ bool TryFindDisplacementTargetPoint(const FFrameContext& FrameValue, const Unit&
     return bFoundCandidateValue;
 }
 
+bool TryFindPreferredBlockerReliefTargetPoint(const FFrameContext& FrameValue, const Unit& BlockerUnitValue,
+                                              const Point2D& FootprintCenterValue,
+                                              const Point2D& FootprintHalfExtentsValue,
+                                              const Point2D& PreferredTargetPointValue,
+                                              Point2D& OutDisplacementTargetPointValue)
+{
+    if (FrameValue.Observation == nullptr || FrameValue.Query == nullptr)
+    {
+        return false;
+    }
+
+    if (DoAxisAlignedFootprintsOverlap(PreferredTargetPointValue, Point2D(BlockerUnitValue.radius, BlockerUnitValue.radius),
+                                       FootprintCenterValue, FootprintHalfExtentsValue) ||
+        !FrameValue.Observation->IsPathable(PreferredTargetPointValue))
+    {
+        return false;
+    }
+
+    const float PathingDistanceValue = FrameValue.Query->PathingDistance(&BlockerUnitValue, PreferredTargetPointValue);
+    if (!IsGroundPathingResultValid(BlockerUnitValue, PreferredTargetPointValue, PathingDistanceValue))
+    {
+        return false;
+    }
+
+    OutDisplacementTargetPointValue = PreferredTargetPointValue;
+    return true;
+}
+
+uint64_t BuildFriendlyMovableBlockerFingerprint(const FFrameContext& FrameValue, const Tag IgnoredActorTagValue,
+                                                const Point2D& FootprintCenterValue,
+                                                const Point2D& FootprintHalfExtentsValue)
+{
+    if (FrameValue.Observation == nullptr)
+    {
+        return 0U;
+    }
+
+    uint64_t FingerprintValue = 1469598103934665603ULL;
+    const Units SelfUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Self);
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || !IsFriendlyMovableBlockerUnit(*SelfUnitValue, IgnoredActorTagValue) ||
+            !DoesUnitOverlapFootprint(*SelfUnitValue, FootprintCenterValue, FootprintHalfExtentsValue))
+        {
+            continue;
+        }
+
+        FingerprintValue ^= static_cast<uint64_t>(SelfUnitValue->tag);
+        FingerprintValue *= 1099511628211ULL;
+    }
+
+    return FingerprintValue;
+}
+
+EProductionBlockerKind ClassifyAddonFootprintBlocker(const FFrameContext& FrameValue, const Tag ProducerTagValue,
+                                                     const Point2D& StructureBuildPointValue)
+{
+    if (FrameValue.Observation == nullptr || FrameValue.GameInfo == nullptr)
+    {
+        return EProductionBlockerKind::Terrain;
+    }
+
+    if (!DoesAddonFootprintSupportTerrain(*FrameValue.GameInfo, StructureBuildPointValue))
+    {
+        return EProductionBlockerKind::Terrain;
+    }
+
+    const Point2D AddonFootprintCenterValue = GetAddonFootprintCenter(StructureBuildPointValue);
+    const Point2D AddonHalfExtentsValue(1.0f, 1.0f);
+    const Units AllUnitsValue = FrameValue.Observation->GetUnits();
+    for (const Unit* CandidateUnitValue : AllUnitsValue)
+    {
+        if (CandidateUnitValue == nullptr || CandidateUnitValue->tag == ProducerTagValue ||
+            !DoesUnitOverlapFootprint(*CandidateUnitValue, AddonFootprintCenterValue, AddonHalfExtentsValue))
+        {
+            continue;
+        }
+
+        switch (CandidateUnitValue->alliance)
+        {
+            case Unit::Alliance::Self:
+                return CandidateUnitValue->is_building ? EProductionBlockerKind::FriendlyStructure
+                                                       : EProductionBlockerKind::FriendlyMovableUnit;
+            case Unit::Alliance::Enemy:
+                return CandidateUnitValue->is_building ? EProductionBlockerKind::EnemyStructure
+                                                       : EProductionBlockerKind::EnemyUnit;
+            case Unit::Alliance::Neutral:
+                return EProductionBlockerKind::ResourceNode;
+            default:
+                break;
+        }
+    }
+
+    return EProductionBlockerKind::None;
+}
+
 uint32_t AddFriendlyBlockerReliefIntentsForFootprint(const FFrameContext& FrameValue, const Tag IgnoredActorTagValue,
                                                      const Point2D& FootprintCenterValue,
                                                      const Point2D& FootprintHalfExtentsValue,
+                                                     const Point2D& PreferredTargetPointValue,
                                                      FIntentBuffer& IntentBufferValue)
 {
     if (FrameValue.Observation == nullptr)
@@ -672,8 +797,13 @@ uint32_t AddFriendlyBlockerReliefIntentsForFootprint(const FFrameContext& FrameV
         }
 
         Point2D DisplacementTargetPointValue;
-        if (!TryFindDisplacementTargetPoint(FrameValue, *SelfUnitValue, FootprintCenterValue,
-                                            FootprintHalfExtentsValue, DisplacementTargetPointValue) ||
+        const bool bFoundReliefTargetValue =
+            TryFindPreferredBlockerReliefTargetPoint(FrameValue, *SelfUnitValue, FootprintCenterValue,
+                                                     FootprintHalfExtentsValue, PreferredTargetPointValue,
+                                                     DisplacementTargetPointValue) ||
+            TryFindDisplacementTargetPoint(FrameValue, *SelfUnitValue, FootprintCenterValue,
+                                           FootprintHalfExtentsValue, DisplacementTargetPointValue);
+        if (!bFoundReliefTargetValue ||
             DoesUnitAlreadyHaveMoveOrderNearPoint(*SelfUnitValue, DisplacementTargetPointValue))
         {
             continue;
@@ -692,19 +822,21 @@ bool TryIssueFriendlyBlockerReliefForStructurePlacement(const FFrameContext& Fra
                                                         const FCommandOrderRecord& EconomyOrderValue,
                                                         const Unit& WorkerUnitValue,
                                                         const FBuildPlacementSlot& BuildPlacementSlotValue,
+                                                        const Point2D& PreferredTargetPointValue,
                                                         FIntentBuffer& IntentBufferValue)
 {
     const Point2D StructureHalfExtentsValue =
         GetStructureFootprintHalfExtentsForAbility(EconomyOrderValue.AbilityId);
     uint32_t AddedIntentCountValue = AddFriendlyBlockerReliefIntentsForFootprint(
         FrameValue, WorkerUnitValue.tag, BuildPlacementSlotValue.BuildPoint, StructureHalfExtentsValue,
+        PreferredTargetPointValue,
         IntentBufferValue);
 
     if (DoesStructureAbilityRequireAddonClearance(EconomyOrderValue.AbilityId))
     {
         AddedIntentCountValue += AddFriendlyBlockerReliefIntentsForFootprint(
             FrameValue, WorkerUnitValue.tag, GetAddonFootprintCenter(BuildPlacementSlotValue.BuildPoint),
-            Point2D(1.0f, 1.0f), IntentBufferValue);
+            Point2D(1.0f, 1.0f), PreferredTargetPointValue, IntentBufferValue);
     }
 
     return AddedIntentCountValue > 0U;
@@ -772,11 +904,12 @@ bool DoesAddonFootprintContainFriendlyMovableBlocker(const FFrameContext& FrameV
 }
 
 bool TryIssueFriendlyBlockerReliefForAddonFootprint(const FFrameContext& FrameValue, const Unit& ProducerUnitValue,
+                                                    const Point2D& PreferredTargetPointValue,
                                                     FIntentBuffer& IntentBufferValue)
 {
     return AddFriendlyBlockerReliefIntentsForFootprint(
                FrameValue, ProducerUnitValue.tag, GetAddonFootprintCenter(Point2D(ProducerUnitValue.pos)),
-               Point2D(1.0f, 1.0f), IntentBufferValue) > 0U;
+               Point2D(1.0f, 1.0f), PreferredTargetPointValue, IntentBufferValue) > 0U;
 }
 
 bool HasPlacementSlotBeenAttempted(const std::vector<FBuildPlacementSlotId>& AttemptedPlacementSlotIdsValue,
@@ -790,6 +923,9 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
                                 const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                 const FCommandOrderRecord& EconomyOrderValue,
                                 const UNIT_TYPEID ProducerUnitTypeIdValue,
+                                const Point2D& BlockerReliefTargetPointValue,
+                                std::unordered_map<FCommandTaskSignatureKey, FProductionBlockerResolution,
+                                                   FCommandTaskSignatureKeyHash>& ProductionBlockerResolutionsValue,
                                 FIntentBuffer& IntentBufferValue,
                                 const Unit*& OutProducerUnitValue,
                                 ECommandOrderDeferralReason& OutDeferralReasonValue)
@@ -806,6 +942,8 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
     bool HasBusyProducerWithoutAddonValue = false;
     bool HasHardBlockedProducerValue = false;
     bool HasSoftBlockedProducerValue = false;
+    FProductionBlockerResolution& ProductionBlockerResolutionValue =
+        ProductionBlockerResolutionsValue[FCommandTaskSignatureKey::FromOrderRecord(EconomyOrderValue)];
     for (const Unit* CandidateProducerUnitValue : ProducerUnitsValue)
     {
         if (CandidateProducerUnitValue == nullptr || CandidateProducerUnitValue->add_on_tag != NullTag)
@@ -822,33 +960,69 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
         }
 
         const Point2D ProducerBuildPointValue = Point2D(CandidateProducerUnitValue->pos);
-        if (DoesAddonFootprintHaveHardBlocker(FrameValue, CandidateProducerUnitValue->tag, ProducerBuildPointValue))
+        const EProductionBlockerKind ProductionBlockerKindValue =
+            ClassifyAddonFootprintBlocker(FrameValue, CandidateProducerUnitValue->tag, ProducerBuildPointValue);
+        if (ProductionBlockerKindValue == EProductionBlockerKind::None)
         {
-            HasHardBlockedProducerValue = true;
-            continue;
+            ProductionBlockerResolutionValue.Reset();
+            OutProducerUnitValue = CandidateProducerUnitValue;
+            return true;
         }
 
-        if (DoesAddonFootprintContainFriendlyMovableBlocker(FrameValue, CandidateProducerUnitValue->tag,
-                                                            ProducerBuildPointValue))
+        if (ProductionBlockerKindValue == EProductionBlockerKind::FriendlyMovableUnit)
         {
+            const uint64_t BlockerFingerprintValue = BuildFriendlyMovableBlockerFingerprint(
+                FrameValue, CandidateProducerUnitValue->tag, GetAddonFootprintCenter(ProducerBuildPointValue),
+                Point2D(1.0f, 1.0f));
+            if (ProductionBlockerResolutionValue.BlockerKind == EProductionBlockerKind::FriendlyMovableUnit &&
+                ProductionBlockerResolutionValue.BlockerFingerprint == BlockerFingerprintValue &&
+                FrameValue.Observation->GetGameLoop() < ProductionBlockerResolutionValue.RetryNotBeforeGameLoop)
+            {
+                HasSoftBlockedProducerValue = true;
+                continue;
+            }
+
+            ProductionBlockerResolutionValue.BlockerKind = EProductionBlockerKind::FriendlyMovableUnit;
+            ProductionBlockerResolutionValue.bCanAttemptRelief = true;
+            ProductionBlockerResolutionValue.bCanRelocate = EconomyOrderValue.Origin != ECommandTaskOrigin::Opening;
+            ProductionBlockerResolutionValue.RetryNotBeforeGameLoop =
+                FrameValue.Observation->GetGameLoop() + BlockerReliefRetryDelayGameLoopsValue;
+            ProductionBlockerResolutionValue.SoftBlockWindowCount =
+                ProductionBlockerResolutionValue.BlockerFingerprint == BlockerFingerprintValue
+                    ? (ProductionBlockerResolutionValue.SoftBlockWindowCount + 1U)
+                    : 1U;
+            ProductionBlockerResolutionValue.BlockerFingerprint = BlockerFingerprintValue;
             HasSoftBlockedProducerValue = true;
-            TryIssueFriendlyBlockerReliefForAddonFootprint(FrameValue, *CandidateProducerUnitValue, IntentBufferValue);
+            TryIssueFriendlyBlockerReliefForAddonFootprint(FrameValue, *CandidateProducerUnitValue,
+                                                           BlockerReliefTargetPointValue, IntentBufferValue);
+            if (ProductionBlockerResolutionValue.SoftBlockWindowCount >= MaxSoftBlockWindowCountValue)
+            {
+                HasHardBlockedProducerValue = true;
+            }
+
             continue;
         }
 
-        OutProducerUnitValue = CandidateProducerUnitValue;
-        return true;
-    }
-
-    if (HasBusyProducerWithoutAddonValue || HasSoftBlockedProducerValue)
-    {
-        OutDeferralReasonValue = ECommandOrderDeferralReason::ProducerBusy;
-        return false;
+        ProductionBlockerResolutionValue.BlockerKind = ProductionBlockerKindValue;
+        ProductionBlockerResolutionValue.bCanAttemptRelief = false;
+        ProductionBlockerResolutionValue.bCanRelocate = EconomyOrderValue.Origin != ECommandTaskOrigin::Opening;
+        ProductionBlockerResolutionValue.RetryNotBeforeGameLoop =
+            FrameValue.Observation->GetGameLoop() + BlockerReliefRetryDelayGameLoopsValue;
+        ProductionBlockerResolutionValue.SoftBlockWindowCount = MaxSoftBlockWindowCountValue;
+        ProductionBlockerResolutionValue.BlockerFingerprint = 0U;
+        HasHardBlockedProducerValue = true;
+        continue;
     }
 
     if (HasHardBlockedProducerValue)
     {
         OutDeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
+        return false;
+    }
+
+    if (HasBusyProducerWithoutAddonValue || HasSoftBlockedProducerValue)
+    {
+        OutDeferralReasonValue = ECommandOrderDeferralReason::ProducerBusy;
         return false;
     }
 
@@ -880,32 +1054,10 @@ bool IsUnitProductionAbility(const ABILITY_ID AbilityIdValue)
     }
 }
 
-bool HasOutstandingSupplyDepotDemand(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
-                                     const FBuildPlanningState& BuildPlanningStateValue)
+bool HasOutstandingSupplyDepotDemand(const FGameStateDescriptor& GameStateDescriptorValue)
 {
-    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
-         ++OrderIndexValue)
-    {
-        if (IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
-        {
-            continue;
-        }
-
-        if (!IsSupplyDepotResultUnitType(CommandAuthoritySchedulingStateValue.ResultUnitTypeIds[OrderIndexValue]))
-        {
-            continue;
-        }
-
-        FCommandOrderRecord SupplyDepotOrderValue =
-            CommandAuthoritySchedulingStateValue.GetOrderRecord(OrderIndexValue);
-        if (GetObservedCountForOrder(BuildPlanningStateValue, SupplyDepotOrderValue) <
-            SupplyDepotOrderValue.TargetCount)
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return GameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
+           GameStateDescriptorValue.BuildPlanning.DesiredSupplyDepotCount;
 }
 
 int GetEffectiveEconomyOrderPriority(const FCommandOrderRecord& EconomyOrderValue,
@@ -923,6 +1075,7 @@ void CopyTaskMetadataToChildOrder(const FCommandOrderRecord& SourceOrderValue, F
     ChildOrderValue.TaskPackageKind = SourceOrderValue.TaskPackageKind;
     ChildOrderValue.TaskNeedKind = SourceOrderValue.TaskNeedKind;
     ChildOrderValue.TaskType = SourceOrderValue.TaskType;
+    ChildOrderValue.Origin = SourceOrderValue.Origin;
     ChildOrderValue.RetentionPolicy = SourceOrderValue.RetentionPolicy;
     ChildOrderValue.BlockedTaskWakeKind = SourceOrderValue.BlockedTaskWakeKind;
     ChildOrderValue.EffectivePriorityValue = SourceOrderValue.EffectivePriorityValue;
@@ -1151,6 +1304,7 @@ bool TrySelectPlacementSlotCandidate(const FFrameContext& FrameValue,
                                      const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                      const FCommandOrderRecord& EconomyOrderValue, const Unit& WorkerUnitValue,
                                      const FBuildPlacementSlot& BuildPlacementSlotValue,
+                                     const Point2D& BlockerReliefTargetPointValue,
                                      FIntentBuffer& IntentBufferValue,
                                      FBuildPlacementSlot& OutBuildPlacementSlotValue,
                                      bool& OutHasFriendlyMovableBlockerValue)
@@ -1191,6 +1345,7 @@ bool TrySelectPlacementSlotCandidate(const FFrameContext& FrameValue,
         OutHasFriendlyMovableBlockerValue = true;
         TryIssueFriendlyBlockerReliefForStructurePlacement(FrameValue, EconomyOrderValue, WorkerUnitValue,
                                                            NormalizedBuildPlacementSlotValue,
+                                                           BlockerReliefTargetPointValue,
                                                            IntentBufferValue);
         return false;
     }
@@ -1210,6 +1365,7 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
                                      const std::vector<Point2D>& ExpansionLocationsValue,
                                      const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                      const FCommandOrderRecord& EconomyOrderValue, const Unit& WorkerUnitValue,
+                                     const Point2D& BlockerReliefTargetPointValue,
                                      FIntentBuffer& IntentBufferValue,
                                      FBuildPlacementSlot& OutBuildPlacementSlotValue,
                                      ECommandOrderDeferralReason& OutDeferralReasonValue)
@@ -1241,6 +1397,7 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
 
         if (!TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
                                              EconomyOrderValue, WorkerUnitValue, ReservedBuildPlacementSlotValue,
+                                             BlockerReliefTargetPointValue,
                                              IntentBufferValue, OutBuildPlacementSlotValue,
                                              HasFriendlyMovableBlockerValue))
         {
@@ -1264,6 +1421,7 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
 
         if (!TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
                                              EconomyOrderValue, WorkerUnitValue, PreferredBuildPlacementSlotValue,
+                                             BlockerReliefTargetPointValue,
                                              IntentBufferValue, OutBuildPlacementSlotValue,
                                              HasFriendlyMovableBlockerValue))
         {
@@ -1291,6 +1449,7 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
             AttemptedPlacementSlotIdsValue.push_back(BuildPlacementSlotValue.SlotId);
             if (TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
                                                 EconomyOrderValue, WorkerUnitValue, BuildPlacementSlotValue,
+                                                BlockerReliefTargetPointValue,
                                                 IntentBufferValue, OutBuildPlacementSlotValue,
                                                 HasFriendlyMovableBlockerValue))
             {
@@ -1311,6 +1470,7 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
 
         if (TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
                                             EconomyOrderValue, WorkerUnitValue, BuildPlacementSlotValue,
+                                            BlockerReliefTargetPointValue,
                                             IntentBufferValue, OutBuildPlacementSlotValue,
                                             HasFriendlyMovableBlockerValue))
         {
@@ -1749,6 +1909,12 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                      });
     const uint64_t CurrentStepValue = GameStateDescriptorValue.CurrentStep;
     const uint64_t CurrentGameLoopValue = GameStateDescriptorValue.CurrentGameLoop;
+    const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
+    const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
+        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor,
+        GameStateDescriptorValue.MainBaseLayoutDescriptor);
+    const Point2D AssemblyAnchorPointValue =
+        BuildPlacementServiceValue.GetArmyAssemblyPoint(GameStateDescriptorValue, BuildPlacementContextValue);
 
     for (const size_t PlanningOrderIndexValue : PlanningOrderIndicesValue)
     {
@@ -1815,20 +1981,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             }
         }
 
-        const uint32_t ObservedCountValue =
-            GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue);
-        const uint32_t CurrentOrderCountValue = IsStructureBuildAbility(EconomyOrderValue.AbilityId)
-                                                    ? 0U
-                                                    : CountCurrentOrdersForAbility(AgentStateValue,
-                                                                                  EconomyOrderValue.AbilityId);
-        const uint32_t PendingOrderCountValue =
-            CurrentOrderCountValue +
-            CountPendingSchedulerOrdersForAbility(CommandAuthoritySchedulingStateValue, EconomyOrderValue.AbilityId) +
-            CountPendingIntentsForAbility(IntentBufferValue, EconomyOrderValue.AbilityId);
         const uint32_t ProjectedCountValue =
-            ObservedCountValue +
-            GetObservedInConstructionCountForOrder(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue) +
-            PendingOrderCountValue;
+            GetProjectedCountForOrder(GameStateDescriptorValue, EconomyOrderValue) +
+            CountPendingIntentsForAbility(IntentBufferValue, EconomyOrderValue.AbilityId);
         if (ProjectedCountValue >= EconomyOrderValue.TargetCount)
         {
             CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
@@ -1850,10 +2005,6 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             case ABILITY_ID::BUILD_BUNKER:
             case ABILITY_ID::BUILD_ENGINEERINGBAY:
             {
-                const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
-                const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
-                    BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor,
-                    GameStateDescriptorValue.MainBaseLayoutDescriptor);
                 const Point2D BuildAnchorValue = BuildPlacementServiceValue.GetPrimaryStructureAnchor(
                     GameStateDescriptorValue, BuildPlacementContextValue);
                 const Unit* WorkerUnitValue = SelectBuildWorker(AgentStateValue, IntentBufferValue,
@@ -1869,7 +2020,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 if (!TrySelectStructurePlacementSlot(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
                                                      ExpansionLocationsValue,
                                                      CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                     *WorkerUnitValue, IntentBufferValue,
+                                                     *WorkerUnitValue, AssemblyAnchorPointValue, IntentBufferValue,
                                                      SelectedBuildPlacementSlotValue,
                                                      DeferralReasonValue))
                 {
@@ -2121,7 +2272,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 const Unit* BarracksUnitValue = nullptr;
                 if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                UNIT_TYPEID::TERRAN_BARRACKS, IntentBufferValue, BarracksUnitValue,
+                                                UNIT_TYPEID::TERRAN_BARRACKS, AssemblyAnchorPointValue,
+                                                ProductionBlockerResolutions, IntentBufferValue, BarracksUnitValue,
                                                 DeferralReasonValue))
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
@@ -2153,7 +2305,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 const Unit* FactoryUnitValue = nullptr;
                 if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                UNIT_TYPEID::TERRAN_FACTORY, IntentBufferValue, FactoryUnitValue,
+                                                UNIT_TYPEID::TERRAN_FACTORY, AssemblyAnchorPointValue,
+                                                ProductionBlockerResolutions, IntentBufferValue, FactoryUnitValue,
                                                 DeferralReasonValue))
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
@@ -2184,7 +2337,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 const Unit* StarportUnitValue = nullptr;
                 if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                UNIT_TYPEID::TERRAN_STARPORT, IntentBufferValue, StarportUnitValue,
+                                                UNIT_TYPEID::TERRAN_STARPORT, AssemblyAnchorPointValue,
+                                                ProductionBlockerResolutions, IntentBufferValue, StarportUnitValue,
                                                 DeferralReasonValue))
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
@@ -2216,10 +2370,11 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
             {
                 if (EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SCV &&
-                    GameStateDescriptorValue.BuildPlanning.AvailableSupply <= 1U &&
-                    HasOutstandingSupplyDepotDemand(CommandAuthoritySchedulingStateValue,
-                                                    GameStateDescriptorValue.BuildPlanning) &&
-                    GameStateDescriptorValue.BuildPlanning.AvailableMinerals < 150U)
+                    GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[
+                        ShortForecastHorizonIndexValue] <= 1U &&
+                    HasOutstandingSupplyDepotDemand(GameStateDescriptorValue) &&
+                    GameStateDescriptorValue.EconomyState.ProjectedAvailableMineralsByHorizon[
+                        ShortForecastHorizonIndexValue] < 150U)
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;

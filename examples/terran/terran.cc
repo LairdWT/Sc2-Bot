@@ -14,6 +14,8 @@ namespace
 constexpr float WallStructureMatchRadiusSquaredValue = 6.25f;
 constexpr int GasHarvestIntentPriorityValue = 320;
 constexpr int GasReliefIntentPriorityValue = 321;
+constexpr uint64_t TerminalOrderCompactionIntervalStepCountValue = 120U;
+constexpr size_t TerminalOrderCompactionTriggerCountValue = 512U;
 using FSteadyClock = std::chrono::steady_clock;
 using FSteadyTimePoint = std::chrono::time_point<FSteadyClock>;
 
@@ -51,6 +53,22 @@ AbilityID GetProductionStructureRallyAbility(const UNIT_TYPEID UnitTypeIdValue)
             return ABILITY_ID::RALLY_UNITS;
         default:
             return ABILITY_ID::INVALID;
+    }
+}
+
+bool IsTerranAddonBuildAbility(const ABILITY_ID AbilityIdValue)
+{
+    switch (AbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_REACTOR_BARRACKS:
+        case ABILITY_ID::BUILD_TECHLAB_BARRACKS:
+        case ABILITY_ID::BUILD_REACTOR_FACTORY:
+        case ABILITY_ID::BUILD_TECHLAB_FACTORY:
+        case ABILITY_ID::BUILD_REACTOR_STARPORT:
+        case ABILITY_ID::BUILD_TECHLAB_STARPORT:
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -274,6 +292,21 @@ bool IsHarvestReturnAbility(const ABILITY_ID AbilityIdValue)
         default:
             return false;
     }
+}
+
+uint32_t CountRecoveryMoveIntents(const FIntentBuffer& IntentBufferValue)
+{
+    uint32_t IntentCountValue = 0U;
+    for (const FUnitIntent& IntentValue : IntentBufferValue.Intents)
+    {
+        if (IntentValue.Domain == EIntentDomain::Recovery &&
+            IntentValue.Ability == ABILITY_ID::GENERAL_MOVE)
+        {
+            ++IntentCountValue;
+        }
+    }
+
+    return IntentCountValue;
 }
 
 bool IsWorkerCommittedToConstruction(const Unit& WorkerUnitValue)
@@ -608,16 +641,26 @@ void TerranAgent::OnGameStart()
     }
 
     GameStateDescriptor.Reset();
+    EconomyDomainState.Reset();
     ExecutionTelemetry.Reset();
-    PendingProductionRallyStructureTags.clear();
+    ProductionRallyStates.clear();
     CurrentWallGateState = EWallGateState::Unavailable;
     LastArmyExecutionOrderCount = 0U;
+    LastProductionRallyApplyCount = 0U;
+    LastBlockerReliefMoveCount = 0U;
+    LastRelocationTaskCount = 0U;
+    LastUnitExecutionReplanCount = 0U;
+    LastActiveIndexedExecutionOrderCount = 0U;
+    LastTerminalCompactionStep = 0U;
+    PendingProductionRallyIntents.clear();
 
     const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
     UpdateAgentState(Frame);
     InitializeRampWallDescriptor(Frame);
     InitializeMainBaseLayoutDescriptor(Frame);
-    RebuildGameStateDescriptor(Frame);
+    RebuildObservedGameStateDescriptor(Frame);
+    RebuildForecastState();
+    UpdateStrategicAndPlanningState();
     PrintAgentState();
 }
 
@@ -641,16 +684,19 @@ void TerranAgent::OnStep()
     LastAgentStateUpdateMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
 
     PhaseStartTimeValue = FSteadyClock::now();
-    RebuildGameStateDescriptor(Frame);
-    PhaseEndTimeValue = FSteadyClock::now();
-    LastDescriptorRebuildMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
-
-    PhaseStartTimeValue = FSteadyClock::now();
     UpdateDispatchedSchedulerOrders(Frame);
     PhaseEndTimeValue = FSteadyClock::now();
     LastDispatchMaintenanceMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
 
+    PhaseStartTimeValue = FSteadyClock::now();
+    RebuildObservedGameStateDescriptor(Frame);
+    RebuildForecastState();
+    UpdateStrategicAndPlanningState();
+    PhaseEndTimeValue = FSteadyClock::now();
+    LastDescriptorRebuildMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
+
     IntentBuffer.Reset();
+    PendingProductionRallyIntents.clear();
     ProduceSchedulerIntents(Frame);
     ProduceProductionRallyIntents();
     ProduceWallGateIntents(Frame);
@@ -665,6 +711,7 @@ void TerranAgent::OnStep()
 
     PhaseStartTimeValue = FSteadyClock::now();
     ExecuteResolvedIntents(Frame, ResolvedIntents);
+    ExecuteProductionRallyIntents();
     PhaseEndTimeValue = FSteadyClock::now();
     LastIntentExecutionMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
 
@@ -700,15 +747,18 @@ void TerranAgent::OnUnitIdle(const Unit* UnitPtr)
 
 void TerranAgent::OnUnitCreated(const Unit* UnitPtr)
 {
-    if (UnitPtr == nullptr)
+    (void)UnitPtr;
+}
+
+void TerranAgent::OnBuildingConstructionComplete(const Unit* UnitPtr)
+{
+    if (UnitPtr == nullptr || !IsProductionRallyStructureType(UnitPtr->unit_type.ToType()))
     {
         return;
     }
 
-    if (IsProductionRallyStructureType(UnitPtr->unit_type.ToType()))
-    {
-        PendingProductionRallyStructureTags.insert(UnitPtr->tag);
-    }
+    FProductionRallyState& ProductionRallyStateValue = ProductionRallyStates[UnitPtr->tag];
+    ProductionRallyStateValue.Reset();
 }
 
 void TerranAgent::UpdateAgentState(const FFrameContext& Frame)
@@ -757,7 +807,7 @@ void TerranAgent::InitializeMainBaseLayoutDescriptor(const FFrameContext& Frame)
         BuildPlacementService->GetMainBaseLayoutDescriptor(Frame, BuildPlacementContextValue);
 }
 
-void TerranAgent::RebuildGameStateDescriptor(const FFrameContext& Frame)
+void TerranAgent::RebuildObservedGameStateDescriptor(const FFrameContext& Frame)
 {
     (void)Frame;
 
@@ -771,7 +821,15 @@ void TerranAgent::RebuildGameStateDescriptor(const FFrameContext& Frame)
         GameStateDescriptor.CurrentStep = CurrentStep;
         GameStateDescriptor.CurrentGameLoop = Frame.GameLoop;
     }
+}
 
+void TerranAgent::RebuildForecastState()
+{
+    DefaultForecastStateBuilder.RebuildForecastState(AgentState, EconomyDomainState, GameStateDescriptor);
+}
+
+void TerranAgent::UpdateStrategicAndPlanningState()
+{
     if (StrategicDirector)
     {
         StrategicDirector->UpdateGameStateDescriptor(GameStateDescriptor);
@@ -797,9 +855,9 @@ void TerranAgent::UpdateRallyAnchor()
 
     const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext();
     const Point2D BaseLocationValue = BuildPlacementContextValue.BaseLocation;
-    BarracksRally = BuildPlacementService
-                        ? BuildPlacementService->GetArmyAssemblyPoint(GameStateDescriptor, BuildPlacementContextValue)
-                        : BaseLocationValue;
+    ArmyAssemblyPoint = BuildPlacementService
+                            ? BuildPlacementService->GetArmyAssemblyPoint(GameStateDescriptor, BuildPlacementContextValue)
+                            : BaseLocationValue;
 }
 
 FBuildPlacementContext TerranAgent::CreateBuildPlacementContext() const
@@ -998,6 +1056,13 @@ void TerranAgent::PrintAgentState()
               << " | Rejected " << GameStateDescriptor.CommandAuthoritySchedulingState.RejectedUnitExecutionAdmissionCount
               << " | Superseded "
               << GameStateDescriptor.CommandAuthoritySchedulingState.SupersededUnitExecutionOrderCount << "\n";
+    std::cout << "Execution Control: "
+              << "Assembly (" << ArmyAssemblyPoint.x << ", " << ArmyAssemblyPoint.y << ")"
+              << " | RallyApplies " << LastProductionRallyApplyCount
+              << " | BlockerReliefMoves " << LastBlockerReliefMoveCount
+              << " | Relocations " << LastRelocationTaskCount
+              << " | UnitReplans " << LastUnitExecutionReplanCount
+              << " | IndexedExecution " << LastActiveIndexedExecutionOrderCount << "\n";
     PrintWallState();
     const FMainBaseLayoutDescriptor& MainBaseLayoutDescriptorValue = GameStateDescriptor.MainBaseLayoutDescriptor;
     std::cout << "Main Layout: " << (MainBaseLayoutDescriptorValue.bIsValid ? "Valid" : "Invalid");
@@ -1261,6 +1326,7 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
     if (EconomyProductionOrderExpander != nullptr && BuildPlacementService != nullptr)
     {
         const FSteadyTimePoint EconomyPhaseStartTimeValue = FSteadyClock::now();
+        const uint32_t RecoveryMoveIntentCountBeforeValue = CountRecoveryMoveIntents(IntentBuffer);
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         EconomyProductionOrderExpander->ExpandEconomyAndProductionOrders(
             Frame, AgentState, GameStateDescriptor, IntentBuffer, *BuildPlacementService, ExpansionLocations);
@@ -1269,6 +1335,12 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
             CommandTaskAdmissionService->ParkDeferredOrders(GameStateDescriptor);
         }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
+        const uint32_t RecoveryMoveIntentCountAfterValue = CountRecoveryMoveIntents(IntentBuffer);
+        LastBlockerReliefMoveCount =
+            RecoveryMoveIntentCountAfterValue >= RecoveryMoveIntentCountBeforeValue
+                ? (RecoveryMoveIntentCountAfterValue - RecoveryMoveIntentCountBeforeValue)
+                : 0U;
+        LastRelocationTaskCount = 0U;
         const FSteadyTimePoint EconomyPhaseEndTimeValue = FSteadyClock::now();
         LastSchedulerEconomyProcessingMicroseconds =
             GetElapsedMicroseconds(EconomyPhaseStartTimeValue, EconomyPhaseEndTimeValue);
@@ -1276,13 +1348,15 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
     else
     {
         LastSchedulerEconomyProcessingMicroseconds = 0U;
+        LastBlockerReliefMoveCount = 0U;
+        LastRelocationTaskCount = 0U;
     }
 
     if (ArmyOrderExpander != nullptr)
     {
         const FSteadyTimePoint ArmyPhaseStartTimeValue = FSteadyClock::now();
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
-        ArmyOrderExpander->ExpandArmyOrders(Frame, AgentState, GameStateDescriptor, ExpansionLocations, BarracksRally,
+        ArmyOrderExpander->ExpandArmyOrders(Frame, AgentState, GameStateDescriptor, ExpansionLocations, ArmyAssemblyPoint,
                                             GameStateDescriptor.CommandAuthoritySchedulingState);
         if (ArmyPlanner != nullptr)
         {
@@ -1310,7 +1384,7 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
     {
         const FSteadyTimePoint SquadPhaseStartTimeValue = FSteadyClock::now();
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
-        SquadOrderExpander->ExpandSquadOrders(Frame, AgentState, GameStateDescriptor, BarracksRally,
+        SquadOrderExpander->ExpandSquadOrders(Frame, AgentState, GameStateDescriptor, ArmyAssemblyPoint,
                                               GameStateDescriptor.CommandAuthoritySchedulingState);
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
         const FSteadyTimePoint SquadPhaseEndTimeValue = FSteadyClock::now();
@@ -1327,8 +1401,11 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
         const FSteadyTimePoint UnitExecutionPhaseStartTimeValue = FSteadyClock::now();
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         LastArmyExecutionOrderCount = UnitExecutionPlanner->ExpandUnitExecutionOrders(
-            Frame, AgentState, GameStateDescriptor, BarracksRally, GameStateDescriptor.CommandAuthoritySchedulingState);
+            Frame, AgentState, GameStateDescriptor, ArmyAssemblyPoint, GameStateDescriptor.CommandAuthoritySchedulingState);
+        LastUnitExecutionReplanCount = LastArmyExecutionOrderCount;
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
+        LastActiveIndexedExecutionOrderCount = static_cast<uint32_t>(
+            GameStateDescriptor.CommandAuthoritySchedulingState.ActiveExecutionOrderIndexByActorTag.size());
         const FSteadyTimePoint UnitExecutionPhaseEndTimeValue = FSteadyClock::now();
         LastSchedulerUnitExecutionProcessingMicroseconds =
             GetElapsedMicroseconds(UnitExecutionPhaseStartTimeValue, UnitExecutionPhaseEndTimeValue);
@@ -1336,6 +1413,8 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
     else
     {
         LastArmyExecutionOrderCount = 0U;
+        LastUnitExecutionReplanCount = 0U;
+        LastActiveIndexedExecutionOrderCount = 0U;
         LastSchedulerUnitExecutionProcessingMicroseconds = 0U;
     }
 
@@ -1480,13 +1559,13 @@ void TerranAgent::ProduceWorkerHarvestIntents(const FFrameContext& Frame)
 
 void TerranAgent::ProduceProductionRallyIntents()
 {
-    constexpr uint64_t FullRefreshCadenceStepCount = 120U;
-    const bool ShouldRunFullRefreshValue = (CurrentStep % FullRefreshCadenceStepCount) == 0U;
-    if (!ShouldRunFullRefreshValue && PendingProductionRallyStructureTags.empty())
+    LastProductionRallyApplyCount = 0U;
+    if (ObservationPtr == nullptr)
     {
         return;
     }
 
+    std::unordered_set<Tag> ActiveProductionStructureTagsValue;
     for (const Unit* ControlledUnitValue : AgentState.UnitContainer.ControlledUnits)
     {
         if (ControlledUnitValue == nullptr || ControlledUnitValue->build_progress < 1.0f)
@@ -1500,15 +1579,14 @@ void TerranAgent::ProduceProductionRallyIntents()
             continue;
         }
 
-        const std::unordered_set<Tag>::const_iterator PendingStructureIteratorValue =
-            PendingProductionRallyStructureTags.find(ControlledUnitValue->tag);
-        const bool HasPendingRefreshValue = PendingStructureIteratorValue != PendingProductionRallyStructureTags.end();
-        if (!ShouldRunFullRefreshValue && !HasPendingRefreshValue)
-        {
-            continue;
-        }
+        ActiveProductionStructureTagsValue.insert(ControlledUnitValue->tag);
+        FProductionRallyState& ProductionRallyStateValue = ProductionRallyStates[ControlledUnitValue->tag];
+        ProductionRallyStateValue.DesiredRallyPoint = ArmyAssemblyPoint;
 
-        if (IntentBuffer.HasIntentForActor(ControlledUnitValue->tag))
+        const bool bShouldApplyRallyValue =
+            ProductionRallyStateValue.bNeedsInitialApply || ProductionRallyStateValue.LastAppliedGameLoop == 0U ||
+            DistanceSquared2D(ProductionRallyStateValue.LastAppliedRallyPoint, ArmyAssemblyPoint) > 1.0f;
+        if (!bShouldApplyRallyValue)
         {
             continue;
         }
@@ -1519,13 +1597,43 @@ void TerranAgent::ProduceProductionRallyIntents()
             continue;
         }
 
-        IntentBuffer.Add(FUnitIntent::CreatePointTarget(ControlledUnitValue->tag, RallyAbilityValue, BarracksRally, 5,
-                                                        EIntentDomain::UnitProduction));
-        if (HasPendingRefreshValue)
-        {
-            PendingProductionRallyStructureTags.erase(ControlledUnitValue->tag);
-        }
+        PendingProductionRallyIntents.push_back(FUnitIntent::CreatePointTarget(
+            ControlledUnitValue->tag, RallyAbilityValue, ArmyAssemblyPoint, 5, EIntentDomain::UnitProduction));
+        ProductionRallyStateValue.LastAppliedRallyPoint = ArmyAssemblyPoint;
+        ProductionRallyStateValue.LastAppliedGameLoop = GameStateDescriptor.CurrentGameLoop;
+        ProductionRallyStateValue.bNeedsInitialApply = false;
+        ++LastProductionRallyApplyCount;
     }
+
+    for (std::unordered_map<Tag, FProductionRallyState>::iterator RallyStateIteratorValue =
+             ProductionRallyStates.begin();
+         RallyStateIteratorValue != ProductionRallyStates.end();)
+    {
+        if (ActiveProductionStructureTagsValue.find(RallyStateIteratorValue->first) !=
+            ActiveProductionStructureTagsValue.end())
+        {
+            ++RallyStateIteratorValue;
+            continue;
+        }
+
+        RallyStateIteratorValue = ProductionRallyStates.erase(RallyStateIteratorValue);
+    }
+}
+
+void TerranAgent::ExecuteProductionRallyIntents()
+{
+    for (const FUnitIntent& RallyIntentValue : PendingProductionRallyIntents)
+    {
+        if (RallyIntentValue.TargetKind != EIntentTargetKind::Point)
+        {
+            continue;
+        }
+
+        Actions()->UnitCommand(RallyIntentValue.ActorTag, RallyIntentValue.Ability, RallyIntentValue.TargetPoint,
+                               RallyIntentValue.Queued);
+    }
+
+    PendingProductionRallyIntents.clear();
 }
 
 void TerranAgent::ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents)
@@ -1609,7 +1717,15 @@ void TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)
         CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(CommandOrderRecordValue.OrderId,
                                                                    EOrderLifecycleState::Aborted);
     }
-    CommandAuthoritySchedulingStateValue.CompactTerminalOrders();
+    const bool bCompactionIntervalElapsedValue =
+        CurrentStep >= (LastTerminalCompactionStep + TerminalOrderCompactionIntervalStepCountValue);
+    const bool bCompactionThresholdReachedValue =
+        CommandAuthoritySchedulingStateValue.OrderIds.size() >= TerminalOrderCompactionTriggerCountValue;
+    if (bCompactionIntervalElapsedValue && bCompactionThresholdReachedValue &&
+        CommandAuthoritySchedulingStateValue.CompactTerminalOrders(&GameStateDescriptor.OpeningPlanExecutionState))
+    {
+        LastTerminalCompactionStep = CurrentStep;
+    }
     CommandAuthoritySchedulingStateValue.EndMutationBatch();
 }
 
@@ -1769,8 +1885,7 @@ bool TerranAgent::HasProducerConfirmedDispatchedOrder(const FCommandOrderRecord&
         return true;
     }
 
-    if ((CommandOrderRecordValue.AbilityId == ABILITY_ID::BUILD_REACTOR_BARRACKS ||
-         CommandOrderRecordValue.AbilityId == ABILITY_ID::BUILD_TECHLAB_FACTORY) &&
+    if (IsTerranAddonBuildAbility(CommandOrderRecordValue.AbilityId) &&
         ActorUnitValue->add_on_tag != NullTag)
     {
         return true;

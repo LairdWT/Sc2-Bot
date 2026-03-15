@@ -454,8 +454,8 @@ bool TestTerranArmyOrderPipeline(int ArgC, char** ArgV)
         size_t ArmyOrderIndexValue = 0U;
         Check(SchedulingStateValue.TryGetOrderIndex(ArmyOrderIdValue, ArmyOrderIndexValue), SuccessValue,
               "Army mission order should remain addressable after squad expansion.");
-        Check(SchedulingStateValue.LifecycleStates[ArmyOrderIndexValue] == EOrderLifecycleState::Completed, SuccessValue,
-              "Army mission order should complete once its squad-layer child is created.");
+        Check(SchedulingStateValue.LifecycleStates[ArmyOrderIndexValue] == EOrderLifecycleState::Queued, SuccessValue,
+              "Army mission orders should remain active after squad expansion so the squad child can persist until the mission changes.");
     }
 
     {
@@ -515,6 +515,105 @@ bool TestTerranArmyOrderPipeline(int ArgC, char** ArgV)
         Check(!SchedulingStateValue.QueuedValues[MarineOrderIndexValue] &&
                   !SchedulingStateValue.QueuedValues[MedivacOrderIndexValue],
               SuccessValue, "Combat execution orders should replace prior commands instead of being queued behind them.");
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(
+            MakeUnit(411U, UNIT_TYPEID::TERRAN_MARINE, Unit::Alliance::Self, Point2D(12.0f, 12.0f), false));
+        UnitStorageValue.push_back(
+            MakeUnit(412U, UNIT_TYPEID::TERRAN_MEDIVAC, Unit::Alliance::Self, Point2D(14.0f, 12.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::AssembleAtRally;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(24.0f, 24.0f);
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().SourceGoalId = 403U;
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(24.0f, 24.0f), 100,
+            EIntentDomain::ArmyCombat, 20U, 0U, 79U, 0, 0);
+        SquadOrderValue.SourceGoalId = 403U;
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        const uint32_t CreatedOrderCountValue = UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(24.0f, 24.0f), SchedulingStateValue);
+
+        Check(CreatedOrderCountValue == 2U, SuccessValue,
+              "Assemble missions should issue explicit execution orders toward the assembly anchor for units outside the radius.");
+
+        size_t MarineOrderIndexValue = 0U;
+        size_t MedivacOrderIndexValue = 0U;
+        for (const size_t ReadyIntentIndexValue : SchedulingStateValue.ReadyIntentIndices)
+        {
+            if (SchedulingStateValue.ActorTags[ReadyIntentIndexValue] == 411U)
+            {
+                MarineOrderIndexValue = ReadyIntentIndexValue;
+            }
+            if (SchedulingStateValue.ActorTags[ReadyIntentIndexValue] == 412U)
+            {
+                MedivacOrderIndexValue = ReadyIntentIndexValue;
+            }
+        }
+
+        Check(SchedulingStateValue.AbilityIds[MarineOrderIndexValue] == ABILITY_ID::ATTACK_ATTACK, SuccessValue,
+              "Ground combat units should assemble with attack-move orders toward the natural assembly anchor.");
+        Check(SchedulingStateValue.AbilityIds[MedivacOrderIndexValue] == ABILITY_ID::MOVE_MOVE, SuccessValue,
+              "Support air units should assemble with move orders toward the natural assembly anchor.");
+        Check(ApproxEqual(SchedulingStateValue.TargetPoints[MarineOrderIndexValue].x, 24.0f) &&
+                  ApproxEqual(SchedulingStateValue.TargetPoints[MarineOrderIndexValue].y, 24.0f),
+              SuccessValue, "Assembly execution orders should target the provided assembly anchor exactly.");
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(
+            MakeUnit(421U, UNIT_TYPEID::TERRAN_MARINE, Unit::Alliance::Self, Point2D(23.0f, 23.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::AssembleAtRally;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(24.0f, 24.0f);
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().SourceGoalId = 404U;
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(24.0f, 24.0f), 100,
+            EIntentDomain::ArmyCombat, 20U, 0U, 80U, 0, 0);
+        SquadOrderValue.SourceGoalId = 404U;
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        const uint32_t CreatedOrderCountValue = UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(24.0f, 24.0f), SchedulingStateValue);
+
+        Check(CreatedOrderCountValue == 1U, SuccessValue,
+              "A unit already inside the assembly radius should receive one hold-position stabilization order.");
+        Check(SchedulingStateValue.ReadyIntentIndices.size() == 1U, SuccessValue,
+              "The inside-radius assembly case should emit exactly one execution order.");
+        if (!SchedulingStateValue.ReadyIntentIndices.empty())
+        {
+            const size_t ReadyOrderIndexValue = SchedulingStateValue.ReadyIntentIndices.front();
+            Check(SchedulingStateValue.AbilityIds[ReadyOrderIndexValue] == ABILITY_ID::GENERAL_HOLDPOSITION,
+                  SuccessValue,
+                  "A unit already inside the assembly radius should hold instead of being repeatedly advanced.");
+        }
     }
 
     {

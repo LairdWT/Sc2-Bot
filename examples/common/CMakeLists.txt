@@ -12,11 +12,16 @@ set(sc2_terran_bot_common_sources
     build_orders/FOpeningPlanRegistry.cc
     build_orders/FOpeningPlanStep.cc
     build_planning/FBuildPlanningState.cc
+    economy/FEconomyDomainState.cc
     descriptors/EObservedWallSlotState.cc
     descriptors/EGamePlan.cc
     descriptors/EProductionFocus.cc
+    descriptors/FEconomyStateDescriptor.cc
     descriptors/FObservedRampWallState.cc
+    descriptors/FProductionStateDescriptor.cc
+    descriptors/FSchedulerOutlookDescriptor.cc
     descriptors/EMacroPhase.cc
+    descriptors/FTerranForecastStateBuilder.cc
     descriptors/FTerranGameStateDescriptorBuilder.cc
     descriptors/FGameStateDescriptor.cc
     descriptors/FMacroStateDescriptor.cc
@@ -28,6 +33,7 @@ set(sc2_terran_bot_common_sources
     goals/FGoalDescriptor.cc
     descriptors/IGameStateDescriptorBuilder.cc
     planning/ECommandAuthorityLayer.cc
+    planning/ECommandTaskOrigin.cc
     planning/ECommandTaskRetentionPolicy.cc
     planning/ECommandPriorityTier.cc
     planning/EBlockedTaskWakeKind.cc
@@ -35,17 +41,21 @@ set(sc2_terran_bot_common_sources
     planning/ECommandTaskType.cc
     planning/EIntentDomain.cc
     planning/EIntentPlaybackState.cc
+    planning/EProductionBlockerKind.cc
     planning/EUnitTacticalBehavior.cc
     planning/EOrderLifecycleState.cc
     planning/EPlanningProcessorState.cc
     planning/EWallGateState.cc
     planning/FCommandTaskDescriptor.cc
+    planning/FCommandTaskSignatureKey.cc
     planning/FBlockedTaskRecord.cc
     planning/FBlockedTaskRingBuffer.cc
     planning/FCommandAuthoritySchedulingState.cc
     planning/FCommandAuthorityProcessor.cc
     planning/FDefaultStrategicDirector.cc
     planning/FCommandOrderRecord.cc
+    planning/FProductionBlockerResolution.cc
+    planning/FProductionRallyState.cc
     planning/FSchedulerStimulusState.cc
     planning/FTacticalBehaviorScore.cc
     planning/FTerranArmyOrderExpander.cc
@@ -57,6 +67,7 @@ set(sc2_terran_bot_common_sources
     planning/FTerranArmyPlanner.cc
     planning/FTerranSquadOrderExpander.cc
     planning/FTerranTimingAttackBuildPlanner.cc
+    planning/FUnitExecutionCacheEntry.cc
     planning/IArmyPlanner.cc
     planning/IArmyOrderExpander.cc
     planning/IBuildPlanner.cc

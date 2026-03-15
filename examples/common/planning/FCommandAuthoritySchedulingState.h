@@ -10,7 +10,9 @@
 #include "common/planning/ECommandAuthorityLayer.h"
 #include "common/planning/ECommandPriorityTier.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
+#include "common/planning/ECommandTaskOrigin.h"
 #include "common/planning/ECommandTaskRetentionPolicy.h"
+#include "common/planning/FCommandTaskSignatureKey.h"
 #include "common/planning/FBlockedTaskRingBuffer.h"
 #include "common/planning/EIntentDomain.h"
 #include "common/planning/EIntentPlaybackState.h"
@@ -24,6 +26,7 @@ namespace sc2
 {
 
 enum class EIntentTargetKind : uint8_t;
+struct FOpeningPlanExecutionState;
 
 struct FCommandAuthoritySchedulingState
 {
@@ -42,8 +45,11 @@ public:
                                size_t& OutOrderIndexValue) const;
     bool TryGetActiveChildOrderIndex(uint32_t ParentOrderIdValue, ECommandAuthorityLayer SourceLayerValue,
                                      size_t& OutOrderIndexValue) const;
+    bool TryGetActiveExecutionOrderIndexForActor(Tag ActorTagValue, size_t& OutOrderIndexValue) const;
     size_t GetOrderCount() const;
     FCommandOrderRecord GetOrderRecord(size_t OrderIndexValue) const;
+    bool HasActiveStrategicOrderForGoalId(uint32_t SourceGoalIdValue) const;
+    bool HasEquivalentActiveTaskSignature(const FCommandTaskSignatureKey& CommandTaskSignatureKeyValue) const;
     bool SetOrderLifecycleState(uint32_t OrderIdValue, EOrderLifecycleState LifecycleStateValue);
     bool SetOrderDeferralState(uint32_t OrderIdValue, ECommandOrderDeferralReason DeferralReasonValue,
                                uint64_t CurrentStepValue, uint64_t CurrentGameLoopValue);
@@ -52,7 +58,7 @@ public:
                                uint32_t ObservedCountValue, uint32_t ObservedInConstructionCountValue);
     bool SetOrderReservedPlacementSlot(uint32_t OrderIdValue, const FBuildPlacementSlotId& BuildPlacementSlotIdValue);
     bool ClearOrderReservedPlacementSlot(uint32_t OrderIdValue);
-    bool CompactTerminalOrders();
+    bool CompactTerminalOrders(const FOpeningPlanExecutionState* OpeningPlanExecutionStatePtrValue = nullptr);
     void RebuildDerivedQueues();
     size_t GetActiveOrderCountForLayer(ECommandAuthorityLayer SourceLayerValue) const;
 
@@ -95,6 +101,7 @@ public:
     std::vector<ECommandTaskPackageKind> TaskPackageKinds;
     std::vector<ECommandTaskNeedKind> TaskNeedKinds;
     std::vector<ECommandTaskType> TaskTypes;
+    std::vector<ECommandTaskOrigin> TaskOrigins;
     std::vector<ECommandTaskRetentionPolicy> RetentionPolicies;
     std::vector<EBlockedTaskWakeKind> BlockedTaskWakeKinds;
     std::vector<int> BasePriorityValues;
@@ -135,6 +142,11 @@ public:
     std::vector<uint32_t> DispatchAttemptCounts;
 
     std::unordered_map<uint32_t, size_t> OrderIdToIndex;
+    std::unordered_map<Tag, size_t> ActiveExecutionOrderIndexByActorTag;
+    std::unordered_map<uint32_t, size_t> ActiveStrategicOrderIndexByGoalId;
+    std::unordered_map<FCommandTaskSignatureKey, uint32_t, FCommandTaskSignatureKeyHash> ActiveTaskSignatureCounts;
+    std::unordered_map<uint64_t, size_t> ActiveChildOrderIndexByParentAndLayer;
+    std::array<uint32_t, 6U> ActiveOrderCountsByLayer;
     std::vector<size_t> StrategicOrderIndices;
     std::vector<size_t> PlanningProcessIndices;
     std::vector<size_t> ArmyOrderIndices;

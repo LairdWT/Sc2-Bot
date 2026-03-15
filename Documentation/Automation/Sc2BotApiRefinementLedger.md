@@ -1,4 +1,4 @@
-# Sc2 Bot API Refinement Ledger
+﻿# Sc2 Bot API Refinement Ledger
 
 ## Purpose
 
@@ -47,4 +47,13 @@ If the same narrow topic family repeats enough times to justify reusable instruc
 | `SC2-API-SCHEDULER-DISPATCH-STEP-GAMELOOP-STAMP-BOUNDARY` | `ApiSchedulerLifecycle` | `L:\Sc2_Bot\Documentation\Sc2Api\SchedulerIntentLifecycleAndDispatchCapture.md` | `Completed` | `2026-03-15T09:10:54Z` | No open ledger topics were suitable, so one new scheduler topic was discovered. Documented source-backed dispatch stamp ownership for `DispatchStep` (`CurrentStep`) versus `DispatchGameLoop` (`Frame.GameLoop`) across `DrainReadyIntents(...)`, `CaptureNewlyDispatchedSchedulerOrders(...)`, and `SetOrderDispatchState(...)`. Repetition penalty: `60` (`TopicId +0`, `Domain +40`, `TargetPath +20`). |
 
 
+
+
+| SC2-API-FEATURE-LAYER-SETUP-PROVENANCE-BOUNDARY | FeatureLayers | L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md | Completed | $RunTimeUtc | No open ledger topics were suitable, so one new feature-layer topic was discovered. Documented source-backed setup provenance from Coordinator::SetFeatureLayers(...) through RequestJoinGame(...), Convert(..., game_info.options), and FAgentSpatialChannels::Update(...); FL-001 and FL-003 remain open. Repetition penalty: 40 (TopicId +0, Domain +40, TargetPath +0). |
+| `SC2-API-FEATURE-LAYER-HEIGHTMAP-GATE-CONSUMER-BOUNDARY` | `FeatureLayers` | `L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md` | `Completed` | `2026-03-15T10:10:49Z` | No open ledger topics were suitable, so one new feature-layer topic was discovered. Documented source-backed validity gate on `minimap_renders().height_map()` in `FAgentSpatialChannels::Update(...)` versus current consumer boundary where `FAgentSpatialMetrics::Update(...)` and `TerranAgent` decision paths do not consume `MinimapHeightMap`; opened `FL-004`; `FL-001` and `FL-003` remain open. Repetition penalty: `0` (`TopicId +0`, `Domain +0`, `TargetPath +0`). |
+| `SC2-API-FRAME-CONTEXT-STEP-GAMELOOP-BOUNDARY` | `ApiFrameAcquisition` | `L:\Sc2_Bot\Documentation\Sc2Api\ObservationAndFrameContext.md` | `Completed` | `2026-03-15T11:10:56Z` | No open ledger topics were suitable, so one new coordinator-surface topic was discovered. Documented source-backed boundary between callback `CurrentStep` and observation-stamped `GameLoop` across `CoordinatorImp::StepAgents()`, `ControlImp::WaitStep()`, `FFrameContext::Create(...)`, and `TerranAgent::CaptureNewlyDispatchedSchedulerOrders(...)`. Repetition penalty: `0` (`TopicId +0`, `Domain +0`, `TargetPath +0`). |
+
+
+
+| SC2-API-OBSERVATION-UNIT-SNAPSHOT-POINTER-LIFETIME-BOUNDARY | ApiFrameAcquisition | L:\Sc2_Bot\Documentation\Sc2Api\ObservationAndFrameContext.md | Completed | 2026-03-15T11:13:13Z | No open ledger topics were suitable, so one new coordinator-surface topic was discovered. Documented source-backed unit snapshot and pointer-liveness boundaries across ControlImp::GetObservation(), ObservationImp::UpdateObservation(), ObservationImp::GetUnits(...), ObservationImp::GetUnit(Tag), and UnitPool existing-versus-historical maps; no finding closed; FL-001, FL-003, and FL-004 remain open. Repetition penalty: 0 (TopicId +0, Domain +0, TargetPath +0). |
 

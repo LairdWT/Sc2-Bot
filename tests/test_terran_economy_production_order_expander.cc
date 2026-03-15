@@ -1259,6 +1259,62 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     Check(HasMarineReliefIntentValue, SuccessValue,
           "A marine blocking an add-on footprint should receive a recovery move intent to clear the addon space.");
 
+    AddonBlockerObservationValue.GameLoopValue = 710U;
+    AddonBlockerGameStateDescriptorValue.CurrentStep = 8U;
+    AddonBlockerGameStateDescriptorValue.CurrentGameLoop = 710U;
+    const FFrameContext AddonBlockerCooldownFrameValue =
+        FFrameContext::Create(&AddonBlockerObservationValue, &AddonBlockerQueryValue, 8U);
+    AddonBlockerAgentStateValue.Update(AddonBlockerCooldownFrameValue);
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        AddonBlockerCooldownFrameValue, AddonBlockerAgentStateValue, AddonBlockerGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    bool HasCooldownReliefIntentValue = false;
+    for (const FUnitIntent& IntentValue : IntentBufferValue.Intents)
+    {
+        if (IntentValue.ActorTag == 902U && IntentValue.Ability == ABILITY_ID::GENERAL_MOVE)
+        {
+            HasCooldownReliefIntentValue = true;
+            break;
+        }
+    }
+
+    Check(!HasCooldownReliefIntentValue, SuccessValue,
+          "An add-on blocker relief cooldown should suppress duplicate recovery move intents before the retry window expires.");
+
+    AddonBlockerObservationValue.GameLoopValue = 732U;
+    AddonBlockerGameStateDescriptorValue.CurrentStep = 32U;
+    AddonBlockerGameStateDescriptorValue.CurrentGameLoop = 732U;
+    const FFrameContext AddonBlockerRetryFrameValue =
+        FFrameContext::Create(&AddonBlockerObservationValue, &AddonBlockerQueryValue, 32U);
+    AddonBlockerAgentStateValue.Update(AddonBlockerRetryFrameValue);
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        AddonBlockerRetryFrameValue, AddonBlockerAgentStateValue, AddonBlockerGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    AddonBlockerObservationValue.GameLoopValue = 764U;
+    AddonBlockerGameStateDescriptorValue.CurrentStep = 64U;
+    AddonBlockerGameStateDescriptorValue.CurrentGameLoop = 764U;
+    const FFrameContext AddonBlockerHardBlockFrameValue =
+        FFrameContext::Create(&AddonBlockerObservationValue, &AddonBlockerQueryValue, 64U);
+    AddonBlockerAgentStateValue.Update(AddonBlockerHardBlockFrameValue);
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        AddonBlockerHardBlockFrameValue, AddonBlockerAgentStateValue, AddonBlockerGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    if (AddonBlockerSchedulingStateValue.TryGetOrderIndex(
+            AddonBlockerEconomyOrderIdValue, AddonBlockerEconomyOrderIndexValue))
+    {
+        const FCommandOrderRecord AddonBlockerHardBlockOrderValue =
+            AddonBlockerSchedulingStateValue.GetOrderRecord(AddonBlockerEconomyOrderIndexValue);
+        Check(AddonBlockerHardBlockOrderValue.LastDeferralReason == ECommandOrderDeferralReason::NoValidPlacement,
+              SuccessValue,
+              "An add-on blocker that persists across three relief windows should promote to a hard placement block.");
+    }
+
     std::vector<Unit> CommandCenterUnitStorageValue;
     CommandCenterUnitStorageValue.push_back(
         MakeUnit(801U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(12.0f, 10.0f), false));

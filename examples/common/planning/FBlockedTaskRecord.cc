@@ -37,11 +37,15 @@ void FBlockedTaskRecord::Reset()
 {
     TaskId = 0U;
     SourceGoalId = 0U;
+    SourceLayer = ECommandAuthorityLayer::StrategicDirector;
     PackageKind = ECommandTaskPackageKind::Unknown;
     NeedKind = ECommandTaskNeedKind::Unknown;
     TaskType = ECommandTaskType::Unknown;
+    Origin = ECommandTaskOrigin::GoalMacro;
     RetentionPolicy = ECommandTaskRetentionPolicy::BufferedRetry;
+    BasePriorityValue = 0;
     AbilityId = ABILITY_ID::INVALID;
+    ProducerUnitTypeId = UNIT_TYPEID::INVALID;
     ResultUnitTypeId = UNIT_TYPEID::INVALID;
     UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
     PreferredPlacementSlotId.Reset();
@@ -50,6 +54,7 @@ void FBlockedTaskRecord::Reset()
     NextEligibleGameLoop = 0U;
     LastSeenStimulusRevision = 0U;
     RetryCount = 0U;
+    TargetCount = 0U;
     RequestedQueueCount = 1U;
 }
 

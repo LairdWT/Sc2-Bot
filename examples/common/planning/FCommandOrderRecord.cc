@@ -20,6 +20,7 @@ void FCommandOrderRecord::Reset()
     TaskPackageKind = ECommandTaskPackageKind::Unknown;
     TaskNeedKind = ECommandTaskNeedKind::Unknown;
     TaskType = ECommandTaskType::Unknown;
+    Origin = ECommandTaskOrigin::GoalMacro;
     RetentionPolicy = ECommandTaskRetentionPolicy::BufferedRetry;
     BlockedTaskWakeKind = EBlockedTaskWakeKind::CooldownOnly;
     BasePriorityValue = 0;

@@ -124,6 +124,44 @@ Frame-distributed usage:
 - `FTerranBuildPlacementService.cc`
   - runtime placement validation path uses `FrameValue.Query->Placement(...)` when query mode is active
 
+## Frame Step Ordinal Vs Engine Game Loop Boundary
+
+Source-backed boundary across coordinator, client, and owned Terran code:
+
+- `TerranAgent::OnStep()` increments `CurrentStep` exactly once per callback pass.
+- `CoordinatorImp::StepAgents()` advances simulation with `ControlInterface::Step(process_settings_.step_size)` and then `ControlInterface::WaitStep()`.
+- `ControlImp::WaitStep()` calls `ControlImp::GetObservation()` after the step response is received.
+- `FFrameContext::Create(...)` copies:
+  - callback ordinal into `FFrameContext::CurrentStep`
+  - engine loop stamp from `ObservationInterface::GetGameLoop()` into `FFrameContext::GameLoop`
+
+Owned integration consequence:
+
+- `CurrentStep` is bot callback cadence.
+- `GameLoop` is observation-stamped engine cadence.
+- The two counters are intentionally distinct and should not be treated as interchangeable.
+- `TerranAgent::CaptureNewlyDispatchedSchedulerOrders(...)` persists both counters through `SetOrderDispatchState(..., CurrentStep, Frame.GameLoop, ...)`, preserving the boundary into command-authority order records.
+
+## Observation Unit Snapshot And Pointer Lifetime Boundary
+
+Source-backed update path inside ControlImp::GetObservation() and ObservationImp::UpdateObservation():
+
+- ControlImp::GetObservation() stores the new protobuf payload (observation_, esponse_) and immediately calls observation_imp_->UpdateObservation().
+- ObservationImp::UpdateObservation() clears frame-scoped existence state through unit_pool_.ClearExisting() and repopulates the current snapshot with Convert(observation_raw, unit_pool_, current_game_loop_, previous_game_loop).
+- ObservationImp::GetUnits(...) and ObservationImp::GetUnit(Tag) expose pointers from UnitPool::tag_to_existing_unit_, not from the full historical pool map.
+
+Pointer and liveness boundary:
+
+- UnitPool::CreateUnit(Tag) reuses an existing allocation for known tags (GetUnit(tag)), so pointer identity for a still-tracked tag can persist across frames.
+- UnitPool::ClearExisting() empties 	ag_to_existing_unit_ each observation update, so prior-frame const Unit* caches are not an existence contract.
+- ObservationImp::GetUnit(Tag) returns 
+ullptr when a tag is absent from the latest existing snapshot, even though UnitPool still retains historical allocation in 	ag_to_unit_.
+- ControlImp::IssueUnitDestroyedEvents() intentionally resolves destroyed tags through unit_pool_.GetUnit(tag) (historical map), then calls MarkDead(tag) and client_.OnUnitDestroyed(unit), which preserves a final callback payload for units no longer in GetExistingUnit.
+
+Owned Terran integration consequence:
+
+- TerranAgent recomputes unit views each callback pass via UpdateAgentState(Frame) using the fresh FFrameContext.
+- Holding const Unit* outside the current callback pass is not source-backed as a durable ownership model for scheduler or planner state.
 ## Ownership And Responsibility Boundary
 
 API-owned responsibility:
@@ -152,4 +190,6 @@ Bot-owned responsibility:
   - `ObservationImp::UpdateObservation()` clears `feature_layer_actions_` only when `is_new_frame` is true, while `ConvertFeatureLayerActions(...)` appends entries.
   - Local source proves reset and append boundaries but does not prove server-side semantics for repeated same-loop `ResponseObservation::actions` payloads.
   - Existing tests validate next-loop action visibility, but do not assert same-loop cardinality under repeated `GetObservation()` calls in realtime cadence.
+
+
 
