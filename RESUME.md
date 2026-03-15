@@ -145,6 +145,20 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 2. Run the full test suite and a visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat`.
 3. Fix worker-production starvation and strategic-order retention before adding broader ring-buffer admission layers.
 
+### Current Verification Checkpoint
+- The latest pushed baseline for this optimization pass is commit `119ab5a` (`Add scheduler hot path profiling tests`).
+- Before any further code changes, rerun verification in this exact order:
+  - `git push origin master`
+  - `cmd /c BuildAllTests.bat`
+  - `& 'L:\\Sc2_Bot\\RunTests.bat' full 1800`
+  - `cmd /c LaunchTerranEasyComputerMatch.bat`
+- Keep the live launch path fixed to the stock script only. Do not use direct executable launch, detached launch, frame limits, or headless alternates for visible validation.
+- After that verification pass, the next planning slice should target:
+  - worker-production starvation at command centers
+  - strategic and economy order retention during recovery
+  - bounded admission and ring-buffer-backed hot scheduler queues
+  - late-game performance spikes that persist even after combat collapses
+
 ## What Has Already Been Implemented
 
 ### 1. Main-Base Layout Descriptor Plumbing
