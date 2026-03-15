@@ -1,6 +1,7 @@
 #include "terran.h"
 
 #include <algorithm>
+#include <chrono>
 #include <unordered_map>
 
 #include "sc2lib/sc2_search.h"
@@ -13,6 +14,14 @@ namespace
 constexpr float WallStructureMatchRadiusSquaredValue = 6.25f;
 constexpr int GasHarvestIntentPriorityValue = 320;
 constexpr int GasReliefIntentPriorityValue = 321;
+using FSteadyClock = std::chrono::steady_clock;
+using FSteadyTimePoint = std::chrono::time_point<FSteadyClock>;
+
+uint64_t GetElapsedMicroseconds(const FSteadyTimePoint& StartTimeValue, const FSteadyTimePoint& EndTimeValue)
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(EndTimeValue - StartTimeValue).count());
+}
 
 EExecutionConditionState GetExecutionConditionState(const bool ConditionValue)
 {
@@ -615,6 +624,7 @@ void TerranAgent::OnGameStart()
 void TerranAgent::OnStep()
 {
     ++CurrentStep;
+    const FSteadyTimePoint StepStartTimeValue = FSteadyClock::now();
 
     ObservationPtr = Observation();
     if (!ObservationPtr)
@@ -625,9 +635,20 @@ void TerranAgent::OnStep()
 
     const FFrameContext Frame = FFrameContext::Create(ObservationPtr, Query(), CurrentStep);
 
+    FSteadyTimePoint PhaseStartTimeValue = FSteadyClock::now();
     UpdateAgentState(Frame);
+    FSteadyTimePoint PhaseEndTimeValue = FSteadyClock::now();
+    LastAgentStateUpdateMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
+
+    PhaseStartTimeValue = FSteadyClock::now();
     RebuildGameStateDescriptor(Frame);
+    PhaseEndTimeValue = FSteadyClock::now();
+    LastDescriptorRebuildMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
+
+    PhaseStartTimeValue = FSteadyClock::now();
     UpdateDispatchedSchedulerOrders(Frame);
+    PhaseEndTimeValue = FSteadyClock::now();
+    LastDispatchMaintenanceMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
 
     IntentBuffer.Reset();
     ProduceSchedulerIntents(Frame);
@@ -637,9 +658,21 @@ void TerranAgent::OnStep()
     ProduceRecoveryIntents(Frame);
     UpdateExecutionTelemetry(Frame);
 
+    PhaseStartTimeValue = FSteadyClock::now();
     ResolvedIntents = IntentArbiter.Resolve(Frame, AgentState.UnitContainer, IntentBuffer);
+    PhaseEndTimeValue = FSteadyClock::now();
+    LastIntentResolutionMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
+
+    PhaseStartTimeValue = FSteadyClock::now();
     ExecuteResolvedIntents(Frame, ResolvedIntents);
+    PhaseEndTimeValue = FSteadyClock::now();
+    LastIntentExecutionMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
+
+    PhaseStartTimeValue = FSteadyClock::now();
     CaptureNewlyDispatchedSchedulerOrders(Frame);
+    PhaseEndTimeValue = FSteadyClock::now();
+    LastDispatchCaptureMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
+    LastStepMicroseconds = GetElapsedMicroseconds(StepStartTimeValue, PhaseEndTimeValue);
 
     if (CurrentStep % 120 == 0)
     {
@@ -826,6 +859,20 @@ void TerranAgent::PrintAgentState()
               << " | Starport " << GameStateDescriptor.BuildPlanning.DesiredStarportCount
               << " | Marines " << GameStateDescriptor.BuildPlanning.DesiredMarineCount
               << " | Needs " << GameStateDescriptor.BuildPlanning.ActiveNeedCount << "\n";
+    std::cout << "Step Timing (us): "
+              << "Total " << LastStepMicroseconds
+              << " | State " << LastAgentStateUpdateMicroseconds
+              << " | Descriptor " << LastDescriptorRebuildMicroseconds
+              << " | DispatchUpdate " << LastDispatchMaintenanceMicroseconds
+              << " | Strategic " << LastSchedulerStrategicProcessingMicroseconds
+              << " | Economy " << LastSchedulerEconomyProcessingMicroseconds
+              << " | Army " << LastSchedulerArmyProcessingMicroseconds
+              << " | Squad " << LastSchedulerSquadProcessingMicroseconds
+              << " | UnitExec " << LastSchedulerUnitExecutionProcessingMicroseconds
+              << " | Drain " << LastSchedulerDrainMicroseconds
+              << " | Resolve " << LastIntentResolutionMicroseconds
+              << " | Execute " << LastIntentExecutionMicroseconds
+              << " | Capture " << LastDispatchCaptureMicroseconds << "\n";
     PrintGoalList("Immediate Goals", GameStateDescriptor.GoalSet.ImmediateGoals);
     std::cout << std::endl;
     PrintGoalList("Near Goals", GameStateDescriptor.GoalSet.NearTermGoals);
@@ -1141,15 +1188,20 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
 {
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptor.CommandAuthoritySchedulingState;
+    const FSteadyTimePoint StrategicPhaseStartTimeValue = FSteadyClock::now();
 
     CommandAuthorityProcessor.ProcessSchedulerStep(GameStateDescriptor);
     if (CommandTaskPriorityService != nullptr)
     {
         CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
     }
+    FSteadyTimePoint StrategicPhaseEndTimeValue = FSteadyClock::now();
+    LastSchedulerStrategicProcessingMicroseconds =
+        GetElapsedMicroseconds(StrategicPhaseStartTimeValue, StrategicPhaseEndTimeValue);
 
     if (EconomyProductionOrderExpander != nullptr && BuildPlacementService != nullptr)
     {
+        const FSteadyTimePoint EconomyPhaseStartTimeValue = FSteadyClock::now();
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         EconomyProductionOrderExpander->ExpandEconomyAndProductionOrders(
             Frame, AgentState, GameStateDescriptor, IntentBuffer, *BuildPlacementService, ExpansionLocations);
@@ -1158,10 +1210,18 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
             CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
         }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
+        const FSteadyTimePoint EconomyPhaseEndTimeValue = FSteadyClock::now();
+        LastSchedulerEconomyProcessingMicroseconds =
+            GetElapsedMicroseconds(EconomyPhaseStartTimeValue, EconomyPhaseEndTimeValue);
+    }
+    else
+    {
+        LastSchedulerEconomyProcessingMicroseconds = 0U;
     }
 
     if (ArmyOrderExpander != nullptr)
     {
+        const FSteadyTimePoint ArmyPhaseStartTimeValue = FSteadyClock::now();
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         ArmyOrderExpander->ExpandArmyOrders(Frame, AgentState, GameStateDescriptor, ExpansionLocations, BarracksRally,
                                             GameStateDescriptor.CommandAuthoritySchedulingState);
@@ -1174,14 +1234,26 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
             CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
         }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
+        const FSteadyTimePoint ArmyPhaseEndTimeValue = FSteadyClock::now();
+        LastSchedulerArmyProcessingMicroseconds =
+            GetElapsedMicroseconds(ArmyPhaseStartTimeValue, ArmyPhaseEndTimeValue);
     }
     else if (ArmyPlanner != nullptr)
     {
+        const FSteadyTimePoint ArmyPhaseStartTimeValue = FSteadyClock::now();
         ArmyPlanner->ProduceArmyPlan(GameStateDescriptor, GameStateDescriptor.ArmyState);
+        const FSteadyTimePoint ArmyPhaseEndTimeValue = FSteadyClock::now();
+        LastSchedulerArmyProcessingMicroseconds =
+            GetElapsedMicroseconds(ArmyPhaseStartTimeValue, ArmyPhaseEndTimeValue);
+    }
+    else
+    {
+        LastSchedulerArmyProcessingMicroseconds = 0U;
     }
 
     if (SquadOrderExpander != nullptr)
     {
+        const FSteadyTimePoint SquadPhaseStartTimeValue = FSteadyClock::now();
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         SquadOrderExpander->ExpandSquadOrders(Frame, AgentState, GameStateDescriptor, BarracksRally,
                                               GameStateDescriptor.CommandAuthoritySchedulingState);
@@ -1190,10 +1262,18 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
             CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
         }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
+        const FSteadyTimePoint SquadPhaseEndTimeValue = FSteadyClock::now();
+        LastSchedulerSquadProcessingMicroseconds =
+            GetElapsedMicroseconds(SquadPhaseStartTimeValue, SquadPhaseEndTimeValue);
+    }
+    else
+    {
+        LastSchedulerSquadProcessingMicroseconds = 0U;
     }
 
     if (UnitExecutionPlanner != nullptr)
     {
+        const FSteadyTimePoint UnitExecutionPhaseStartTimeValue = FSteadyClock::now();
         CommandAuthoritySchedulingStateValue.BeginMutationBatch();
         LastArmyExecutionOrderCount = UnitExecutionPlanner->ExpandUnitExecutionOrders(
             Frame, AgentState, GameStateDescriptor, BarracksRally, GameStateDescriptor.CommandAuthoritySchedulingState);
@@ -1202,14 +1282,21 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
             CommandTaskPriorityService->UpdateTaskPriorities(GameStateDescriptor);
         }
         CommandAuthoritySchedulingStateValue.EndMutationBatch();
+        const FSteadyTimePoint UnitExecutionPhaseEndTimeValue = FSteadyClock::now();
+        LastSchedulerUnitExecutionProcessingMicroseconds =
+            GetElapsedMicroseconds(UnitExecutionPhaseStartTimeValue, UnitExecutionPhaseEndTimeValue);
     }
     else
     {
         LastArmyExecutionOrderCount = 0U;
+        LastSchedulerUnitExecutionProcessingMicroseconds = 0U;
     }
 
+    const FSteadyTimePoint DrainPhaseStartTimeValue = FSteadyClock::now();
     IntentSchedulingService.DrainReadyIntents(GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,
                                               GameStateDescriptor.CommandAuthoritySchedulingState.MaxUnitIntentsPerStep);
+    const FSteadyTimePoint DrainPhaseEndTimeValue = FSteadyClock::now();
+    LastSchedulerDrainMicroseconds = GetElapsedMicroseconds(DrainPhaseStartTimeValue, DrainPhaseEndTimeValue);
 }
 
 void TerranAgent::ProduceWallGateIntents(const FFrameContext& Frame)

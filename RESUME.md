@@ -41,6 +41,21 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 - `FCommandAuthorityProcessor::ProcessSchedulerStep(...)` now batches its internal mutation phases at the queue-boundary where `StrategicOrderIndices` must be rebuilt before `EnsureStrategicChildOrders(...)`.
 - `TerranAgent::ProduceSchedulerIntents(...)` now batches the economy, army, squad, and unit-execution phases independently and runs the priority refresh inside each phase batch.
 - `TerranAgent::UpdateDispatchedSchedulerOrders(...)` now batches lifecycle transitions and compacts terminal unit-execution orders in the same batch, so the hot order store no longer grows forever from completed execution work.
+- `TerranAgent` now records low-cadence live timing metrics for:
+  - full step cost
+  - agent-state update
+  - descriptor rebuild
+  - dispatched-order maintenance
+  - strategic scheduler phase
+  - economy scheduler phase
+  - army scheduler phase
+  - squad scheduler phase
+  - unit-execution scheduler phase
+  - ready-intent drain
+  - intent resolution
+  - resolved-intent execution
+  - dispatch capture
+- `PrintAgentState()` now prints those timing metrics every 120 steps so live regressions can be tied to specific scheduler phases instead of guessed from match feel.
 - `test_command_authority_scheduling` now explicitly validates:
   - mutation-batch deferred queue rebuild semantics
   - safe compaction of terminal unit-execution orders
@@ -50,13 +65,21 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 - `cmd /c Build.bat --target tutorial` passes with the batching and compaction changes.
 - `cmd /c BuildAllTests.bat` passes with the scheduler optimization changes.
 - The safe first compaction pass is limited to terminal unit-execution orders. This bounds the highest-volume hot store growth without breaking opening-plan or strategic-order recovery paths.
+- A visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` completed with the timing instrumentation enabled.
+- The late-game live timings show the biggest spike is still `UpdateDispatchedSchedulerOrders(...)` in `terran.cc`, which reached roughly `116-121 ms` by the later prints.
+- Combat also still spams unit orders:
+  - the user observed the on-screen `Cannot queue additional orders` warning almost constantly
+  - the likely direct cause is that `FTerranArmyUnitExecutionPlanner` currently creates combat orders with `Queued = true`
+  - the current unit-execution planner also lacks a strong "already have an active matching execution order" guard per actor
 - Focused validation that currently passes for this slice:
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestCommandAuthorityScheduling' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranArmyOrderPipeline' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 180`
 - Remaining work in this slice:
-  - add live profiling and measurement around the per-step scheduler phases so the batching wins are visible in debug output instead of inferred
+  - fix combat command spam by stopping queued combat-order chaining and deduplicating active unit-execution orders per actor
+  - bound scheduler admission so new work cannot flood the hot store indefinitely as the game progresses
+  - consider ring-buffer-backed per-domain admission buffers with explicit overflow telemetry after the first admission cap is in place
   - consider a second compaction or archival pass for older non-opening terminal orders once the remaining recovery paths are audited
   - prune long-lived telemetry maps keyed by historical order ids so telemetry does not become the next unbounded retention surface
 
@@ -65,20 +88,14 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 - Continue to exclude `.codex/` and any other non-project local tooling artifacts from the checkpoint commit.
 
 ### Immediate Next Steps After This Commit
-1. Run a visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` and compare late-game responsiveness against the pre-batching behavior.
-2. Add explicit timing counters around scheduler phases and debug-print the phase costs at a low cadence.
-3. Audit the remaining hot `GetOrderRecord(...)` call sites and convert the worst offenders to SoA reads or lightweight views.
+1. Remove queued combat-order chaining and add per-actor execution-order dedupe in `FTerranArmyUnitExecutionPlanner`.
+2. Add bounded scheduler admission for unit-execution work so combat cannot flood the hot scheduling store.
+3. Re-run the visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` and compare combat responsiveness plus late-game dispatch-maintenance cost.
 
 ## Current Worktree State Before The Next Commit
 Modified:
-- `examples/common/planning/FCommandAuthorityProcessor.cc`
-- `examples/common/planning/FCommandAuthoritySchedulingState.cc`
-- `examples/common/planning/FCommandAuthoritySchedulingState.h`
-- `examples/common/planning/FIntentSchedulingService.cc`
-- `examples/common/planning/FTerranCommandTaskPriorityService.cc`
-- `examples/common/planning/FTerranCommandTaskPriorityService.h`
-- `tests/test_command_authority_scheduling.cc`
 - `examples/terran/terran.cc`
+- `examples/terran/terran.h`
 - `RESUME.md`
 
 Untracked:

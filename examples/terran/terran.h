@@ -142,6 +142,19 @@ private:
     FAgentExecutionTelemetry ExecutionTelemetry;
     EWallGateState CurrentWallGateState{EWallGateState::Unavailable};
     uint32_t LastArmyExecutionOrderCount{0U};
+    uint64_t LastStepMicroseconds{0U};
+    uint64_t LastAgentStateUpdateMicroseconds{0U};
+    uint64_t LastDescriptorRebuildMicroseconds{0U};
+    uint64_t LastDispatchMaintenanceMicroseconds{0U};
+    uint64_t LastSchedulerStrategicProcessingMicroseconds{0U};
+    uint64_t LastSchedulerEconomyProcessingMicroseconds{0U};
+    uint64_t LastSchedulerArmyProcessingMicroseconds{0U};
+    uint64_t LastSchedulerSquadProcessingMicroseconds{0U};
+    uint64_t LastSchedulerUnitExecutionProcessingMicroseconds{0U};
+    uint64_t LastSchedulerDrainMicroseconds{0U};
+    uint64_t LastIntentResolutionMicroseconds{0U};
+    uint64_t LastIntentExecutionMicroseconds{0U};
+    uint64_t LastDispatchCaptureMicroseconds{0U};
 };
 
 }  // namespace sc2
