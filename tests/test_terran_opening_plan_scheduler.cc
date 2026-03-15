@@ -7,6 +7,11 @@
 #include "common/build_orders/FOpeningPlanRegistry.h"
 #include "common/descriptors/EObservedWallSlotState.h"
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/goals/EGoalDomain.h"
+#include "common/goals/EGoalHorizon.h"
+#include "common/goals/EGoalStatus.h"
+#include "common/goals/EGoalType.h"
+#include "common/goals/FGoalDescriptor.h"
 #include "common/planning/ECommandAuthorityLayer.h"
 #include "common/planning/ECommandCommitmentClass.h"
 #include "common/planning/ECommandTaskExecutionGuarantee.h"
@@ -82,6 +87,26 @@ size_t GetUnitIndex(const UNIT_TYPEID UnitTypeIdValue)
     return GetTerranUnitTypeIndex(UnitTypeIdValue);
 }
 
+FGoalDescriptor CreateGoalDescriptor(const uint32_t GoalIdValue, const EGoalDomain GoalDomainValue,
+                                     const EGoalHorizon GoalHorizonValue, const EGoalType GoalTypeValue,
+                                     const EGoalStatus GoalStatusValue, const int BasePriorityValue,
+                                     const uint32_t TargetCountValue = 0U,
+                                     const UNIT_TYPEID TargetUnitTypeIdValue = UNIT_TYPEID::INVALID,
+                                     const UpgradeID TargetUpgradeIdValue = UpgradeID(UPGRADE_ID::INVALID))
+{
+    FGoalDescriptor GoalDescriptorValue;
+    GoalDescriptorValue.GoalId = GoalIdValue;
+    GoalDescriptorValue.GoalDomain = GoalDomainValue;
+    GoalDescriptorValue.GoalHorizon = GoalHorizonValue;
+    GoalDescriptorValue.GoalType = GoalTypeValue;
+    GoalDescriptorValue.GoalStatus = GoalStatusValue;
+    GoalDescriptorValue.BasePriorityValue = BasePriorityValue;
+    GoalDescriptorValue.TargetCount = TargetCountValue;
+    GoalDescriptorValue.TargetUnitTypeId = TargetUnitTypeIdValue;
+    GoalDescriptorValue.TargetUpgradeId = TargetUpgradeIdValue;
+    return GoalDescriptorValue;
+}
+
 bool TryFindOrderIndexByPlanStepId(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                    const uint32_t PlanStepIdValue, const ECommandAuthorityLayer SourceLayerValue,
                                    size_t& OutOrderIndexValue)
@@ -113,6 +138,27 @@ bool TryFindStrategicOrderByTaskType(const FCommandAuthoritySchedulingState& Com
             OutOrderIndexValue = OrderIndexValue;
             return true;
         }
+    }
+
+    return false;
+}
+
+bool TryFindStrategicOrderByGoalId(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                   const uint32_t GoalIdValue, size_t& OutOrderIndexValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] !=
+                ECommandAuthorityLayer::StrategicDirector ||
+            CommandAuthoritySchedulingStateValue.SourceGoalIds[OrderIndexValue] != GoalIdValue ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        OutOrderIndexValue = OrderIndexValue;
+        return true;
     }
 
     return false;
@@ -569,6 +615,81 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     Check(WallSlotGameStateDescriptorValue.CommandAuthoritySchedulingState.OrderIds[RebuiltWallDepotChildOrderIndexValue] !=
               InitialWallDepotChildOrderValue.OrderId,
           SuccessValue, "Regressed slot-bound wall steps should create a replacement economy child order.");
+
+    FGameStateDescriptor GoalDrivenFamilyFreedomGameStateDescriptorValue;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 1U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_BARRACKS)] = 1U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.MacroState.WorkerCount = 20U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.MacroState.BarracksCount = 1U;
+    SetObservedWorkerCount(GoalDrivenFamilyFreedomGameStateDescriptorValue, 20U);
+    SetProjectedDiscretionaryBudget(GoalDrivenFamilyFreedomGameStateDescriptorValue, 1000U, 500U, 20U);
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.CommitmentLedger.ProjectedDiscretionaryMineralsByHorizon[
+        ShortForecastHorizonIndexValue] = 1000U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.CommitmentLedger.ProjectedDiscretionaryVespeneByHorizon[
+        ShortForecastHorizonIndexValue] = 500U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.CommitmentLedger.ProjectedDiscretionarySupplyByHorizon[
+        ShortForecastHorizonIndexValue] = 20U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.CurrentGameLoop = 2200U;
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        901U, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology, EGoalStatus::Active, 160,
+        1U, UNIT_TYPEID::TERRAN_STARPORTREACTOR));
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        902U, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::ResearchUpgrade, EGoalStatus::Active, 155,
+        1U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::STIMPACK)));
+    GoalDrivenFamilyFreedomGameStateDescriptorValue.GoalSet.StrategicGoals.push_back(CreateGoalDescriptor(
+        903U, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy, EGoalStatus::Active, 150, 1U,
+        UNIT_TYPEID::TERRAN_MEDIVAC));
+
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(GoalDrivenFamilyFreedomGameStateDescriptorValue);
+
+    size_t StarportReactorStrategicOrderIndexValue = 0U;
+    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        901U, StarportReactorStrategicOrderIndexValue),
+          SuccessValue,
+          "Remaining authored opening steps should not block unrelated goal-driven starport add-on work.");
+    if (TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                      901U, StarportReactorStrategicOrderIndexValue))
+    {
+        const FCommandOrderRecord StarportReactorStrategicOrderValue =
+            GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(
+                StarportReactorStrategicOrderIndexValue);
+        Check(StarportReactorStrategicOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_STARPORT, SuccessValue,
+              "Goal-driven starport reactor seeding should preserve the requested add-on ability.");
+    }
+
+    size_t StimpackStrategicOrderIndexValue = 0U;
+    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        902U, StimpackStrategicOrderIndexValue),
+          SuccessValue,
+          "Remaining authored opening steps should not block unrelated goal-driven barracks upgrade work.");
+    if (TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                      902U, StimpackStrategicOrderIndexValue))
+    {
+        const FCommandOrderRecord StimpackStrategicOrderValue =
+            GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(
+                StimpackStrategicOrderIndexValue);
+        Check(StimpackStrategicOrderValue.AbilityId == ABILITY_ID::RESEARCH_STIMPACK, SuccessValue,
+              "Goal-driven upgrade seeding should preserve the requested stimpack research ability.");
+    }
+
+    size_t MedivacStrategicOrderIndexValue = 0U;
+    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        903U, MedivacStrategicOrderIndexValue),
+          SuccessValue,
+          "Remaining authored opening steps should not block unrelated goal-driven starport unit production.");
+    if (TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                      903U, MedivacStrategicOrderIndexValue))
+    {
+        const FCommandOrderRecord MedivacStrategicOrderValue =
+            GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(
+                MedivacStrategicOrderIndexValue);
+        Check(MedivacStrategicOrderValue.AbilityId == ABILITY_ID::TRAIN_MEDIVAC, SuccessValue,
+              "Goal-driven medivac seeding should preserve the requested training ability.");
+    }
 
     return SuccessValue;
 }

@@ -5,89 +5,43 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 ## Latest Resume Update
 
 ### Current Slice
-- The active slice is now the bounded hot scheduler frontier, blocked retry buffers, and worker-recovery pass.
-- This work sits on top of the scheduler-owned army pipeline and the goal-driven task descriptors; it is focused on stopping deferred strategic and economy work from living forever in the hot store.
+- The active slice is Terran macro recovery and targeted combat behavior on top of the scheduler-aware forecast and planning path.
+- The focus is to stop army rally overlap with production space, restore macro spending when the opening drifts, fan out unit production across idle producers, and add explicit Medivac, Widow Mine, and Siege Tank behavior where the generic scorer was not sufficient.
 
 ### Implemented In This Slice
-- Added scheduler task retention and wake metadata:
-  - `ECommandTaskRetentionPolicy`
-  - `EBlockedTaskWakeKind`
-- Added blocked retry and scheduler stimulus types:
-  - `FBlockedTaskRecord`
-  - `FBlockedTaskRingBuffer`
-  - `FSchedulerStimulusState`
-- Added `ICommandTaskAdmissionService` and `FTerranCommandTaskAdmissionService`.
-- `FCommandTaskDescriptor` and `FCommandOrderRecord` now carry:
-  - `RetentionPolicy`
-  - `BlockedTaskWakeKind`
-  - `ConsecutiveDeferralCount` on orders
-- `FCommandAuthoritySchedulingState` now carries:
-  - blocked strategic and planning retry buffers
-  - blocked retry counters for buffered, coalesced, dropped, reactivated, and rejected must-run work
-  - scheduler stimulus state
-  - `bPrioritiesDirty`
-- `FCommandAuthorityProcessor` now uses the admission service to:
-  - refresh scheduler stimulus revisions
-  - reactivate blocked retry work
-  - admit opening and goal-driven strategic work only when it belongs in the hot frontier
-- Remaining-opening coverage no longer suppresses runtime:
-  - `WorkerProduction`
-  - `Supply`
-  - `Expansion`
-  - `Recovery`
-  merely because similar work still exists somewhere later in the authored opening asset
-- Deferred strategic and economy work now parks out of the hot store on:
-  - `NoProducer`
-  - `InsufficientResources`
-  - `NoValidPlacement`
-  - `ReservedSlotOccupied`
-  - `ReservedSlotInvalidated`
-  - `ProducerBusy` after three consecutive busy deferrals
-- `FTerranEconomyProductionOrderExpander` now:
-  - copies the new retention and wake metadata into child orders
-  - allows SCV production to create one child execution order per eligible town hall up to the requested queue count
-  - correctly treats `CommandCenter`, `OrbitalCommand`, and `PlanetaryFortress` as valid SCV producers in that worker path
-- `FCommandAuthoritySchedulingState::SortDerivedQueues()` now preserves and sorts `DispatchedOrderIndices` instead of clearing them, which restored the correct `Dispatching` playback state after ready-intent drain
-- `PrintAgentState()` now reports:
-  - active hot counts by layer
-  - blocked strategic and planning occupancy
-  - blocked retry counters
-  - blocked counts grouped by deferral reason
+- Added a separate production rally path so army assembly and production rally no longer share the same staging target.
+- `FTerranBuildPlacementService` now prefers the authored ramp-wall outside staging point for production rally and falls back to a projected point outside depot-lane and add-on-clearance space.
+- `FCommandAuthorityProcessor` no longer reserves entire producer families just because authored opening steps still exist later in the asset. Opening protection remains exact-step duplicate protection only.
+- `FTerranEconomyProductionOrderExpander` now uses `RequestedQueueCount` for non-SCV unit production so Marines, Medivacs, Siege Tanks, and similar units can fill multiple eligible queues in one scheduling step.
+- Strategic and planning pressure now considers prolonged mineral float and idle production through the execution-pressure descriptor path consumed by the strategic director, admission service, and priority service.
+- Build planning now materializes near-term Engineering Bay, Starport Reactor, and upgrade goals in addition to the earlier add-on handling.
+- `FTerranArmyUnitExecutionPlanner` now has targeted behavior branches for:
+  - Medivac heal and support-anchor positioning
+  - Widow Mine burrow and unburrow control
+  - Siege Tank siege and unsiege control
+- `FTerranBuildPlacementService::ClampPointToPlayableBounds(...)` now preserves synthetic test points when the playable-bounds query is absent, which fixed the new rally assertions in isolated placement contexts.
 
 ### Test Coverage Added Or Extended
-- `test_command_authority_scheduling` now covers:
-  - blocked retry ring-buffer coalescing
-  - discardable-duplicate eviction
-  - must-run blocked retry rejection signaling
-  - strategic hot admission caps
-  - duplicate hot admission rejection
-  - must-run admission beyond the normal strategic cap
-  - parking `NoProducer` work into blocked strategic storage
-  - producer-stimulus reactivation
-  - `ProducerBusy` parking after three consecutive busy deferrals
-- `test_terran_economy_production_order_expander` now covers:
-  - one SCV child order per eligible command center or orbital for a multi-townhall worker task
-- `test_scheduler_hot_path_profiles` now reports:
-  - retained bytes for retention and wake columns
-  - retained bytes for blocked retry buffers separately from hot orders
-  - admission promotion timing
-  - blocked parking timing
-  - blocked reactivation timing
+- `test_terran_planners` now covers Engineering Bay, Starport Reactor, Stimpack, and Siege Tank goal materialization.
+- `test_terran_opening_plan_scheduler` now covers incomplete opening plans no longer suppressing unrelated add-on, upgrade, and Medivac strategic work.
+- `test_terran_economy_production_order_expander` now covers Medivac reactor fan-out and multi-factory Siege Tank fan-out.
+- `test_terran_army_order_pipeline` now covers Medivac healing and anchor movement, Widow Mine burrow transitions, and Siege Tank siege transitions.
+- `test_terran_build_placement_service` now covers the dedicated production rally point selection path.
 
 ### Current Validation State
 - Passed:
-  - `cmd /c BuildAllTests.bat`
-  - `sc2::TestCommandAuthorityScheduling`
-  - `sc2::TestTerranEconomyProductionOrderExpander`
-  - `sc2::TestSchedulerHotPathProfiles`
+  - `RunTests.bat build`
+  - `sc2::TestTerranPlanners`
   - `sc2::TestTerranOpeningPlanScheduler`
+  - `sc2::TestTerranEconomyProductionOrderExpander`
   - `sc2::TestTerranArmyOrderPipeline`
-  - `cmd /c Build.bat --target tutorial`
-- Live run:
-  - launched only with `cmd /c LaunchTerranEasyComputerMatch.bat`
-  - the match did not terminate within the 30-minute timeout window
-  - `tutorial.exe` and `SC2_x64.exe` were then killed manually
-  - this means the slice is live-stable enough to stay in game, but it still lacks a clean live acceptance verdict for late-game macro closure and scheduler churn
+  - `sc2::TestCommandAuthorityScheduling`
+  - `sc2::TestTerranDescriptorPipeline`
+  - `sc2::TestTerranBotScaffolding`
+- Remaining known failure:
+  - `sc2::TestTerranBuildPlacementService` still has older authored rail and shared-rail placement expectation failures outside the new production-rally coverage.
+- Next live validation step:
+  - launch `cmd /c LaunchTerranEasyComputerMatch.bat` after the current work is pushed so the updated macro and combat behavior can be observed in match.
 
 ## Immediate User Requests
 - Push the current verified optimization work to git after updating `RESUME.md`.

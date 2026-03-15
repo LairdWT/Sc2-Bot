@@ -730,6 +730,325 @@ bool TestTerranArmyOrderPipeline(int ArgC, char** ArgV)
               "Rejected unit-execution admissions should be counted when the active admission cap blocks new work.");
     }
 
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        Unit WoundedMarineUnitValue =
+            MakeUnit(801U, UNIT_TYPEID::TERRAN_MARINE, Unit::Alliance::Self, Point2D(12.0f, 12.0f), false);
+        WoundedMarineUnitValue.health = 20.0f;
+        WoundedMarineUnitValue.health_max = 45.0f;
+        UnitStorageValue.push_back(WoundedMarineUnitValue);
+        UnitStorageValue.push_back(
+            MakeUnit(802U, UNIT_TYPEID::TERRAN_MEDIVAC, Unit::Alliance::Self, Point2D(14.0f, 12.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::PressureKnownEnemyBase;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(40.0f, 40.0f);
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(40.0f, 40.0f), 100,
+            EIntentDomain::ArmyCombat, 21U, 0U, 181U, 0, 0);
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        const uint32_t CreatedOrderCountValue = UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(16.0f, 16.0f), SchedulingStateValue);
+
+        Check(CreatedOrderCountValue == 2U, SuccessValue,
+              "A wounded nearby marine should still allow both the medivac and marine to receive execution orders.");
+        size_t MedivacOrderIndexValue = 0U;
+        bool FoundMedivacOrderValue = false;
+        for (const size_t ReadyIntentIndexValue : SchedulingStateValue.ReadyIntentIndices)
+        {
+            if (SchedulingStateValue.ActorTags[ReadyIntentIndexValue] != 802U)
+            {
+                continue;
+            }
+
+            MedivacOrderIndexValue = ReadyIntentIndexValue;
+            FoundMedivacOrderValue = true;
+            break;
+        }
+
+        Check(FoundMedivacOrderValue, SuccessValue,
+              "The wounded-bio support case should create a medivac execution order.");
+        if (FoundMedivacOrderValue)
+        {
+            Check(SchedulingStateValue.AbilityIds[MedivacOrderIndexValue] == ABILITY_ID::EFFECT_HEAL, SuccessValue,
+                  "A medivac should heal a wounded nearby marine instead of flying through the mission objective.");
+            Check(SchedulingStateValue.TargetUnitTags[MedivacOrderIndexValue] == 801U, SuccessValue,
+                  "The medivac heal order should target the wounded marine.");
+        }
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(
+            MakeUnit(811U, UNIT_TYPEID::TERRAN_MARINE, Unit::Alliance::Self, Point2D(20.0f, 20.0f), false));
+        UnitStorageValue.push_back(
+            MakeUnit(812U, UNIT_TYPEID::TERRAN_MEDIVAC, Unit::Alliance::Self, Point2D(22.0f, 20.0f), false));
+        UnitStorageValue.push_back(
+            MakeUnit(813U, UNIT_TYPEID::PROTOSS_STALKER, Unit::Alliance::Enemy, Point2D(26.0f, 20.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::DefendOwnedBase;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(20.0f, 20.0f);
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(20.0f, 20.0f), 100,
+            EIntentDomain::ArmyCombat, 22U, 0U, 182U, 0, 0);
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(20.0f, 20.0f), SchedulingStateValue);
+
+        size_t MedivacOrderIndexValue = 0U;
+        bool FoundMedivacOrderValue = false;
+        for (const size_t ReadyIntentIndexValue : SchedulingStateValue.ReadyIntentIndices)
+        {
+            if (SchedulingStateValue.ActorTags[ReadyIntentIndexValue] != 812U)
+            {
+                continue;
+            }
+
+            MedivacOrderIndexValue = ReadyIntentIndexValue;
+            FoundMedivacOrderValue = true;
+            break;
+        }
+
+        Check(FoundMedivacOrderValue, SuccessValue,
+              "A medivac without a heal target should still issue a support movement order.");
+        if (FoundMedivacOrderValue)
+        {
+            Check(SchedulingStateValue.AbilityIds[MedivacOrderIndexValue] == ABILITY_ID::MOVE_MOVE, SuccessValue,
+                  "A medivac without a heal target should reposition behind the nearby bio anchor.");
+            Check(SchedulingStateValue.TargetPoints[MedivacOrderIndexValue].x < 20.0f, SuccessValue,
+                  "The medivac support anchor should remain behind the marine relative to the nearest enemy threat.");
+        }
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(
+            MakeUnit(821U, UNIT_TYPEID::TERRAN_WIDOWMINE, Unit::Alliance::Self, Point2D(20.0f, 20.0f), false));
+        UnitStorageValue.push_back(
+            MakeUnit(822U, UNIT_TYPEID::ZERG_ZERGLING, Unit::Alliance::Enemy, Point2D(24.0f, 20.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::DefendOwnedBase;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(20.0f, 20.0f);
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(20.0f, 20.0f), 100,
+            EIntentDomain::ArmyCombat, 23U, 0U, 183U, 0, 0);
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(20.0f, 20.0f), SchedulingStateValue);
+
+        size_t WidowMineOrderIndexValue = 0U;
+        bool FoundWidowMineOrderValue = false;
+        for (const size_t ReadyIntentIndexValue : SchedulingStateValue.ReadyIntentIndices)
+        {
+            if (SchedulingStateValue.ActorTags[ReadyIntentIndexValue] != 821U)
+            {
+                continue;
+            }
+
+            WidowMineOrderIndexValue = ReadyIntentIndexValue;
+            FoundWidowMineOrderValue = true;
+            break;
+        }
+
+        Check(FoundWidowMineOrderValue, SuccessValue,
+              "A ready widow mine near the army anchor should receive a specialized control order.");
+        if (FoundWidowMineOrderValue)
+        {
+            Check(SchedulingStateValue.AbilityIds[WidowMineOrderIndexValue] == ABILITY_ID::BURROWDOWN, SuccessValue,
+                  "A nearby ground threat should cause a widow mine to burrow at the mission anchor.");
+        }
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(MakeUnit(831U, UNIT_TYPEID::TERRAN_WIDOWMINEBURROWED,
+                                            Unit::Alliance::Self, Point2D(20.0f, 20.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::PressureKnownEnemyBase;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(40.0f, 40.0f);
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(40.0f, 40.0f), 100,
+            EIntentDomain::ArmyCombat, 24U, 0U, 184U, 0, 0);
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(20.0f, 20.0f), SchedulingStateValue);
+
+        size_t WidowMineOrderIndexValue = 0U;
+        bool FoundWidowMineOrderValue = false;
+        for (const size_t ReadyIntentIndexValue : SchedulingStateValue.ReadyIntentIndices)
+        {
+            if (SchedulingStateValue.ActorTags[ReadyIntentIndexValue] != 831U)
+            {
+                continue;
+            }
+
+            WidowMineOrderIndexValue = ReadyIntentIndexValue;
+            FoundWidowMineOrderValue = true;
+            break;
+        }
+
+        Check(FoundWidowMineOrderValue, SuccessValue,
+              "A burrowed widow mine on an advancing mission should receive a specialized release order.");
+        if (FoundWidowMineOrderValue)
+        {
+            Check(SchedulingStateValue.AbilityIds[WidowMineOrderIndexValue] == ABILITY_ID::BURROWUP, SuccessValue,
+                  "A burrowed widow mine should unburrow when the army advances and no ground threat remains.");
+        }
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(
+            MakeUnit(841U, UNIT_TYPEID::TERRAN_SIEGETANK, Unit::Alliance::Self, Point2D(20.0f, 20.0f), false));
+        UnitStorageValue.push_back(
+            MakeUnit(842U, UNIT_TYPEID::ZERG_ROACH, Unit::Alliance::Enemy, Point2D(28.0f, 20.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::DefendOwnedBase;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(20.0f, 20.0f);
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(20.0f, 20.0f), 100,
+            EIntentDomain::ArmyCombat, 25U, 0U, 185U, 0, 0);
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(20.0f, 20.0f), SchedulingStateValue);
+
+        size_t SiegeTankOrderIndexValue = 0U;
+        bool FoundSiegeTankOrderValue = false;
+        for (const size_t ReadyIntentIndexValue : SchedulingStateValue.ReadyIntentIndices)
+        {
+            if (SchedulingStateValue.ActorTags[ReadyIntentIndexValue] != 841U)
+            {
+                continue;
+            }
+
+            SiegeTankOrderIndexValue = ReadyIntentIndexValue;
+            FoundSiegeTankOrderValue = true;
+            break;
+        }
+
+        Check(FoundSiegeTankOrderValue, SuccessValue,
+              "An unsieged tank near the mission anchor should receive a specialized siege order.");
+        if (FoundSiegeTankOrderValue)
+        {
+            Check(SchedulingStateValue.AbilityIds[SiegeTankOrderIndexValue] == ABILITY_ID::MORPH_SIEGEMODE,
+                  SuccessValue, "A nearby ground target should cause the siege tank to enter siege mode.");
+        }
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(MakeUnit(851U, UNIT_TYPEID::TERRAN_SIEGETANKSIEGED,
+                                            Unit::Alliance::Self, Point2D(20.0f, 20.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::PressureKnownEnemyBase;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(40.0f, 40.0f);
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(40.0f, 40.0f), 100,
+            EIntentDomain::ArmyCombat, 26U, 0U, 186U, 0, 0);
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(20.0f, 20.0f), SchedulingStateValue);
+
+        size_t SiegeTankOrderIndexValue = 0U;
+        bool FoundSiegeTankOrderValue = false;
+        for (const size_t ReadyIntentIndexValue : SchedulingStateValue.ReadyIntentIndices)
+        {
+            if (SchedulingStateValue.ActorTags[ReadyIntentIndexValue] != 851U)
+            {
+                continue;
+            }
+
+            SiegeTankOrderIndexValue = ReadyIntentIndexValue;
+            FoundSiegeTankOrderValue = true;
+            break;
+        }
+
+        Check(FoundSiegeTankOrderValue, SuccessValue,
+              "A sieged tank on an advancing mission should receive a specialized release order.");
+        if (FoundSiegeTankOrderValue)
+        {
+            Check(SchedulingStateValue.AbilityIds[SiegeTankOrderIndexValue] == ABILITY_ID::MORPH_UNSIEGE,
+                  SuccessValue, "A sieged tank should unsiege when the army advances and no target remains.");
+        }
+    }
+
     return SuccessValue;
 }
 

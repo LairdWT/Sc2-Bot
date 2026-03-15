@@ -501,6 +501,8 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
           SuccessValue, "Ramp-wall discovery should publish the outside staging point.");
     const Point2D ArmyAssemblyPointValue =
         BuildPlacementServiceValue.GetArmyAssemblyPoint(GameStateDescriptorValue, BuildPlacementContextValue);
+    const Point2D ProductionRallyPointValue =
+        BuildPlacementServiceValue.GetProductionRallyPoint(GameStateDescriptorValue, BuildPlacementContextValue);
     const std::vector<FBuildPlacementSlot>& NaturalApproachDepotSlotsValue =
         BuildPlacementContextValue.MainBaseLayoutDescriptor.NaturalApproachDepotSlots;
     Check(!NaturalApproachDepotSlotsValue.empty(), SuccessValue,
@@ -516,6 +518,47 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
             ArePointsEqual(ArmyAssemblyPointValue, ExpectedArmyAssemblyPointValue), SuccessValue,
             "Army assembly should use the natural-approach entrance midpoint when authored depot slots exist.");
     }
+    Check(ArePointsEqual(ProductionRallyPointValue, BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint),
+          SuccessValue,
+          "Production rally should prefer the ramp-wall outside staging point when it is available.");
+
+    FBuildPlacementContext ForwardOnlyBuildPlacementContextValue = BuildPlacementContextValue;
+    ForwardOnlyBuildPlacementContextValue.RampWallDescriptor.Reset();
+    const Point2D ForwardOnlyProductionRallyPointValue =
+        BuildPlacementServiceValue.GetProductionRallyPoint(GameStateDescriptorValue, ForwardOnlyBuildPlacementContextValue);
+    float MaximumForwardProductionSlotXValue = ForwardOnlyBuildPlacementContextValue.BaseLocation.x;
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue :
+         ForwardOnlyBuildPlacementContextValue.MainBaseLayoutDescriptor.NaturalApproachDepotSlots)
+    {
+        MaximumForwardProductionSlotXValue =
+            std::max(MaximumForwardProductionSlotXValue, BuildPlacementSlotValue.BuildPoint.x);
+    }
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue :
+         ForwardOnlyBuildPlacementContextValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots)
+    {
+        MaximumForwardProductionSlotXValue =
+            std::max(MaximumForwardProductionSlotXValue, BuildPlacementSlotValue.BuildPoint.x);
+    }
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue :
+         ForwardOnlyBuildPlacementContextValue.MainBaseLayoutDescriptor.BarracksWithAddonSlots)
+    {
+        MaximumForwardProductionSlotXValue =
+            std::max(MaximumForwardProductionSlotXValue, BuildPlacementSlotValue.BuildPoint.x);
+    }
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue :
+         ForwardOnlyBuildPlacementContextValue.MainBaseLayoutDescriptor.FactoryWithAddonSlots)
+    {
+        MaximumForwardProductionSlotXValue =
+            std::max(MaximumForwardProductionSlotXValue, BuildPlacementSlotValue.BuildPoint.x);
+    }
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue :
+         ForwardOnlyBuildPlacementContextValue.MainBaseLayoutDescriptor.StarportWithAddonSlots)
+    {
+        MaximumForwardProductionSlotXValue =
+            std::max(MaximumForwardProductionSlotXValue, BuildPlacementSlotValue.BuildPoint.x);
+    }
+    Check(ForwardOnlyProductionRallyPointValue.x > MaximumForwardProductionSlotXValue, SuccessValue,
+          "Production rally fallback should project beyond natural-approach and add-on-clearance production slots.");
 
     FBuildPlacementContext DiagonalBuildPlacementContextValue;
     DiagonalBuildPlacementContextValue.BaseLocation = Point2D(50.0f, 50.0f);

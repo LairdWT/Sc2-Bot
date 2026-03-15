@@ -480,24 +480,6 @@ bool DoesAbilityRequireObservedConstructionConfirmation(const ABILITY_ID Ability
     }
 }
 
-bool HasActiveSchedulerOrderForActorTag(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
-                                        const Tag ActorTagValue)
-{
-    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
-         ++OrderIndexValue)
-    {
-        if (CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != ActorTagValue ||
-            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
-        {
-            continue;
-        }
-
-        return true;
-    }
-
-    return false;
-}
-
 Tag GetCommittedRefineryTag(const ObservationInterface& ObservationValue, const Unit& WorkerUnitValue)
 {
     if (WorkerUnitValue.orders.empty())

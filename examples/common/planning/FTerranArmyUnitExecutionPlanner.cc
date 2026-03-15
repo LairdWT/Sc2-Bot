@@ -1,6 +1,7 @@
 #include "common/planning/FTerranArmyUnitExecutionPlanner.h"
 
 #include <array>
+#include <cmath>
 #include <limits>
 #include <unordered_set>
 
@@ -81,10 +82,40 @@ bool IsSupportUnitType(const UNIT_TYPEID UnitTypeIdValue)
     }
 }
 
+bool IsTerranBioSupportUnitType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_MARINE:
+        case UNIT_TYPEID::TERRAN_MARAUDER:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool IsEnemyCombatThreat(const Unit& EnemyUnitValue)
 {
     return EnemyUnitValue.build_progress >= 1.0f && !EnemyUnitValue.is_building &&
            !IsWorkerUnitType(EnemyUnitValue.unit_type.ToType());
+}
+
+bool IsEnemyGroundThreat(const Unit& EnemyUnitValue)
+{
+    return IsEnemyCombatThreat(EnemyUnitValue) && !EnemyUnitValue.is_flying;
+}
+
+bool IsAdvancingMissionType(const EArmyMissionType ArmyMissionTypeValue)
+{
+    switch (ArmyMissionTypeValue)
+    {
+        case EArmyMissionType::DefendOwnedBase:
+        case EArmyMissionType::AssembleAtRally:
+        case EArmyMissionType::Regroup:
+            return false;
+        default:
+            return true;
+    }
 }
 
 const FArmyMissionDescriptor* GetMissionDescriptorForArmyIndex(const FGameStateDescriptor& GameStateDescriptorValue,
@@ -154,6 +185,137 @@ const Unit* FindNearestEnemyStructure(const Point2D& OriginPointValue, const Uni
     return BestEnemyUnitValue;
 }
 
+const Unit* FindNearestEnemyGroundThreat(const Point2D& OriginPointValue, const Units& EnemyUnitsValue)
+{
+    const Unit* BestEnemyUnitValue = nullptr;
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+
+    for (const Unit* EnemyUnitValue : EnemyUnitsValue)
+    {
+        if (EnemyUnitValue == nullptr || !IsEnemyGroundThreat(*EnemyUnitValue))
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue = DistanceSquared2D(OriginPointValue, Point2D(EnemyUnitValue->pos));
+        if (DistanceSquaredValue >= BestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        BestDistanceSquaredValue = DistanceSquaredValue;
+        BestEnemyUnitValue = EnemyUnitValue;
+    }
+
+    return BestEnemyUnitValue;
+}
+
+const Unit* FindNearestEnemyGroundTargetOrStructure(const Point2D& OriginPointValue, const Units& EnemyUnitsValue)
+{
+    const Unit* EnemyGroundThreatUnitPtrValue = FindNearestEnemyGroundThreat(OriginPointValue, EnemyUnitsValue);
+    if (EnemyGroundThreatUnitPtrValue != nullptr)
+    {
+        return EnemyGroundThreatUnitPtrValue;
+    }
+
+    return FindNearestEnemyStructure(OriginPointValue, EnemyUnitsValue);
+}
+
+const Unit* FindNearestWoundedBioSupportTarget(const Point2D& OriginPointValue, const Units& ControlledUnitsValue)
+{
+    const Unit* BestBioSupportUnitValue = nullptr;
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+
+    for (const Unit* ControlledUnitPtrValue : ControlledUnitsValue)
+    {
+        if (ControlledUnitPtrValue == nullptr || ControlledUnitPtrValue->build_progress < 1.0f ||
+            !IsTerranBioSupportUnitType(ControlledUnitPtrValue->unit_type.ToType()) ||
+            ControlledUnitPtrValue->health >= ControlledUnitPtrValue->health_max)
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue =
+            DistanceSquared2D(OriginPointValue, Point2D(ControlledUnitPtrValue->pos));
+        if (DistanceSquaredValue >= BestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        BestDistanceSquaredValue = DistanceSquaredValue;
+        BestBioSupportUnitValue = ControlledUnitPtrValue;
+    }
+
+    return BestBioSupportUnitValue;
+}
+
+bool TryComputeBioSupportAnchor(const Point2D& OriginPointValue, const Units& ControlledUnitsValue,
+                                Point2D& OutBioSupportAnchorPointValue)
+{
+    constexpr float NearbyBioSupportDistanceSquaredValue = 324.0f;
+
+    float NearbyAnchorXValue = 0.0f;
+    float NearbyAnchorYValue = 0.0f;
+    uint32_t NearbyBioSupportCountValue = 0U;
+    float FallbackAnchorXValue = 0.0f;
+    float FallbackAnchorYValue = 0.0f;
+    uint32_t FallbackBioSupportCountValue = 0U;
+
+    for (const Unit* ControlledUnitPtrValue : ControlledUnitsValue)
+    {
+        if (ControlledUnitPtrValue == nullptr || ControlledUnitPtrValue->build_progress < 1.0f ||
+            !IsTerranBioSupportUnitType(ControlledUnitPtrValue->unit_type.ToType()))
+        {
+            continue;
+        }
+
+        const Point2D ControlledUnitPointValue = Point2D(ControlledUnitPtrValue->pos);
+        FallbackAnchorXValue += ControlledUnitPointValue.x;
+        FallbackAnchorYValue += ControlledUnitPointValue.y;
+        ++FallbackBioSupportCountValue;
+
+        if (DistanceSquared2D(OriginPointValue, ControlledUnitPointValue) > NearbyBioSupportDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        NearbyAnchorXValue += ControlledUnitPointValue.x;
+        NearbyAnchorYValue += ControlledUnitPointValue.y;
+        ++NearbyBioSupportCountValue;
+    }
+
+    if (NearbyBioSupportCountValue > 0U)
+    {
+        OutBioSupportAnchorPointValue = Point2D(NearbyAnchorXValue / NearbyBioSupportCountValue,
+                                                NearbyAnchorYValue / NearbyBioSupportCountValue);
+        return true;
+    }
+
+    if (FallbackBioSupportCountValue > 0U)
+    {
+        OutBioSupportAnchorPointValue = Point2D(FallbackAnchorXValue / FallbackBioSupportCountValue,
+                                                FallbackAnchorYValue / FallbackBioSupportCountValue);
+        return true;
+    }
+
+    return false;
+}
+
+Point2D ComputeOffsetPointAwayFromThreat(const Point2D& AnchorPointValue, const Point2D& ThreatPointValue,
+                                         const float OffsetDistanceValue)
+{
+    const float OffsetXValue = AnchorPointValue.x - ThreatPointValue.x;
+    const float OffsetYValue = AnchorPointValue.y - ThreatPointValue.y;
+    const float OffsetLengthValue = std::sqrt((OffsetXValue * OffsetXValue) + (OffsetYValue * OffsetYValue));
+    if (OffsetLengthValue <= 0.001f)
+    {
+        return AnchorPointValue;
+    }
+
+    const float ScaleValue = OffsetDistanceValue / OffsetLengthValue;
+    return Point2D(AnchorPointValue.x + (OffsetXValue * ScaleValue), AnchorPointValue.y + (OffsetYValue * ScaleValue));
+}
+
 bool ShouldRefreshUnitOrder(const Unit& ActorUnitValue, const ABILITY_ID AbilityIdValue, const Point2D& TargetPointValue)
 {
     if (ActorUnitValue.orders.empty())
@@ -179,6 +341,16 @@ bool ShouldRefreshUnitOrder(const Unit& ActorUnitValue, const ABILITY_ID Ability
 
     const UnitOrder& CurrentOrderValue = ActorUnitValue.orders.front();
     return CurrentOrderValue.ability_id != AbilityIdValue || CurrentOrderValue.target_unit_tag != TargetUnitTagValue;
+}
+
+bool ShouldRefreshUnitOrder(const Unit& ActorUnitValue, const ABILITY_ID AbilityIdValue)
+{
+    if (ActorUnitValue.orders.empty())
+    {
+        return true;
+    }
+
+    return ActorUnitValue.orders.front().ability_id != AbilityIdValue;
 }
 
 bool ShouldRefreshHoldPosition(const Unit& ActorUnitValue)
@@ -454,6 +626,187 @@ FTacticalBehaviorScore BuildHoldPositionScore(const Unit& ControlledUnitValue,
     }
 }
 
+FTacticalBehaviorScore BuildMedivacSupportScore(const Unit& ControlledUnitValue, const Units& ControlledUnitsValue,
+                                                const Units& EnemyUnitsValue,
+                                                const FArmyMissionDescriptor& MissionDescriptorValue,
+                                                const Point2D& RallyPointValue)
+{
+    constexpr float HealSupportRangeSquaredValue = 49.0f;
+    constexpr float SupportAnchorOffsetDistanceValue = 3.0f;
+    constexpr float EmergencyThreatDistanceSquaredValue = 81.0f;
+    constexpr float EmergencyRetreatOffsetDistanceValue = 6.0f;
+
+    FTacticalBehaviorScore TacticalBehaviorScoreValue;
+    TacticalBehaviorScoreValue.ScoreValue = std::numeric_limits<int>::min();
+    const Point2D ControlledUnitPointValue = Point2D(ControlledUnitValue.pos);
+    const Unit* WoundedBioSupportUnitPtrValue =
+        FindNearestWoundedBioSupportTarget(ControlledUnitPointValue, ControlledUnitsValue);
+
+    if (WoundedBioSupportUnitPtrValue != nullptr &&
+        DistanceSquared2D(ControlledUnitPointValue, Point2D(WoundedBioSupportUnitPtrValue->pos)) <=
+            HealSupportRangeSquaredValue)
+    {
+        TacticalBehaviorScoreValue.Behavior = EUnitTacticalBehavior::HealBioSupportTarget;
+        TacticalBehaviorScoreValue.ScoreValue = 1250;
+        TacticalBehaviorScoreValue.TargetUnitTag = WoundedBioSupportUnitPtrValue->tag;
+        TacticalBehaviorScoreValue.TargetPoint = Point2D(WoundedBioSupportUnitPtrValue->pos);
+        return TacticalBehaviorScoreValue;
+    }
+
+    Point2D BioSupportAnchorPointValue = RallyPointValue;
+    if (!TryComputeBioSupportAnchor(ControlledUnitPointValue, ControlledUnitsValue, BioSupportAnchorPointValue))
+    {
+        return TacticalBehaviorScoreValue;
+    }
+
+    const Unit* EnemyThreatUnitPtrValue = FindNearestEnemyThreat(BioSupportAnchorPointValue, EnemyUnitsValue);
+    if (EnemyThreatUnitPtrValue != nullptr)
+    {
+        const Point2D EnemyThreatPointValue = Point2D(EnemyThreatUnitPtrValue->pos);
+        BioSupportAnchorPointValue = ComputeOffsetPointAwayFromThreat(BioSupportAnchorPointValue, EnemyThreatPointValue,
+                                                                      SupportAnchorOffsetDistanceValue);
+        if (WoundedBioSupportUnitPtrValue == nullptr &&
+            DistanceSquared2D(ControlledUnitPointValue, EnemyThreatPointValue) <= EmergencyThreatDistanceSquaredValue)
+        {
+            BioSupportAnchorPointValue = ComputeOffsetPointAwayFromThreat(
+                ControlledUnitPointValue, EnemyThreatPointValue, EmergencyRetreatOffsetDistanceValue);
+        }
+    }
+
+    TacticalBehaviorScoreValue.Behavior = EUnitTacticalBehavior::SupportBioAnchor;
+    TacticalBehaviorScoreValue.TargetPoint = BioSupportAnchorPointValue;
+    TacticalBehaviorScoreValue.ScoreValue = 975;
+    switch (MissionDescriptorValue.MissionType)
+    {
+        case EArmyMissionType::DefendOwnedBase:
+        case EArmyMissionType::Regroup:
+            TacticalBehaviorScoreValue.ScoreValue += 75;
+            break;
+        default:
+            break;
+    }
+
+    if (WoundedBioSupportUnitPtrValue != nullptr)
+    {
+        TacticalBehaviorScoreValue.ScoreValue += 50;
+    }
+
+    return TacticalBehaviorScoreValue;
+}
+
+FTacticalBehaviorScore BuildWidowMineControlScore(const Unit& ControlledUnitValue, const Units& EnemyUnitsValue,
+                                                  const FArmyMissionDescriptor& MissionDescriptorValue)
+{
+    constexpr float MineThreatTriggerDistanceSquaredValue = 49.0f;
+    constexpr float MineBurrowedClearDistanceSquaredValue = 121.0f;
+    constexpr float MineAnchorDistanceSquaredValue = 196.0f;
+
+    FTacticalBehaviorScore TacticalBehaviorScoreValue;
+    TacticalBehaviorScoreValue.ScoreValue = std::numeric_limits<int>::min();
+    const Point2D ControlledUnitPointValue = Point2D(ControlledUnitValue.pos);
+    const Unit* EnemyGroundThreatUnitPtrValue = FindNearestEnemyGroundThreat(ControlledUnitPointValue, EnemyUnitsValue);
+    const bool IsNearMissionAnchorValue =
+        DistanceSquared2D(ControlledUnitPointValue, MissionDescriptorValue.ObjectivePoint) <=
+        MineAnchorDistanceSquaredValue;
+
+    switch (ControlledUnitValue.unit_type.ToType())
+    {
+        case UNIT_TYPEID::TERRAN_WIDOWMINE:
+            if (EnemyGroundThreatUnitPtrValue != nullptr &&
+                DistanceSquared2D(ControlledUnitPointValue, Point2D(EnemyGroundThreatUnitPtrValue->pos)) <=
+                    MineThreatTriggerDistanceSquaredValue &&
+                IsNearMissionAnchorValue)
+            {
+                TacticalBehaviorScoreValue.Behavior = EUnitTacticalBehavior::BurrowDownForAmbush;
+                TacticalBehaviorScoreValue.ScoreValue = 1150;
+                TacticalBehaviorScoreValue.TargetPoint = ControlledUnitPointValue;
+            }
+            break;
+        case UNIT_TYPEID::TERRAN_WIDOWMINEBURROWED:
+            if (IsAdvancingMissionType(MissionDescriptorValue.MissionType) &&
+                (EnemyGroundThreatUnitPtrValue == nullptr ||
+                 DistanceSquared2D(ControlledUnitPointValue, Point2D(EnemyGroundThreatUnitPtrValue->pos)) >=
+                     MineBurrowedClearDistanceSquaredValue))
+            {
+                TacticalBehaviorScoreValue.Behavior = EUnitTacticalBehavior::BurrowUpForAdvance;
+                TacticalBehaviorScoreValue.ScoreValue = 1025;
+                TacticalBehaviorScoreValue.TargetPoint = ControlledUnitPointValue;
+            }
+            break;
+        default:
+            break;
+    }
+
+    return TacticalBehaviorScoreValue;
+}
+
+FTacticalBehaviorScore BuildSiegeTankControlScore(const Unit& ControlledUnitValue, const Units& EnemyUnitsValue,
+                                                  const FArmyMissionDescriptor& MissionDescriptorValue)
+{
+    constexpr float SiegeTankEngageDistanceSquaredValue = 121.0f;
+    constexpr float SiegeTankReleaseDistanceSquaredValue = 169.0f;
+    constexpr float SiegeTankAnchorDistanceSquaredValue = 256.0f;
+
+    FTacticalBehaviorScore TacticalBehaviorScoreValue;
+    TacticalBehaviorScoreValue.ScoreValue = std::numeric_limits<int>::min();
+    const Point2D ControlledUnitPointValue = Point2D(ControlledUnitValue.pos);
+    const Unit* EnemyGroundTargetUnitPtrValue =
+        FindNearestEnemyGroundTargetOrStructure(ControlledUnitPointValue, EnemyUnitsValue);
+    const bool IsNearMissionAnchorValue =
+        DistanceSquared2D(ControlledUnitPointValue, MissionDescriptorValue.ObjectivePoint) <=
+        SiegeTankAnchorDistanceSquaredValue;
+
+    switch (ControlledUnitValue.unit_type.ToType())
+    {
+        case UNIT_TYPEID::TERRAN_SIEGETANK:
+            if (EnemyGroundTargetUnitPtrValue != nullptr && IsNearMissionAnchorValue &&
+                DistanceSquared2D(ControlledUnitPointValue, Point2D(EnemyGroundTargetUnitPtrValue->pos)) <=
+                    SiegeTankEngageDistanceSquaredValue)
+            {
+                TacticalBehaviorScoreValue.Behavior = EUnitTacticalBehavior::SiegeForAnchor;
+                TacticalBehaviorScoreValue.ScoreValue = 1125;
+                TacticalBehaviorScoreValue.TargetPoint = ControlledUnitPointValue;
+            }
+            break;
+        case UNIT_TYPEID::TERRAN_SIEGETANKSIEGED:
+            if (IsAdvancingMissionType(MissionDescriptorValue.MissionType) &&
+                (EnemyGroundTargetUnitPtrValue == nullptr ||
+                 DistanceSquared2D(ControlledUnitPointValue, Point2D(EnemyGroundTargetUnitPtrValue->pos)) >=
+                     SiegeTankReleaseDistanceSquaredValue))
+            {
+                TacticalBehaviorScoreValue.Behavior = EUnitTacticalBehavior::UnsiegeForAdvance;
+                TacticalBehaviorScoreValue.ScoreValue = 1000;
+                TacticalBehaviorScoreValue.TargetPoint = ControlledUnitPointValue;
+            }
+            break;
+        default:
+            break;
+    }
+
+    return TacticalBehaviorScoreValue;
+}
+
+FTacticalBehaviorScore SelectSpecializedBehaviorScore(const Unit& ControlledUnitValue, const Units& ControlledUnitsValue,
+                                                      const Units& EnemyUnitsValue,
+                                                      const FArmyMissionDescriptor& MissionDescriptorValue,
+                                                      const Point2D& RallyPointValue)
+{
+    switch (ControlledUnitValue.unit_type.ToType())
+    {
+        case UNIT_TYPEID::TERRAN_MEDIVAC:
+            return BuildMedivacSupportScore(ControlledUnitValue, ControlledUnitsValue, EnemyUnitsValue,
+                                            MissionDescriptorValue, RallyPointValue);
+        case UNIT_TYPEID::TERRAN_WIDOWMINE:
+        case UNIT_TYPEID::TERRAN_WIDOWMINEBURROWED:
+            return BuildWidowMineControlScore(ControlledUnitValue, EnemyUnitsValue, MissionDescriptorValue);
+        case UNIT_TYPEID::TERRAN_SIEGETANK:
+        case UNIT_TYPEID::TERRAN_SIEGETANKSIEGED:
+            return BuildSiegeTankControlScore(ControlledUnitValue, EnemyUnitsValue, MissionDescriptorValue);
+        default:
+            return FTacticalBehaviorScore();
+    }
+}
+
 FTacticalBehaviorScore SelectBestBehaviorScore(const Unit& ControlledUnitValue, const Units& EnemyUnitsValue,
                                                const FArmyMissionDescriptor& MissionDescriptorValue,
                                                const Point2D& RallyPointValue)
@@ -488,13 +841,22 @@ FCommandOrderRecord CreateBehaviorExecutionOrder(const Unit& ControlledUnitValue
                                                  const FCommandOrderRecord& SquadOrderValue,
                                                  const uint64_t CurrentGameLoopValue)
 {
-    const bool IsSupportUnitValue = IsSupportUnitType(ControlledUnitValue.unit_type.ToType());
-
     switch (TacticalBehaviorScoreValue.Behavior)
     {
+        case EUnitTacticalBehavior::HealBioSupportTarget:
+            if (TacticalBehaviorScoreValue.TargetUnitTag != NullTag)
+            {
+                return FCommandOrderRecord::CreateUnitTarget(
+                    ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag, ABILITY_ID::EFFECT_HEAL,
+                    TacticalBehaviorScoreValue.TargetUnitTag, SquadOrderValue.BasePriorityValue,
+                    EIntentDomain::ArmyCombat, CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
+                    SquadOrderValue.OwningArmyIndex, SquadOrderValue.OwningSquadIndex, false);
+            }
+            break;
         case EUnitTacticalBehavior::AttackLocalThreat:
         case EUnitTacticalBehavior::ClearBlockingStructure:
-            if (!IsSupportUnitValue && TacticalBehaviorScoreValue.TargetUnitTag != NullTag)
+            if (!IsSupportUnitType(ControlledUnitValue.unit_type.ToType()) &&
+                TacticalBehaviorScoreValue.TargetUnitTag != NullTag)
             {
                 return FCommandOrderRecord::CreateUnitTarget(
                     ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag, ABILITY_ID::ATTACK_ATTACK,
@@ -510,6 +872,41 @@ FCommandOrderRecord CreateBehaviorExecutionOrder(const Unit& ControlledUnitValue
                                                        CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
                                                        SquadOrderValue.OwningArmyIndex,
                                                        SquadOrderValue.OwningSquadIndex, false);
+        case EUnitTacticalBehavior::BurrowDownForAmbush:
+            return FCommandOrderRecord::CreateNoTarget(ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag,
+                                                       ABILITY_ID::BURROWDOWN,
+                                                       SquadOrderValue.BasePriorityValue, EIntentDomain::ArmyCombat,
+                                                       CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
+                                                       SquadOrderValue.OwningArmyIndex,
+                                                       SquadOrderValue.OwningSquadIndex, false);
+        case EUnitTacticalBehavior::BurrowUpForAdvance:
+            return FCommandOrderRecord::CreateNoTarget(ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag,
+                                                       ABILITY_ID::BURROWUP,
+                                                       SquadOrderValue.BasePriorityValue, EIntentDomain::ArmyCombat,
+                                                       CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
+                                                       SquadOrderValue.OwningArmyIndex,
+                                                       SquadOrderValue.OwningSquadIndex, false);
+        case EUnitTacticalBehavior::SiegeForAnchor:
+            return FCommandOrderRecord::CreateNoTarget(ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag,
+                                                       ABILITY_ID::MORPH_SIEGEMODE,
+                                                       SquadOrderValue.BasePriorityValue, EIntentDomain::ArmyCombat,
+                                                       CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
+                                                       SquadOrderValue.OwningArmyIndex,
+                                                       SquadOrderValue.OwningSquadIndex, false);
+        case EUnitTacticalBehavior::UnsiegeForAdvance:
+            return FCommandOrderRecord::CreateNoTarget(ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag,
+                                                       ABILITY_ID::MORPH_UNSIEGE,
+                                                       SquadOrderValue.BasePriorityValue, EIntentDomain::ArmyCombat,
+                                                       CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
+                                                       SquadOrderValue.OwningArmyIndex,
+                                                       SquadOrderValue.OwningSquadIndex, false);
+        case EUnitTacticalBehavior::SupportBioAnchor:
+            return FCommandOrderRecord::CreatePointTarget(ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag,
+                                                          ABILITY_ID::MOVE_MOVE, TacticalBehaviorScoreValue.TargetPoint,
+                                                          SquadOrderValue.BasePriorityValue, EIntentDomain::ArmyCombat,
+                                                          CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
+                                                          SquadOrderValue.OwningArmyIndex,
+                                                          SquadOrderValue.OwningSquadIndex, true, false, false);
         case EUnitTacticalBehavior::AdvanceToMissionAnchor:
         case EUnitTacticalBehavior::RegroupToSquadAnchor:
         case EUnitTacticalBehavior::RetreatToSafeAnchor:
@@ -517,6 +914,7 @@ FCommandOrderRecord CreateBehaviorExecutionOrder(const Unit& ControlledUnitValue
             break;
     }
 
+    const bool IsSupportUnitValue = IsSupportUnitType(ControlledUnitValue.unit_type.ToType());
     const ABILITY_ID AbilityIdValue = IsSupportUnitValue ? ABILITY_ID::MOVE_MOVE : ABILITY_ID::ATTACK_ATTACK;
     return FCommandOrderRecord::CreatePointTarget(ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag,
                                                   AbilityIdValue, TacticalBehaviorScoreValue.TargetPoint,
@@ -530,6 +928,10 @@ bool ShouldCreateExecutionOrder(const Unit& ControlledUnitValue, const FTactical
 {
     switch (TacticalBehaviorScoreValue.Behavior)
     {
+        case EUnitTacticalBehavior::HealBioSupportTarget:
+            return TacticalBehaviorScoreValue.TargetUnitTag != NullTag &&
+                   ShouldRefreshUnitOrder(ControlledUnitValue, ABILITY_ID::EFFECT_HEAL,
+                                          TacticalBehaviorScoreValue.TargetUnitTag);
         case EUnitTacticalBehavior::AttackLocalThreat:
         case EUnitTacticalBehavior::ClearBlockingStructure:
             return TacticalBehaviorScoreValue.TargetUnitTag != NullTag &&
@@ -537,6 +939,17 @@ bool ShouldCreateExecutionOrder(const Unit& ControlledUnitValue, const FTactical
                                           TacticalBehaviorScoreValue.TargetUnitTag);
         case EUnitTacticalBehavior::HoldPosition:
             return ShouldRefreshHoldPosition(ControlledUnitValue);
+        case EUnitTacticalBehavior::BurrowDownForAmbush:
+            return ShouldRefreshUnitOrder(ControlledUnitValue, ABILITY_ID::BURROWDOWN);
+        case EUnitTacticalBehavior::BurrowUpForAdvance:
+            return ShouldRefreshUnitOrder(ControlledUnitValue, ABILITY_ID::BURROWUP);
+        case EUnitTacticalBehavior::SiegeForAnchor:
+            return ShouldRefreshUnitOrder(ControlledUnitValue, ABILITY_ID::MORPH_SIEGEMODE);
+        case EUnitTacticalBehavior::UnsiegeForAdvance:
+            return ShouldRefreshUnitOrder(ControlledUnitValue, ABILITY_ID::MORPH_UNSIEGE);
+        case EUnitTacticalBehavior::SupportBioAnchor:
+            return ShouldRefreshUnitOrder(ControlledUnitValue, ABILITY_ID::MOVE_MOVE,
+                                          TacticalBehaviorScoreValue.TargetPoint);
         case EUnitTacticalBehavior::AdvanceToMissionAnchor:
         case EUnitTacticalBehavior::RegroupToSquadAnchor:
         case EUnitTacticalBehavior::RetreatToSafeAnchor:
@@ -610,8 +1023,14 @@ uint32_t FTerranArmyUnitExecutionPlanner::ExpandUnitExecutionOrders(
             }
 
             ActiveCombatUnitTagsValue.insert(ControlledUnitPtrValue->tag);
-            const FTacticalBehaviorScore TacticalBehaviorScoreValue = SelectBestBehaviorScore(
-                *ControlledUnitPtrValue, EnemyUnitsValue, *MissionDescriptorPtrValue, RallyPointValue);
+            FTacticalBehaviorScore TacticalBehaviorScoreValue = SelectSpecializedBehaviorScore(
+                *ControlledUnitPtrValue, AgentStateValue.UnitContainer.ControlledUnits, EnemyUnitsValue,
+                *MissionDescriptorPtrValue, RallyPointValue);
+            if (TacticalBehaviorScoreValue.ScoreValue == std::numeric_limits<int>::min())
+            {
+                TacticalBehaviorScoreValue = SelectBestBehaviorScore(*ControlledUnitPtrValue, EnemyUnitsValue,
+                                                                     *MissionDescriptorPtrValue, RallyPointValue);
+            }
             if (TacticalBehaviorScoreValue.ScoreValue == std::numeric_limits<int>::min())
             {
                 continue;

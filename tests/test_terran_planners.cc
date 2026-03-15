@@ -101,6 +101,15 @@ FGameStateDescriptor CreateGoalDrivenTimingDescriptor()
         211U, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology, EGoalStatus::Active, 165,
         1U, UNIT_TYPEID::TERRAN_FACTORYTECHLAB));
     GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        212U, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology, EGoalStatus::Active, 160,
+        1U, UNIT_TYPEID::TERRAN_STARPORTREACTOR));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        213U, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::UnlockTechnology, EGoalStatus::Active, 158,
+        1U, UNIT_TYPEID::TERRAN_ENGINEERINGBAY));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
+        214U, EGoalDomain::Technology, EGoalHorizon::NearTerm, EGoalType::ResearchUpgrade, EGoalStatus::Active, 156,
+        1U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::STIMPACK)));
+    GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
         220U, EGoalDomain::Production, EGoalHorizon::NearTerm, EGoalType::BuildProductionCapacity,
         EGoalStatus::Active, 175, 1U, UNIT_TYPEID::TERRAN_FACTORY));
     GameStateDescriptorValue.GoalSet.NearTermGoals.push_back(CreateGoalDescriptor(
@@ -112,6 +121,9 @@ FGameStateDescriptor CreateGoalDrivenTimingDescriptor()
     GameStateDescriptorValue.GoalSet.StrategicGoals.push_back(CreateGoalDescriptor(
         301U, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy, EGoalStatus::Active, 155, 1U,
         UNIT_TYPEID::TERRAN_MEDIVAC));
+    GameStateDescriptorValue.GoalSet.StrategicGoals.push_back(CreateGoalDescriptor(
+        302U, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy, EGoalStatus::Active, 150, 1U,
+        UNIT_TYPEID::TERRAN_SIEGETANK));
     GameStateDescriptorValue.ArmyState.EnsurePrimaryArmyExists();
     GameStateDescriptorValue.ArmyState.ArmyGoals.front() = EArmyGoal::TimingAttack;
     GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::PressureKnownEnemyBase;
@@ -198,10 +210,21 @@ bool TestTerranPlanners(int ArgC, char** ArgV)
               "Goal-driven timing plan should project the requested factory tech lab.");
         Check(BuildPlanningStateValue.DesiredStarportCount == 1U, SuccessValue,
               "Goal-driven timing plan should project the requested starport.");
+        Check(BuildPlanningStateValue.DesiredStarportReactorCount == 1U, SuccessValue,
+              "Goal-driven timing plan should project the requested starport reactor.");
+        Check(BuildPlanningStateValue.DesiredEngineeringBayCount == 1U, SuccessValue,
+              "Goal-driven timing plan should project the requested engineering bay.");
         Check(BuildPlanningStateValue.DesiredHellionCount == 1U, SuccessValue,
               "Goal-driven timing plan should project the requested first hellion.");
         Check(BuildPlanningStateValue.DesiredMedivacCount == 1U, SuccessValue,
               "Goal-driven timing plan should project the requested first medivac.");
+        Check(BuildPlanningStateValue.DesiredSiegeTankCount == 1U, SuccessValue,
+              "Goal-driven timing plan should project the requested first siege tank.");
+        Check(BuildPlanningStateValue.DesiredCompletedUpgradeCounts[GetTerranUpgradeTypeIndex(
+                  UpgradeID(UPGRADE_ID::STIMPACK))] == 1U,
+              SuccessValue, "Goal-driven timing plan should project the requested stimpack upgrade.");
+        Check(BuildPlanningStateValue.ActiveNeedCount >= 4U, SuccessValue,
+              "Outstanding need counting should include new add-on, tech-structure, and upgrade gaps.");
 
         ArmyPlannerValue.ProduceArmyPlan(GameStateDescriptorValue, GameStateDescriptorValue.ArmyState);
         Check(!GameStateDescriptorValue.ArmyState.ArmyPostures.empty() &&

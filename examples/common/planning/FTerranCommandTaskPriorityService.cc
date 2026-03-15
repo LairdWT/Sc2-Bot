@@ -90,6 +90,30 @@ bool HasProjectedProductionBottleneck(const FGameStateDescriptor& GameStateDescr
            CurrentCombatProducerOccupancyValue >= CurrentCombatProducerCapacityValue;
 }
 
+bool HasSustainedMineralFloat(const FExecutionPressureDescriptor& ExecutionPressureDescriptorValue)
+{
+    if (ExecutionPressureDescriptorValue.MineralBankState != EExecutionConditionState::Active)
+    {
+        return false;
+    }
+
+    return ExecutionPressureDescriptorValue.CurrentMineralBankAmount >= 800U ||
+           (ExecutionPressureDescriptorValue.CurrentMineralBankAmount >= 500U &&
+            ExecutionPressureDescriptorValue.MineralBankDurationGameLoops >=
+                ForecastHorizonGameLoopsValue[ShortForecastHorizonIndexValue]);
+}
+
+bool HasIdleTownHallPressure(const FExecutionPressureDescriptor& ExecutionPressureDescriptorValue)
+{
+    return ExecutionPressureDescriptorValue.IdleTownHallCount > 0U;
+}
+
+bool HasIdleCombatProductionPressure(const FExecutionPressureDescriptor& ExecutionPressureDescriptorValue)
+{
+    return ExecutionPressureDescriptorValue.GetIdleCombatProductionStructureCount() > 0U ||
+           ExecutionPressureDescriptorValue.RecentIdleProductionConflictCount > 0U;
+}
+
 ECommandPriorityTier ApplyOpeningBlendPriorityTierClamp(
     const FGameStateDescriptor& GameStateDescriptorValue, const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
     const size_t OrderIndexValue, const ECommandPriorityTier PriorityTierValue)
@@ -316,7 +340,13 @@ int FTerranCommandTaskPriorityService::GetEmergencyWeight(
     const FMacroStateDescriptor& MacroStateDescriptorValue = GameStateDescriptorValue.MacroState;
     const FEconomyStateDescriptor& EconomyStateDescriptorValue = GameStateDescriptorValue.EconomyState;
     const FProductionStateDescriptor& ProductionStateDescriptorValue = GameStateDescriptorValue.ProductionState;
+    const FExecutionPressureDescriptor& ExecutionPressureDescriptorValue =
+        GameStateDescriptorValue.ExecutionPressure;
     const ECommandTaskType CommandTaskTypeValue = CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue];
+    const bool HasSustainedMineralFloatValue = HasSustainedMineralFloat(ExecutionPressureDescriptorValue);
+    const bool HasIdleTownHallPressureValue = HasIdleTownHallPressure(ExecutionPressureDescriptorValue);
+    const bool HasIdleCombatProductionPressureValue =
+        HasIdleCombatProductionPressure(ExecutionPressureDescriptorValue);
 
     if (IsProjectedSupplyEmergency(GameStateDescriptorValue))
     {
@@ -362,6 +392,74 @@ int FTerranCommandTaskPriorityService::GetEmergencyWeight(
                 break;
             case ECommandTaskType::Expansion:
                 EmergencyWeightValue -= 300;
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (HasIdleTownHallPressureValue && CommandTaskTypeValue == ECommandTaskType::WorkerProduction)
+    {
+        EmergencyWeightValue += 350;
+    }
+
+    if (HasIdleCombatProductionPressureValue)
+    {
+        switch (CommandTaskTypeValue)
+        {
+            case ECommandTaskType::UnitProduction:
+                EmergencyWeightValue += 425;
+                break;
+            case ECommandTaskType::AddOn:
+                EmergencyWeightValue += 275;
+                break;
+            case ECommandTaskType::UpgradeResearch:
+                EmergencyWeightValue += 175;
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (HasSustainedMineralFloatValue)
+    {
+        switch (CommandTaskTypeValue)
+        {
+            case ECommandTaskType::WorkerProduction:
+                if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_SCV) <
+                    GetWorkerSaturationTargetCount(MacroStateDescriptorValue))
+                {
+                    EmergencyWeightValue += 250;
+                }
+                break;
+            case ECommandTaskType::Supply:
+                if (ExecutionPressureDescriptorValue.SupplyBlockState == EExecutionConditionState::Active ||
+                    EconomyStateDescriptorValue.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <= 4U)
+                {
+                    EmergencyWeightValue += 300;
+                }
+                break;
+            case ECommandTaskType::Expansion:
+                if (MacroStateDescriptorValue.ActiveBaseCount < MacroStateDescriptorValue.DesiredBaseCount)
+                {
+                    EmergencyWeightValue += 275;
+                }
+                break;
+            case ECommandTaskType::ProductionStructure:
+                EmergencyWeightValue += HasProjectedProductionBottleneck(GameStateDescriptorValue) &&
+                                                !HasIdleCombatProductionPressureValue
+                                            ? 350
+                                            : 125;
+                break;
+            case ECommandTaskType::AddOn:
+                EmergencyWeightValue += 275;
+                break;
+            case ECommandTaskType::UnitProduction:
+                EmergencyWeightValue += 350;
+                break;
+            case ECommandTaskType::TechStructure:
+            case ECommandTaskType::UpgradeResearch:
+                EmergencyWeightValue += 225;
                 break;
             default:
                 break;

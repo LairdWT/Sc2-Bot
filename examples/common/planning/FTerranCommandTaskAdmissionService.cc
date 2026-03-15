@@ -114,6 +114,8 @@ uint64_t BuildResourceFingerprint(const FGameStateDescriptor& GameStateDescripto
     const FEconomyStateDescriptor& EconomyStateDescriptorValue = GameStateDescriptorValue.EconomyState;
     const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue =
         GameStateDescriptorValue.CommitmentLedger;
+    const FExecutionPressureDescriptor& ExecutionPressureDescriptorValue =
+        GameStateDescriptorValue.ExecutionPressure;
     uint64_t ResourceFingerprintValue = 0U;
     ResourceFingerprintValue =
         CombineFingerprint(ResourceFingerprintValue, EconomyStateDescriptorValue.BudgetedMinerals);
@@ -181,12 +183,28 @@ uint64_t BuildResourceFingerprint(const FGameStateDescriptor& GameStateDescripto
     ResourceFingerprintValue =
         CombineFingerprint(ResourceFingerprintValue,
                            static_cast<uint64_t>(GameStateDescriptorValue.SchedulerOutlook.ExpectedSupplyUsedDelta));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue, static_cast<uint64_t>(ExecutionPressureDescriptorValue.SupplyBlockState));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue, ExecutionPressureDescriptorValue.SupplyBlockDurationGameLoops);
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue, static_cast<uint64_t>(ExecutionPressureDescriptorValue.MineralBankState));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue, ExecutionPressureDescriptorValue.MineralBankDurationGameLoops);
+    ResourceFingerprintValue = CombineFingerprint(ResourceFingerprintValue,
+                                                 ExecutionPressureDescriptorValue.CurrentMineralBankAmount);
+    ResourceFingerprintValue = CombineFingerprint(ResourceFingerprintValue,
+                                                 ExecutionPressureDescriptorValue.RecentSchedulerOrderDeferralCount);
+    ResourceFingerprintValue = CombineFingerprint(ResourceFingerprintValue,
+                                                 ExecutionPressureDescriptorValue.RecentInsufficientResourcesDeferralCount);
     return ResourceFingerprintValue;
 }
 
 uint64_t BuildProducerFingerprint(const FGameStateDescriptor& GameStateDescriptorValue)
 {
     const FProductionStateDescriptor& ProductionStateDescriptorValue = GameStateDescriptorValue.ProductionState;
+    const FExecutionPressureDescriptor& ExecutionPressureDescriptorValue =
+        GameStateDescriptorValue.ExecutionPressure;
     uint64_t ProducerFingerprintValue = 0U;
     ProducerFingerprintValue =
         CombineFingerprint(ProducerFingerprintValue, GameStateDescriptorValue.MacroState.WorkerCount);
@@ -253,6 +271,22 @@ uint64_t BuildProducerFingerprint(const FGameStateDescriptor& GameStateDescripto
         ProducerFingerprintValue,
         QuantizePositiveRate(
             ProductionStateDescriptorValue.StarportThroughputAveragesByHorizon[ShortForecastHorizonIndexValue]));
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ExecutionPressureDescriptorValue.IdleTownHallCount);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ExecutionPressureDescriptorValue.IdleBarracksCount);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ExecutionPressureDescriptorValue.IdleFactoryCount);
+    ProducerFingerprintValue =
+        CombineFingerprint(ProducerFingerprintValue, ExecutionPressureDescriptorValue.IdleStarportCount);
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue, ExecutionPressureDescriptorValue.RecentIdleProductionConflictCount);
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue, ExecutionPressureDescriptorValue.RecentNoProducerDeferralCount);
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue, ExecutionPressureDescriptorValue.RecentProducerBusyDeferralCount);
+    ProducerFingerprintValue = CombineFingerprint(
+        ProducerFingerprintValue, ExecutionPressureDescriptorValue.RecentPlacementDeferralCount);
     return ProducerFingerprintValue;
 }
 

@@ -633,6 +633,118 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
           SuccessValue,
           "A unit-production economy order with requested queue count two should keep filling a reactor-backed queue.");
 
+    std::vector<Unit> ReactorStarportUnitStorageValue;
+    ReactorStarportUnitStorageValue.push_back(
+        MakeUnit(121U, UNIT_TYPEID::TERRAN_STARPORT, Unit::Alliance::Self, Point2D(20.0f, 20.0f), true));
+    ReactorStarportUnitStorageValue.push_back(MakeUnit(122U, UNIT_TYPEID::TERRAN_STARPORTREACTOR,
+                                                       Unit::Alliance::Self, Point2D(22.5f, 19.5f), true));
+    ReactorStarportUnitStorageValue[0].add_on_tag = 122U;
+
+    Units ReactorStarportUnitPointersValue;
+    AppendUnitPointers(ReactorStarportUnitStorageValue, ReactorStarportUnitPointersValue);
+
+    FakeObservation ReactorStarportObservationValue;
+    ReactorStarportObservationValue.SetUnits(ReactorStarportUnitPointersValue);
+    ReactorStarportObservationValue.MineralsValue = 500U;
+    ReactorStarportObservationValue.VespeneValue = 300U;
+    FakeQuery ReactorStarportQueryValue;
+    const FFrameContext ReactorStarportFrameValue =
+        FFrameContext::Create(&ReactorStarportObservationValue, &ReactorStarportQueryValue, 3U);
+
+    FAgentState ReactorStarportAgentStateValue;
+    ReactorStarportAgentStateValue.Update(ReactorStarportFrameValue);
+
+    FGameStateDescriptor ReactorStarportGameStateDescriptorValue;
+    ReactorStarportGameStateDescriptorValue.CurrentStep = 3U;
+    ReactorStarportGameStateDescriptorValue.CurrentGameLoop = 3U;
+    ReactorStarportGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    ReactorStarportGameStateDescriptorValue.BuildPlanning.AvailableVespene = 300U;
+    ReactorStarportGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+
+    FCommandAuthoritySchedulingState& ReactorStarportSchedulingStateValue =
+        ReactorStarportGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord ReactorStarportEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::TRAIN_MEDIVAC, 150,
+        EIntentDomain::UnitProduction, 3U);
+    ReactorStarportEconomyOrderValue.TargetCount = 6U;
+    ReactorStarportEconomyOrderValue.RequestedQueueCount = 2U;
+    ReactorStarportEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_STARPORT;
+    ReactorStarportEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_MEDIVAC;
+    const uint32_t ReactorStarportEconomyOrderIdValue =
+        ReactorStarportSchedulingStateValue.EnqueueOrder(ReactorStarportEconomyOrderValue);
+
+    FCommandOrderRecord ExistingReactorStarportChildOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::UnitExecution, 121U, ABILITY_ID::TRAIN_MEDIVAC, 150,
+        EIntentDomain::UnitProduction, 3U, 0U, ReactorStarportEconomyOrderIdValue);
+    ExistingReactorStarportChildOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_STARPORT;
+    ExistingReactorStarportChildOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_MEDIVAC;
+    ReactorStarportSchedulingStateValue.EnqueueOrder(ExistingReactorStarportChildOrderValue);
+
+    FIntentBuffer ReactorStarportIntentBufferValue;
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        ReactorStarportFrameValue, ReactorStarportAgentStateValue, ReactorStarportGameStateDescriptorValue,
+        ReactorStarportIntentBufferValue, BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    Check(CountActiveChildOrders(ReactorStarportSchedulingStateValue, ReactorStarportEconomyOrderIdValue,
+                                 ECommandAuthorityLayer::UnitExecution) == 2U,
+          SuccessValue,
+          "A reactor-backed starport should keep filling both queue slots for a medivac order.");
+
+    std::vector<Unit> FactoryTankUnitStorageValue;
+    FactoryTankUnitStorageValue.push_back(
+        MakeUnit(131U, UNIT_TYPEID::TERRAN_FACTORY, Unit::Alliance::Self, Point2D(20.0f, 20.0f), true));
+    FactoryTankUnitStorageValue.push_back(
+        MakeUnit(132U, UNIT_TYPEID::TERRAN_FACTORYTECHLAB, Unit::Alliance::Self, Point2D(22.5f, 19.5f), true));
+    FactoryTankUnitStorageValue.push_back(
+        MakeUnit(133U, UNIT_TYPEID::TERRAN_FACTORY, Unit::Alliance::Self, Point2D(28.0f, 20.0f), true));
+    FactoryTankUnitStorageValue.push_back(
+        MakeUnit(134U, UNIT_TYPEID::TERRAN_FACTORYTECHLAB, Unit::Alliance::Self, Point2D(30.5f, 19.5f), true));
+    FactoryTankUnitStorageValue[0].add_on_tag = 132U;
+    FactoryTankUnitStorageValue[2].add_on_tag = 134U;
+
+    Units FactoryTankUnitPointersValue;
+    AppendUnitPointers(FactoryTankUnitStorageValue, FactoryTankUnitPointersValue);
+
+    FakeObservation FactoryTankObservationValue;
+    FactoryTankObservationValue.SetUnits(FactoryTankUnitPointersValue);
+    FactoryTankObservationValue.MineralsValue = 500U;
+    FactoryTankObservationValue.VespeneValue = 400U;
+    FakeQuery FactoryTankQueryValue;
+    const FFrameContext FactoryTankFrameValue =
+        FFrameContext::Create(&FactoryTankObservationValue, &FactoryTankQueryValue, 4U);
+
+    FAgentState FactoryTankAgentStateValue;
+    FactoryTankAgentStateValue.Update(FactoryTankFrameValue);
+
+    FGameStateDescriptor FactoryTankGameStateDescriptorValue;
+    FactoryTankGameStateDescriptorValue.CurrentStep = 4U;
+    FactoryTankGameStateDescriptorValue.CurrentGameLoop = 4U;
+    FactoryTankGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    FactoryTankGameStateDescriptorValue.BuildPlanning.AvailableVespene = 400U;
+    FactoryTankGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+
+    FCommandAuthoritySchedulingState& FactoryTankSchedulingStateValue =
+        FactoryTankGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord FactoryTankEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::TRAIN_SIEGETANK, 150,
+        EIntentDomain::UnitProduction, 4U);
+    FactoryTankEconomyOrderValue.TargetCount = 2U;
+    FactoryTankEconomyOrderValue.RequestedQueueCount = 2U;
+    FactoryTankEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
+    FactoryTankEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SIEGETANK;
+    const uint32_t FactoryTankEconomyOrderIdValue =
+        FactoryTankSchedulingStateValue.EnqueueOrder(FactoryTankEconomyOrderValue);
+
+    FIntentBuffer FactoryTankIntentBufferValue;
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        FactoryTankFrameValue, FactoryTankAgentStateValue, FactoryTankGameStateDescriptorValue,
+        FactoryTankIntentBufferValue, BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    Check(CountActiveChildOrders(FactoryTankSchedulingStateValue, FactoryTankEconomyOrderIdValue,
+                                 ECommandAuthorityLayer::UnitExecution) == 2U,
+          SuccessValue,
+          "A requested queue count of two should let one siege-tank order fan out across two idle tech-lab factories.");
+
     std::vector<Unit> WorkerTownHallUnitStorageValue;
     WorkerTownHallUnitStorageValue.push_back(
         MakeUnit(211U, UNIT_TYPEID::TERRAN_COMMANDCENTER, Unit::Alliance::Self, Point2D(10.0f, 10.0f), true));

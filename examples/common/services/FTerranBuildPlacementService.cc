@@ -142,6 +142,11 @@ Point2D GetClockwiseLateralDirection(const Point2D& ForwardDirectionValue)
 Point2D ClampPointToPlayableBounds(const FBuildPlacementContext& BuildPlacementContextValue,
                                    const Point2D& CandidatePointValue)
 {
+    if (!BuildPlacementContextValue.HasPlayableBounds())
+    {
+        return CandidatePointValue;
+    }
+
     const float ClampedXValue =
         std::max(BuildPlacementContextValue.PlayableMin.x,
                  std::min(BuildPlacementContextValue.PlayableMax.x, CandidatePointValue.x));
