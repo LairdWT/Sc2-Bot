@@ -1029,6 +1029,14 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     ProductionRailGameStateDescriptorValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots.push_back(
         ProductionRailStarportSlotValue);
 
+    FBuildPlacementSlot FallbackFactorySlotValue;
+    FallbackFactorySlotValue.SlotId.SlotType = EBuildPlacementSlotType::MainFactoryWithAddon;
+    FallbackFactorySlotValue.SlotId.Ordinal = 0U;
+    FallbackFactorySlotValue.FootprintPolicy = EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    FallbackFactorySlotValue.BuildPoint = Point2D(30.0f, 18.0f);
+    ProductionRailGameStateDescriptorValue.MainBaseLayoutDescriptor.FactoryWithAddonSlots.push_back(
+        FallbackFactorySlotValue);
+
     FCommandAuthoritySchedulingState& ProductionRailSchedulingStateValue =
         ProductionRailGameStateDescriptorValue.CommandAuthoritySchedulingState;
     FCommandOrderRecord ProductionRailFactoryEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
@@ -1077,11 +1085,14 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
     OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableVespene = 100U;
     OccupiedRailGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    OccupiedRailGameStateDescriptorValue.BuildPlanning.ReservedMinerals = 0U;
+    OccupiedRailGameStateDescriptorValue.BuildPlanning.ReservedVespene = 0U;
+    OccupiedRailGameStateDescriptorValue.BuildPlanning.ReservedSupply = 0U;
 
     FCommandAuthoritySchedulingState& OccupiedRailSchedulingStateValue =
         OccupiedRailGameStateDescriptorValue.CommandAuthoritySchedulingState;
     FCommandOrderRecord BlockingRailOrderValue = FCommandOrderRecord::CreateNoTarget(
-        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_BARRACKS, 180,
+        ECommandAuthorityLayer::StrategicDirector, NullTag, ABILITY_ID::BUILD_BARRACKS, 180,
         EIntentDomain::StructureBuild, 6U);
     BlockingRailOrderValue.TargetCount = 1U;
     BlockingRailOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
@@ -1089,6 +1100,14 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     BlockingRailOrderValue.ReservedPlacementSlotId = ProductionRailFactorySlotValue.SlotId;
     const uint32_t BlockingRailOrderIdValue = OccupiedRailSchedulingStateValue.EnqueueOrder(BlockingRailOrderValue);
     (void)BlockingRailOrderIdValue;
+
+    FCommandOrderRecord BlockingLeftRailOrderValue = BlockingRailOrderValue;
+    BlockingLeftRailOrderValue.ReservedPlacementSlotId = ProductionRailBarracksSlotValue.SlotId;
+    OccupiedRailSchedulingStateValue.EnqueueOrder(BlockingLeftRailOrderValue);
+
+    FCommandOrderRecord BlockingRightRailOrderValue = BlockingRailOrderValue;
+    BlockingRightRailOrderValue.ReservedPlacementSlotId = ProductionRailStarportSlotValue.SlotId;
+    OccupiedRailSchedulingStateValue.EnqueueOrder(BlockingRightRailOrderValue);
 
     FCommandOrderRecord OccupiedRailFactoryEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
         ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_FACTORY, 170,
@@ -1126,6 +1145,119 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
               SuccessValue,
               "A claimed exact preferred rail slot should defer with ReservedSlotOccupied instead of drifting.");
     }
+
+    FCommandOrderRecord PreferredRailOnlyFactoryEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_FACTORY, 170,
+        EIntentDomain::StructureBuild, 6U);
+    PreferredRailOnlyFactoryEconomyOrderValue.TargetCount = 1U;
+    PreferredRailOnlyFactoryEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    PreferredRailOnlyFactoryEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
+    PreferredRailOnlyFactoryEconomyOrderValue.PreferredPlacementSlotType =
+        EBuildPlacementSlotType::MainProductionWithAddon;
+    const uint32_t PreferredRailOnlyFactoryEconomyOrderIdValue =
+        OccupiedRailSchedulingStateValue.EnqueueOrder(PreferredRailOnlyFactoryEconomyOrderValue);
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        ProductionRailFrameValue, ProductionRailAgentStateValue, OccupiedRailGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ProductionRailExpansionLocationsValue);
+
+    Check(OccupiedRailSchedulingStateValue.TryGetActiveChildOrderIndex(
+              PreferredRailOnlyFactoryEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              ProductionRailChildOrderIndexValue),
+          SuccessValue,
+          "A non-exact preferred production-rail factory order should fall through to later factory slots when the rail is full.");
+    if (OccupiedRailSchedulingStateValue.TryGetActiveChildOrderIndex(
+            PreferredRailOnlyFactoryEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+            ProductionRailChildOrderIndexValue))
+    {
+        const FCommandOrderRecord PreferredRailOnlyFactoryChildOrderValue =
+            OccupiedRailSchedulingStateValue.GetOrderRecord(ProductionRailChildOrderIndexValue);
+        Check(PreferredRailOnlyFactoryChildOrderValue.TargetPoint == FallbackFactorySlotValue.BuildPoint,
+              SuccessValue,
+              "A non-exact preferred production-rail factory order should relocate to the authored factory fallback slot.");
+        Check(PreferredRailOnlyFactoryChildOrderValue.ReservedPlacementSlotId == FallbackFactorySlotValue.SlotId,
+              SuccessValue,
+              "A relocated factory order should reserve the factory fallback slot instead of drifting without a slot id.");
+    }
+
+    std::vector<Unit> AddonBlockerUnitStorageValue;
+    AddonBlockerUnitStorageValue.push_back(
+        MakeUnit(901U, UNIT_TYPEID::TERRAN_BARRACKS, Unit::Alliance::Self, Point2D(20.0f, 20.0f), true));
+    AddonBlockerUnitStorageValue.push_back(
+        MakeUnit(902U, UNIT_TYPEID::TERRAN_MARINE, Unit::Alliance::Self, Point2D(22.5f, 19.5f), false));
+
+    Units AddonBlockerUnitPointersValue;
+    AppendUnitPointers(AddonBlockerUnitStorageValue, AddonBlockerUnitPointersValue);
+
+    FakeObservation AddonBlockerObservationValue;
+    AddonBlockerObservationValue.GameLoopValue = 700U;
+    AddonBlockerObservationValue.SetUnits(AddonBlockerUnitPointersValue);
+    FakeQuery AddonBlockerQueryValue;
+    const FFrameContext AddonBlockerFrameValue =
+        FFrameContext::Create(&AddonBlockerObservationValue, &AddonBlockerQueryValue, 7U);
+
+    FAgentState AddonBlockerAgentStateValue;
+    AddonBlockerAgentStateValue.Update(AddonBlockerFrameValue);
+
+    FGameStateDescriptor AddonBlockerGameStateDescriptorValue;
+    AddonBlockerGameStateDescriptorValue.CurrentStep = 7U;
+    AddonBlockerGameStateDescriptorValue.CurrentGameLoop = 700U;
+    AddonBlockerGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 200U;
+    AddonBlockerGameStateDescriptorValue.BuildPlanning.AvailableVespene = 100U;
+    AddonBlockerGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+
+    FCommandAuthoritySchedulingState& AddonBlockerSchedulingStateValue =
+        AddonBlockerGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord AddonBlockerEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_REACTOR_BARRACKS, 180,
+        EIntentDomain::StructureBuild, 700U);
+    AddonBlockerEconomyOrderValue.TargetCount = 1U;
+    AddonBlockerEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    AddonBlockerEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKSREACTOR;
+    const uint32_t AddonBlockerEconomyOrderIdValue =
+        AddonBlockerSchedulingStateValue.EnqueueOrder(AddonBlockerEconomyOrderValue);
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        AddonBlockerFrameValue, AddonBlockerAgentStateValue, AddonBlockerGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    Check(!AddonBlockerSchedulingStateValue.TryGetActiveChildOrderIndex(
+              AddonBlockerEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              ProductionRailChildOrderIndexValue),
+          SuccessValue,
+          "An add-on order with a friendly unit on the add-on footprint should defer until the blocker is cleared.");
+
+    size_t AddonBlockerEconomyOrderIndexValue = 0U;
+    Check(AddonBlockerSchedulingStateValue.TryGetOrderIndex(
+              AddonBlockerEconomyOrderIdValue, AddonBlockerEconomyOrderIndexValue),
+          SuccessValue, "The deferred add-on blocker order should remain addressable in scheduling state.");
+    if (AddonBlockerSchedulingStateValue.TryGetOrderIndex(
+            AddonBlockerEconomyOrderIdValue, AddonBlockerEconomyOrderIndexValue))
+    {
+        const FCommandOrderRecord AddonBlockerEconomyOrderRecordValue =
+            AddonBlockerSchedulingStateValue.GetOrderRecord(AddonBlockerEconomyOrderIndexValue);
+        Check(AddonBlockerEconomyOrderRecordValue.LastDeferralReason ==
+                  ECommandOrderDeferralReason::ProducerBusy,
+              SuccessValue,
+              "A friendly unit blocking an add-on footprint should defer as ProducerBusy while blocker relief is attempted.");
+    }
+
+    bool HasMarineReliefIntentValue = false;
+    for (const FUnitIntent& IntentValue : IntentBufferValue.Intents)
+    {
+        if (IntentValue.ActorTag != 902U || IntentValue.Ability != ABILITY_ID::GENERAL_MOVE)
+        {
+            continue;
+        }
+
+        HasMarineReliefIntentValue = true;
+        break;
+    }
+
+    Check(HasMarineReliefIntentValue, SuccessValue,
+          "A marine blocking an add-on footprint should receive a recovery move intent to clear the addon space.");
 
     std::vector<Unit> CommandCenterUnitStorageValue;
     CommandCenterUnitStorageValue.push_back(

@@ -685,8 +685,13 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         CommandTaskAdmissionServiceValue.ReactivateBlockedTasks(ParkingGameStateDescriptorValue);
         Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() == 0U,
               SuccessValue, "Producer stimulus changes should reactivate blocked NoProducer retries.");
-        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.ReactivatedBlockedTaskCount == 1U,
+        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.TotalReactivatedBlockedTaskCount == 1U,
               SuccessValue, "Blocked retry reactivation should increment the explicit reactivation counter.");
+        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.RecentReactivatedBlockedTaskCount == 1U,
+              SuccessValue, "Blocked retry reactivation should increment the recent reactivation counter.");
+        ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.AdvanceRecentBlockedTaskCounterWindow(400U);
+        Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.RecentReactivatedBlockedTaskCount == 0U,
+              SuccessValue, "Blocked retry recent counters should reset once the reporting window advances.");
 
         FGameStateDescriptor ProducerBusyGameStateDescriptorValue;
         ProducerBusyGameStateDescriptorValue.CurrentStep = 300U;

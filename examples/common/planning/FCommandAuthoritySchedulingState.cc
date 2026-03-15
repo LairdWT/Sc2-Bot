@@ -7,6 +7,8 @@ namespace sc2
 namespace
 {
 
+constexpr uint64_t RecentBlockedTaskCounterWindowStepCountValue = 120U;
+
 template <typename TValueType>
 std::vector<TValueType> BuildCompactedVector(const std::vector<TValueType>& SourceValues,
                                              const std::vector<size_t>& RetainedOrderIndicesValue)
@@ -54,11 +56,17 @@ void FCommandAuthoritySchedulingState::Reset()
     MutationBatchDepth = 0U;
     RejectedUnitExecutionAdmissionCount = 0U;
     SupersededUnitExecutionOrderCount = 0U;
-    BufferedBlockedTaskCount = 0U;
-    CoalescedBlockedTaskCount = 0U;
-    DroppedBlockedTaskCount = 0U;
-    ReactivatedBlockedTaskCount = 0U;
-    RejectedMustRunBlockedTaskCount = 0U;
+    RecentBlockedTaskCounterWindowStartStep = 0U;
+    TotalBufferedBlockedTaskCount = 0U;
+    TotalCoalescedBlockedTaskCount = 0U;
+    TotalDroppedBlockedTaskCount = 0U;
+    TotalReactivatedBlockedTaskCount = 0U;
+    TotalRejectedMustRunBlockedTaskCount = 0U;
+    RecentBufferedBlockedTaskCount = 0U;
+    RecentCoalescedBlockedTaskCount = 0U;
+    RecentDroppedBlockedTaskCount = 0U;
+    RecentReactivatedBlockedTaskCount = 0U;
+    RecentRejectedMustRunBlockedTaskCount = 0U;
     bDerivedQueuesDirty = false;
     bPrioritiesDirty = false;
     SchedulerStimulusState.Reset();
@@ -144,6 +152,21 @@ void FCommandAuthoritySchedulingState::Reset()
 
     BlockedStrategicTasks.Reset(MaxBlockedStrategicTasks);
     BlockedPlanningTasks.Reset(MaxBlockedPlanningTasks);
+}
+
+void FCommandAuthoritySchedulingState::AdvanceRecentBlockedTaskCounterWindow(const uint64_t CurrentStepValue)
+{
+    if (CurrentStepValue < (RecentBlockedTaskCounterWindowStartStep + RecentBlockedTaskCounterWindowStepCountValue))
+    {
+        return;
+    }
+
+    RecentBlockedTaskCounterWindowStartStep = CurrentStepValue;
+    RecentBufferedBlockedTaskCount = 0U;
+    RecentCoalescedBlockedTaskCount = 0U;
+    RecentDroppedBlockedTaskCount = 0U;
+    RecentReactivatedBlockedTaskCount = 0U;
+    RecentRejectedMustRunBlockedTaskCount = 0U;
 }
 
 void FCommandAuthoritySchedulingState::BeginMutationBatch()

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
@@ -21,6 +22,7 @@ public:
     FAgentExecutionTelemetry();
 
     void Reset();
+    void AdvanceStep(uint64_t CurrentStepValue);
     void UpdateSupplyBlockState(EExecutionConditionState NextStateValue, uint64_t CurrentStepValue,
                                 uint64_t CurrentGameLoopValue);
     void UpdateMineralBankState(EExecutionConditionState NextStateValue, uint64_t CurrentStepValue,
@@ -39,8 +41,10 @@ public:
     void RecordWallClosed(uint64_t CurrentStepValue, uint64_t CurrentGameLoopValue);
     uint64_t GetCurrentSupplyBlockDurationGameLoops(uint64_t CurrentGameLoopValue) const;
     uint64_t GetCurrentMineralBankDurationGameLoops(uint64_t CurrentGameLoopValue) const;
+    size_t GetTrackedSchedulerDeferralCooldownCount() const;
 
 public:
+    uint64_t RecentCounterWindowStartStep;
     EExecutionConditionState SupplyBlockState;
     uint64_t SupplyBlockStartGameLoop;
     uint64_t LastSupplyBlockDurationGameLoops;
@@ -49,12 +53,17 @@ public:
     uint64_t LastMineralBankDurationGameLoops;
     uint32_t LastMineralBankAmount;
     uint32_t TotalActorIntentConflictCount;
+    uint32_t RecentActorIntentConflictCount;
     uint32_t TotalIdleProductionConflictCount;
+    uint32_t RecentIdleProductionConflictCount;
     uint32_t TotalSchedulerOrderDeferralCount;
+    uint32_t RecentSchedulerOrderDeferralCount;
     std::vector<FExecutionEventRecord> RecentEvents;
 
 protected:
     void AppendEvent(const FExecutionEventRecord& ExecutionEventRecordValue);
+    void AdvanceRecentCounterWindow(uint64_t CurrentStepValue);
+    void PruneExpiredCooldownState(uint64_t CurrentStepValue);
 
 protected:
     std::unordered_map<Tag, uint64_t> LastActorConflictStepByActor;

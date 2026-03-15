@@ -86,6 +86,27 @@ Feature-layer action mirror surface on `ObservationInterface`:
 - In stepped mode, `CoordinatorImp::StepAgents()` calls `ControlImp::Step(...)` then `ControlImp::WaitStep()`, and `WaitStep()` calls `GetObservation()` once per step request.
 - In realtime mode, `CoordinatorImp::StepAgentsRealtime()` calls `control->GetObservation()` directly each update, so multiple observations can occur without a forced game-loop advance.
 
+## QueryInterface Pointer Lifetime And Frame Capture Boundary
+
+Local source proves `Client::Query()` pointer identity behavior:
+
+- `Client::Client()` allocates `ControlImp` once.
+- `ControlImp::ControlImp(...)` allocates `query_imp_` once through `std::make_unique<QueryImp>(...)`.
+- `Client::Query()` returns `control_imp_->query_imp_.get()`.
+- `Client::Reset()` deletes `control_imp_` and creates a new `ControlImp`, replacing `query_imp_` identity.
+
+Owned `TerranAgent` frame capture boundary:
+
+- `OnGameStart()` and `OnStep()` call `FFrameContext::Create(ObservationPtr, Query(), CurrentStep)`.
+- `FFrameContext` stores the raw `QueryInterface*` for that callback pass.
+- `FFrameContext::Create(...)` does not mutate or reacquire query state after construction.
+- In current local API implementation, the query pointer is stable across callback passes until `Client::Reset()`.
+
+Contract note:
+
+- `Client::Query()` contains a TODO questioning whether invalid interface phases should return null.
+- Current local source does not implement that TODO; null-check branches in owned Terran code are defensive hardening, not a source-proven steady-state requirement.
+
 ## QueryInterface Usage In Owned Terran Flow
 
 Coordinator seam usage:
@@ -131,3 +152,4 @@ Bot-owned responsibility:
   - `ObservationImp::UpdateObservation()` clears `feature_layer_actions_` only when `is_new_frame` is true, while `ConvertFeatureLayerActions(...)` appends entries.
   - Local source proves reset and append boundaries but does not prove server-side semantics for repeated same-loop `ResponseObservation::actions` payloads.
   - Existing tests validate next-loop action visibility, but do not assert same-loop cardinality under repeated `GetObservation()` calls in realtime cadence.
+

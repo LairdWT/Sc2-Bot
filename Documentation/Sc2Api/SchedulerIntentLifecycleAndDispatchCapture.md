@@ -105,6 +105,47 @@
 - Coverage anchor:
   - `tests\test_agent_execution_telemetry.cc` asserts same-reason coalescing and reason-change re-emission for `RecordSchedulerOrderDeferred(...)`.
 
+## Dispatch Step Versus GameLoop Stamp Boundary
+
+- Selected topic: `SC2-API-SCHEDULER-DISPATCH-STEP-GAMELOOP-STAMP-BOUNDARY`
+- `TerranAgent::OnStep()` increments `CurrentStep` before creating `FFrameContext`.
+- `FFrameContext::Create(...)` writes both:
+  - `Frame.CurrentStep` from the caller-provided `CurrentStep`
+  - `Frame.GameLoop` from `ObservationInterface::GetGameLoop()`
+- `FIntentSchedulingService::DrainReadyIntents(...)` sets scheduler row lifecycle to `EOrderLifecycleState::Dispatched` but does not stamp dispatch timestamps or observed-count baselines.
+- `TerranAgent::CaptureNewlyDispatchedSchedulerOrders(...)` owns first dispatch stamping for Terran scheduler rows and calls:
+  - `FCommandAuthoritySchedulingState::SetOrderDispatchState(OrderId, CurrentStep, Frame.GameLoop, ObservedCount, ObservedInConstructionCount)`
+- `FCommandAuthoritySchedulingState::SetOrderDispatchState(...)` writes `DispatchStep`, `DispatchGameLoop`, observed baselines, and increments `DispatchAttemptCount`.
+- `TerranAgent::UpdateDispatchedSchedulerOrders(...)` timeout and abort checks read `CommandOrderRecord.DispatchGameLoop` against `GameStateDescriptor.CurrentGameLoop`.
+- Source-proven boundary:
+  - dispatch-step bookkeeping is Terran loop cadence (`CurrentStep`)
+  - dispatch-timeout bookkeeping is engine frame cadence (`GameLoop`)
+  - both values are stamped from the same capture pass and remain correlated on one order row.
+- Coverage boundary:
+  - `tests\test_command_authority_scheduling.cc` verifies `SetOrderDispatchState(...)` field writes.
+  - No Terran integration test currently asserts `CaptureNewlyDispatchedSchedulerOrders(...)` step/game-loop stamp pairing end-to-end.
+
+## Pre-Arbitration Conflict Telemetry Boundary
+
+- Selected topic: `SC2-API-SCHEDULER-PREARBITRATION-CONFLICT-TELEMETRY-BOUNDARY`
+- Source ordering in `TerranAgent::OnStep()`:
+  - `ProduceSchedulerIntents(...)` and other producers populate `IntentBuffer`
+  - `UpdateExecutionTelemetry(...)` runs before `FIntentArbiter::Resolve(...)`
+  - `FIntentArbiter::Resolve(...)` emits one winner per actor for execution
+- `TerranAgent::UpdateExecutionTelemetry(...)` conflict behavior:
+  - scans raw `IntentBuffer.Intents` before arbitration
+  - tracks first seen intent per actor in `std::unordered_map<Tag, FUnitIntent> FirstIntentByActor`
+  - records conflict with `ExecutionTelemetry.RecordActorIntentConflict(...)` when a later intent for the same actor does not `Matches(...)` the first
+- `FIntentArbiter::Resolve(...)` behavior boundary:
+  - computes per-actor winner set (`WinningIntents`) from the same buffer
+  - validates and normalizes only the winner path (`ValidateAndNormalize(...)`)
+  - emits at most one resolved command per actor for `ExecuteResolvedIntents(...)`
+- Source-proven implication:
+  - actor-conflict telemetry measures producer contention in the pre-arbitration buffer
+  - execution reflects only post-arbitration winners and may not include dropped conflicts
+- Coverage anchors:
+  - `tests\test_singularity_framework.cc` verifies one winning intent per actor and tie ordering in `FIntentArbiter::Resolve(...)`
+  - `tests\test_agent_execution_telemetry.cc` verifies cooldown and counting behavior for telemetry event recording
 ## Verified Invariants
 
 - Produced ready orders and dispatched captures are correlated by the same `OrderId` row in `FCommandAuthoritySchedulingState`.
@@ -115,3 +156,5 @@
 ## Ambiguities
 
 - None opened in this topic pass.
+
+

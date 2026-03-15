@@ -501,8 +501,21 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
           SuccessValue, "Ramp-wall discovery should publish the outside staging point.");
     const Point2D ArmyAssemblyPointValue =
         BuildPlacementServiceValue.GetArmyAssemblyPoint(GameStateDescriptorValue, BuildPlacementContextValue);
-    Check(ArePointsEqual(ArmyAssemblyPointValue, BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint),
-          SuccessValue, "Army assembly should use the ramp-wall outside staging point when the wall is valid.");
+    const std::vector<FBuildPlacementSlot>& NaturalApproachDepotSlotsValue =
+        BuildPlacementContextValue.MainBaseLayoutDescriptor.NaturalApproachDepotSlots;
+    Check(!NaturalApproachDepotSlotsValue.empty(), SuccessValue,
+          "Main-base layout discovery should provide natural-approach depot slots for the army assembly point.");
+    if (!NaturalApproachDepotSlotsValue.empty())
+    {
+        const Point2D ExpectedArmyAssemblyPointValue(
+            (NaturalApproachDepotSlotsValue.front().BuildPoint.x + NaturalApproachDepotSlotsValue.back().BuildPoint.x) *
+                0.5f,
+            (NaturalApproachDepotSlotsValue.front().BuildPoint.y + NaturalApproachDepotSlotsValue.back().BuildPoint.y) *
+                0.5f);
+        Check(
+            ArePointsEqual(ArmyAssemblyPointValue, ExpectedArmyAssemblyPointValue), SuccessValue,
+            "Army assembly should use the natural-approach entrance midpoint when authored depot slots exist.");
+    }
 
     FBuildPlacementContext DiagonalBuildPlacementContextValue;
     DiagonalBuildPlacementContextValue.BaseLocation = Point2D(50.0f, 50.0f);

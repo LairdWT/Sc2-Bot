@@ -2,8 +2,8 @@
 
 ## Run Summary
 
-- RunTimeUtc: 2026-03-15T07:10:12Z
-- CompletedTopicId: SC2-API-SCHEDULER-DEFERRAL-TELEMETRY-COOLDOWN-BOUNDARY
+- RunTimeUtc: 2026-03-15T09:10:54Z
+- CompletedTopicId: SC2-API-SCHEDULER-DISPATCH-STEP-GAMELOOP-STAMP-BOUNDARY
 - UpdatedSurface:
   - L:\Sc2_Bot\Documentation\Sc2Api\SchedulerIntentLifecycleAndDispatchCapture.md
 - ChangeSurface: Sc2ApiDoc
@@ -17,5 +17,5 @@
 ## Notes
 
 - Candidate set contained no open ledger topics; this run selected one newly discovered topic per run rules.
-- Applied `sc2-terran-scheduler-intent-lifecycle` workflow and traced `OnStep` -> `UpdateExecutionTelemetry` -> `DrainReadyIntents` -> `SetOrderDispatchState` boundaries from local source and tests.
+- Documented local source contract for dispatch stamp ownership: `DispatchStep` uses `CurrentStep`, while `DispatchGameLoop` uses `Frame.GameLoop`.
 - No skill folder changes were made in this run.

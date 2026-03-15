@@ -615,8 +615,8 @@ bool TestSchedulerHotPathProfiles(int ArgC, char** ArgV)
                   << " | BlockedBytesAfter=" << BlockedBufferBytesAfterParkingValue
                   << " | BlockedStrategicCount="
                   << GameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount()
-                  << " | Reactivated="
-                  << GameStateDescriptorValue.CommandAuthoritySchedulingState.ReactivatedBlockedTaskCount
+                  << " | ReactivatedTotal="
+                  << GameStateDescriptorValue.CommandAuthoritySchedulingState.TotalReactivatedBlockedTaskCount
                   << std::endl;
     }
 

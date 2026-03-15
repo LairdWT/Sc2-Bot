@@ -958,12 +958,16 @@ void TerranAgent::PrintAgentState()
     std::cout << "Blocked Tasks: "
               << "Strategic " << GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount()
               << " | Planning " << GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks.GetCount()
-              << " | Buffered " << GameStateDescriptor.CommandAuthoritySchedulingState.BufferedBlockedTaskCount
-              << " | Coalesced " << GameStateDescriptor.CommandAuthoritySchedulingState.CoalescedBlockedTaskCount
-              << " | Dropped " << GameStateDescriptor.CommandAuthoritySchedulingState.DroppedBlockedTaskCount
-              << " | Reactivated " << GameStateDescriptor.CommandAuthoritySchedulingState.ReactivatedBlockedTaskCount
-              << " | MustRunRejected "
-              << GameStateDescriptor.CommandAuthoritySchedulingState.RejectedMustRunBlockedTaskCount
+              << " | BufferedRecent "
+              << GameStateDescriptor.CommandAuthoritySchedulingState.RecentBufferedBlockedTaskCount
+              << " | CoalescedRecent "
+              << GameStateDescriptor.CommandAuthoritySchedulingState.RecentCoalescedBlockedTaskCount
+              << " | DroppedRecent "
+              << GameStateDescriptor.CommandAuthoritySchedulingState.RecentDroppedBlockedTaskCount
+              << " | ReactivatedRecent "
+              << GameStateDescriptor.CommandAuthoritySchedulingState.RecentReactivatedBlockedTaskCount
+              << " | MustRunRejectedRecent "
+              << GameStateDescriptor.CommandAuthoritySchedulingState.RecentRejectedMustRunBlockedTaskCount
               << " | NoProducer "
               << (GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.CountRecordsByDeferralReason(
                       ECommandOrderDeferralReason::NoProducer) +
@@ -1015,9 +1019,9 @@ void TerranAgent::PrintAgentState()
               << " | MineralBank " << ToString(ExecutionTelemetry.MineralBankState)
               << " (" << ExecutionTelemetry.GetCurrentMineralBankDurationGameLoops(GameStateDescriptor.CurrentGameLoop)
               << " loops)"
-              << " | Conflicts " << ExecutionTelemetry.TotalActorIntentConflictCount
-              << " | IdleProduction " << ExecutionTelemetry.TotalIdleProductionConflictCount
-              << " | Deferrals " << ExecutionTelemetry.TotalSchedulerOrderDeferralCount << "\n";
+              << " | ConflictsRecent " << ExecutionTelemetry.RecentActorIntentConflictCount
+              << " | IdleProductionRecent " << ExecutionTelemetry.RecentIdleProductionConflictCount
+              << " | DeferralsRecent " << ExecutionTelemetry.RecentSchedulerOrderDeferralCount << "\n";
     std::cout << "Recent Execution Events: ";
     if (ExecutionTelemetry.RecentEvents.empty())
     {
@@ -1099,6 +1103,7 @@ void TerranAgent::PrintWallState() const
 
 void TerranAgent::UpdateExecutionTelemetry(const FFrameContext& Frame)
 {
+    ExecutionTelemetry.AdvanceStep(CurrentStep);
     const bool IsSupplyBlockedValue = ObservationPtr != nullptr && ObservationPtr->GetFoodCap() < 200U &&
                                       GameStateDescriptor.BuildPlanning.AvailableSupply == 0U;
     ExecutionTelemetry.UpdateSupplyBlockState(GetExecutionConditionState(IsSupplyBlockedValue), CurrentStep,

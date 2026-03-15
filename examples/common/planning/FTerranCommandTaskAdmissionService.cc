@@ -421,6 +421,8 @@ void FTerranCommandTaskAdmissionService::RefreshStimulusState(FGameStateDescript
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptorValue.CommandAuthoritySchedulingState;
     FSchedulerStimulusState& SchedulerStimulusStateValue = CommandAuthoritySchedulingStateValue.SchedulerStimulusState;
+    CommandAuthoritySchedulingStateValue.AdvanceRecentBlockedTaskCounterWindow(
+        GameStateDescriptorValue.CurrentStep);
 
     const uint64_t GoalFingerprintValue = BuildGoalFingerprint(GameStateDescriptorValue);
     if (GoalFingerprintValue != SchedulerStimulusStateValue.LastGoalFingerprint)
@@ -493,7 +495,9 @@ void FTerranCommandTaskAdmissionService::ReactivateBlockedTasks(FGameStateDescri
         return;
     }
 
-    CommandAuthoritySchedulingStateValue.ReactivatedBlockedTaskCount +=
+    CommandAuthoritySchedulingStateValue.TotalReactivatedBlockedTaskCount +=
+        static_cast<uint32_t>(ReactivatedTaskRecordsValue.size());
+    CommandAuthoritySchedulingStateValue.RecentReactivatedBlockedTaskCount +=
         static_cast<uint32_t>(ReactivatedTaskRecordsValue.size());
     CommandAuthoritySchedulingStateValue.bPrioritiesDirty = true;
 }
@@ -603,19 +607,23 @@ void FTerranCommandTaskAdmissionService::ParkDeferredOrders(FGameStateDescriptor
 
         if (bCoalescedValue)
         {
-            ++CommandAuthoritySchedulingStateValue.CoalescedBlockedTaskCount;
+            ++CommandAuthoritySchedulingStateValue.TotalCoalescedBlockedTaskCount;
+            ++CommandAuthoritySchedulingStateValue.RecentCoalescedBlockedTaskCount;
         }
         else if (BufferedValue)
         {
-            ++CommandAuthoritySchedulingStateValue.BufferedBlockedTaskCount;
+            ++CommandAuthoritySchedulingStateValue.TotalBufferedBlockedTaskCount;
+            ++CommandAuthoritySchedulingStateValue.RecentBufferedBlockedTaskCount;
         }
         else if (bRejectedMustRunValue)
         {
-            ++CommandAuthoritySchedulingStateValue.RejectedMustRunBlockedTaskCount;
+            ++CommandAuthoritySchedulingStateValue.TotalRejectedMustRunBlockedTaskCount;
+            ++CommandAuthoritySchedulingStateValue.RecentRejectedMustRunBlockedTaskCount;
         }
         else if (bDroppedValue)
         {
-            ++CommandAuthoritySchedulingStateValue.DroppedBlockedTaskCount;
+            ++CommandAuthoritySchedulingStateValue.TotalDroppedBlockedTaskCount;
+            ++CommandAuthoritySchedulingStateValue.RecentDroppedBlockedTaskCount;
         }
 
         if (bRejectedMustRunValue)

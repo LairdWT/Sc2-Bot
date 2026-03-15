@@ -141,6 +141,22 @@ If any load fails, `Reset()` is called and `Valid` remains false.
   - scheduler producers and intent execution in `examples\terran\terran.cc` do not consume those helper outputs
   - no source-proven bridge currently maps conversion outputs into `TerranAgent` command authority
 
+## Feature-Layer Metric Reset Cadence Boundary
+
+- Selected topic: `SC2-API-FEATURE-LAYER-METRICS-RESET-CADENCE-BOUNDARY`
+- `TerranAgent` update cadence:
+  - `TerranAgent::OnGameStart()` builds `FFrameContext` and calls `UpdateAgentState(Frame)` once for startup snapshot hydration.
+  - `TerranAgent::OnStep()` builds `FFrameContext` each step and calls `UpdateAgentState(Frame)` before descriptor rebuild and scheduler production.
+- `FAgentState::Update(const FFrameContext& Frame)` cadence:
+  - always calls `SpatialChannels.Update(Frame)` then `SpatialMetrics.Update(SpatialChannels)` when `Frame.Observation` exists.
+  - this runs on both startup and each scheduler step in Terran.
+- Reset boundary is source-proven and deterministic:
+  - `FAgentSpatialChannels::Update(...)` starts with `Reset()`, then returns invalid unless all required feature-layer payload gates pass.
+  - `FAgentSpatialMetrics::Update(...)` starts with `Reset()`, then returns invalid when `Channels.Valid == false`.
+  - result: stale feature-layer occupancy state is not carried across frames when payloads are missing or malformed.
+- Test-backed verification:
+  - `tests\test_singularity_framework.cc` verifies valid channel + metric derivation and verifies invalid-input reset behavior where missing required textures keeps channels and metrics invalid.
+
 ## Remaining Ambiguities After This Pass
 - `FL-001`
   - `TerranAgent` declares `DrawFeatureLayer1BPP(...)`, `DrawFeatureLayerUnits8BPP(...)`, and `DrawFeatureLayerHeightMap8BPP(...)` in `terran.h`.

@@ -6,6 +6,7 @@ namespace
 {
 
 constexpr uint64_t EventCooldownStepsValue = 120U;
+constexpr uint64_t RecentCounterWindowStepCountValue = 120U;
 constexpr size_t MaxRecentEventCountValue = 16U;
 
 void PopulateCommonEventFields(FExecutionEventRecord& ExecutionEventRecordValue,
@@ -35,6 +36,7 @@ FAgentExecutionTelemetry::FAgentExecutionTelemetry()
 
 void FAgentExecutionTelemetry::Reset()
 {
+    RecentCounterWindowStartStep = 0U;
     SupplyBlockState = EExecutionConditionState::Inactive;
     SupplyBlockStartGameLoop = 0U;
     LastSupplyBlockDurationGameLoops = 0U;
@@ -43,13 +45,22 @@ void FAgentExecutionTelemetry::Reset()
     LastMineralBankDurationGameLoops = 0U;
     LastMineralBankAmount = 0U;
     TotalActorIntentConflictCount = 0U;
+    RecentActorIntentConflictCount = 0U;
     TotalIdleProductionConflictCount = 0U;
+    RecentIdleProductionConflictCount = 0U;
     TotalSchedulerOrderDeferralCount = 0U;
+    RecentSchedulerOrderDeferralCount = 0U;
     RecentEvents.clear();
     LastActorConflictStepByActor.clear();
     LastIdleProductionConflictStepByActor.clear();
     LastSchedulerDeferralStepByOrderId.clear();
     LastSchedulerDeferralReasonByOrderId.clear();
+}
+
+void FAgentExecutionTelemetry::AdvanceStep(const uint64_t CurrentStepValue)
+{
+    AdvanceRecentCounterWindow(CurrentStepValue);
+    PruneExpiredCooldownState(CurrentStepValue);
 }
 
 void FAgentExecutionTelemetry::UpdateSupplyBlockState(const EExecutionConditionState NextStateValue,
@@ -124,6 +135,7 @@ void FAgentExecutionTelemetry::RecordActorIntentConflict(const uint64_t CurrentS
                                                          const Tag ActorTagValue, const AbilityID AbilityIdValue,
                                                          const EIntentDomain IntentDomainValue)
 {
+    AdvanceStep(CurrentStepValue);
     const std::unordered_map<Tag, uint64_t>::const_iterator FoundStepValue =
         LastActorConflictStepByActor.find(ActorTagValue);
     if (FoundStepValue != LastActorConflictStepByActor.end() &&
@@ -134,6 +146,7 @@ void FAgentExecutionTelemetry::RecordActorIntentConflict(const uint64_t CurrentS
 
     LastActorConflictStepByActor[ActorTagValue] = CurrentStepValue;
     ++TotalActorIntentConflictCount;
+    ++RecentActorIntentConflictCount;
 
     FExecutionEventRecord ExecutionEventRecordValue;
     PopulateCommonEventFields(ExecutionEventRecordValue, EAgentExecutionEventType::ActorIntentConflict,
@@ -150,6 +163,7 @@ void FAgentExecutionTelemetry::RecordIdleProductionConflict(const uint64_t Curre
                                                             const UNIT_TYPEID UnitTypeIdValue,
                                                             const AbilityID AbilityIdValue)
 {
+    AdvanceStep(CurrentStepValue);
     const std::unordered_map<Tag, uint64_t>::const_iterator FoundStepValue =
         LastIdleProductionConflictStepByActor.find(ActorTagValue);
     if (FoundStepValue != LastIdleProductionConflictStepByActor.end() &&
@@ -160,6 +174,7 @@ void FAgentExecutionTelemetry::RecordIdleProductionConflict(const uint64_t Curre
 
     LastIdleProductionConflictStepByActor[ActorTagValue] = CurrentStepValue;
     ++TotalIdleProductionConflictCount;
+    ++RecentIdleProductionConflictCount;
 
     FExecutionEventRecord ExecutionEventRecordValue;
     PopulateCommonEventFields(ExecutionEventRecordValue, EAgentExecutionEventType::IdleProductionStructure,
@@ -175,6 +190,7 @@ void FAgentExecutionTelemetry::RecordSchedulerOrderDeferred(
     const uint32_t PlanStepIdValue, const Tag ActorTagValue, const AbilityID AbilityIdValue,
     const EIntentDomain IntentDomainValue, const ECommandOrderDeferralReason DeferralReasonValue)
 {
+    AdvanceStep(CurrentStepValue);
     const std::unordered_map<uint32_t, uint64_t>::const_iterator FoundStepValue =
         LastSchedulerDeferralStepByOrderId.find(OrderIdValue);
     const std::unordered_map<uint32_t, ECommandOrderDeferralReason>::const_iterator FoundReasonValue =
@@ -190,6 +206,7 @@ void FAgentExecutionTelemetry::RecordSchedulerOrderDeferred(
     LastSchedulerDeferralStepByOrderId[OrderIdValue] = CurrentStepValue;
     LastSchedulerDeferralReasonByOrderId[OrderIdValue] = DeferralReasonValue;
     ++TotalSchedulerOrderDeferralCount;
+    ++RecentSchedulerOrderDeferralCount;
 
     FExecutionEventRecord ExecutionEventRecordValue;
     PopulateCommonEventFields(ExecutionEventRecordValue, EAgentExecutionEventType::SchedulerOrderDeferred,
@@ -259,12 +276,71 @@ uint64_t FAgentExecutionTelemetry::GetCurrentMineralBankDurationGameLoops(const 
     return CurrentGameLoopValue - MineralBankStartGameLoop;
 }
 
+size_t FAgentExecutionTelemetry::GetTrackedSchedulerDeferralCooldownCount() const
+{
+    return LastSchedulerDeferralStepByOrderId.size();
+}
+
 void FAgentExecutionTelemetry::AppendEvent(const FExecutionEventRecord& ExecutionEventRecordValue)
 {
     RecentEvents.push_back(ExecutionEventRecordValue);
     if (RecentEvents.size() > MaxRecentEventCountValue)
     {
         RecentEvents.erase(RecentEvents.begin());
+    }
+}
+
+void FAgentExecutionTelemetry::AdvanceRecentCounterWindow(const uint64_t CurrentStepValue)
+{
+    if (CurrentStepValue < (RecentCounterWindowStartStep + RecentCounterWindowStepCountValue))
+    {
+        return;
+    }
+
+    RecentCounterWindowStartStep = CurrentStepValue;
+    RecentActorIntentConflictCount = 0U;
+    RecentIdleProductionConflictCount = 0U;
+    RecentSchedulerOrderDeferralCount = 0U;
+}
+
+void FAgentExecutionTelemetry::PruneExpiredCooldownState(const uint64_t CurrentStepValue)
+{
+    for (std::unordered_map<Tag, uint64_t>::iterator MapIteratorValue = LastActorConflictStepByActor.begin();
+         MapIteratorValue != LastActorConflictStepByActor.end();)
+    {
+        if (CurrentStepValue >= (MapIteratorValue->second + EventCooldownStepsValue))
+        {
+            MapIteratorValue = LastActorConflictStepByActor.erase(MapIteratorValue);
+            continue;
+        }
+
+        ++MapIteratorValue;
+    }
+
+    for (std::unordered_map<Tag, uint64_t>::iterator MapIteratorValue = LastIdleProductionConflictStepByActor.begin();
+         MapIteratorValue != LastIdleProductionConflictStepByActor.end();)
+    {
+        if (CurrentStepValue >= (MapIteratorValue->second + EventCooldownStepsValue))
+        {
+            MapIteratorValue = LastIdleProductionConflictStepByActor.erase(MapIteratorValue);
+            continue;
+        }
+
+        ++MapIteratorValue;
+    }
+
+    for (std::unordered_map<uint32_t, uint64_t>::iterator DeferralStepIteratorValue =
+             LastSchedulerDeferralStepByOrderId.begin();
+         DeferralStepIteratorValue != LastSchedulerDeferralStepByOrderId.end();)
+    {
+        if (CurrentStepValue < (DeferralStepIteratorValue->second + EventCooldownStepsValue))
+        {
+            ++DeferralStepIteratorValue;
+            continue;
+        }
+
+        LastSchedulerDeferralReasonByOrderId.erase(DeferralStepIteratorValue->first);
+        DeferralStepIteratorValue = LastSchedulerDeferralStepByOrderId.erase(DeferralStepIteratorValue);
     }
 }
 

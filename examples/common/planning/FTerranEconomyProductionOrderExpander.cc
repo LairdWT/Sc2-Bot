@@ -1,6 +1,7 @@
 #include "common/planning/FTerranEconomyProductionOrderExpander.h"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 
 #include "common/bot_status_models.h"
@@ -12,6 +13,10 @@ namespace sc2
 {
 namespace
 {
+
+constexpr int FriendlyBlockerReliefIntentPriorityValue = 5000;
+constexpr float ExistingMoveOrderDistanceSquaredToleranceValue = 1.0f;
+constexpr float DisplacementFootprintPaddingValue = 1.5f;
 
 bool IsReactorUnitType(const UNIT_TYPEID UnitTypeValue)
 {
@@ -95,6 +100,22 @@ Units GetEligibleWorkerProductionStructures(const ObservationInterface& Observat
 bool DoesPlacementSlotSatisfyFootprintPolicy(const FFrameContext& FrameValue,
                                              const FBuildPlacementSlot& BuildPlacementSlotValue,
                                              const ABILITY_ID StructureAbilityIdValue);
+
+Point2D GetStructureFootprintHalfExtentsForAbility(const ABILITY_ID StructureAbilityIdValue);
+
+Point2D GetStructureFootprintHalfExtentsForUnitType(const UNIT_TYPEID UnitTypeIdValue);
+
+bool DoAxisAlignedFootprintsOverlap(const Point2D& CenterPointOneValue, const Point2D& HalfExtentsOneValue,
+                                    const Point2D& CenterPointTwoValue, const Point2D& HalfExtentsTwoValue);
+
+bool DoesStructureAbilityRequireAddonClearance(const ABILITY_ID StructureAbilityIdValue);
+
+Point2D GetAddonFootprintCenter(const Point2D& StructureBuildPointValue);
+
+bool DoesAddonFootprintSupportTerrain(const GameInfo& GameInfoValue, const Point2D& StructureBuildPointValue);
+
+bool DoesAddonFootprintAvoidObservedStructures(const ObservationInterface& ObservationValue,
+                                               const Point2D& StructureBuildPointValue);
 
 uint32_t GetObservedBuildingCount(const FBuildPlanningState& BuildPlanningStateValue, const UNIT_TYPEID BuildingTypeIdValue)
 {
@@ -474,6 +495,367 @@ bool IsStructureBuildAbility(const ABILITY_ID AbilityIdValue)
     }
 }
 
+bool IsFriendlyMovableBlockerUnit(const Unit& UnitValue, const Tag IgnoredActorTagValue)
+{
+    if (UnitValue.tag == IgnoredActorTagValue || !UnitValue.is_alive || UnitValue.is_building ||
+        UnitValue.is_flying || UnitValue.build_progress < 1.0f)
+    {
+        return false;
+    }
+
+    for (const UnitOrder& UnitOrderValue : UnitValue.orders)
+    {
+        if (IsStructureBuildAbility(UnitOrderValue.ability_id))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool DoesUnitOverlapFootprint(const Unit& UnitValue, const Point2D& FootprintCenterValue,
+                              const Point2D& FootprintHalfExtentsValue)
+{
+    const Point2D UnitHalfExtentsValue(UnitValue.radius, UnitValue.radius);
+    return DoAxisAlignedFootprintsOverlap(Point2D(UnitValue.pos), UnitHalfExtentsValue, FootprintCenterValue,
+                                          FootprintHalfExtentsValue);
+}
+
+bool DoesFootprintContainFriendlyBuilding(const ObservationInterface& ObservationValue, const Tag IgnoredActorTagValue,
+                                          const Point2D& FootprintCenterValue,
+                                          const Point2D& FootprintHalfExtentsValue)
+{
+    const Units SelfUnitsValue = ObservationValue.GetUnits(Unit::Alliance::Self);
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || SelfUnitValue->tag == IgnoredActorTagValue || !SelfUnitValue->is_building ||
+            SelfUnitValue->is_flying)
+        {
+            continue;
+        }
+
+        const Point2D StructureHalfExtentsValue =
+            GetStructureFootprintHalfExtentsForUnitType(SelfUnitValue->unit_type.ToType());
+        if (DoAxisAlignedFootprintsOverlap(Point2D(SelfUnitValue->pos), StructureHalfExtentsValue,
+                                           FootprintCenterValue, FootprintHalfExtentsValue))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool DoesFootprintContainFriendlyMovableBlocker(const ObservationInterface& ObservationValue,
+                                                const Tag IgnoredActorTagValue,
+                                                const Point2D& FootprintCenterValue,
+                                                const Point2D& FootprintHalfExtentsValue)
+{
+    const Units SelfUnitsValue = ObservationValue.GetUnits(Unit::Alliance::Self);
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || !IsFriendlyMovableBlockerUnit(*SelfUnitValue, IgnoredActorTagValue))
+        {
+            continue;
+        }
+
+        if (DoesUnitOverlapFootprint(*SelfUnitValue, FootprintCenterValue, FootprintHalfExtentsValue))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool DoesUnitAlreadyHaveMoveOrderNearPoint(const Unit& UnitValue, const Point2D& TargetPointValue)
+{
+    if (UnitValue.orders.empty())
+    {
+        return false;
+    }
+
+    const UnitOrder& UnitOrderValue = UnitValue.orders.front();
+    switch (UnitOrderValue.ability_id.ToType())
+    {
+        case ABILITY_ID::GENERAL_MOVE:
+        case ABILITY_ID::SMART:
+        case ABILITY_ID::ATTACK_ATTACK:
+            return DistanceSquared2D(UnitOrderValue.target_pos, TargetPointValue) <=
+                   ExistingMoveOrderDistanceSquaredToleranceValue;
+        default:
+            return false;
+    }
+}
+
+bool TryFindDisplacementTargetPoint(const FFrameContext& FrameValue, const Unit& BlockerUnitValue,
+                                    const Point2D& FootprintCenterValue,
+                                    const Point2D& FootprintHalfExtentsValue,
+                                    Point2D& OutDisplacementTargetPointValue)
+{
+    if (FrameValue.GameInfo == nullptr || FrameValue.Query == nullptr || FrameValue.Observation == nullptr)
+    {
+        return false;
+    }
+
+    static const std::array<Point2D, 8U> CandidateDirectionsValue =
+    {{
+        Point2D(1.0f, 0.0f),
+        Point2D(-1.0f, 0.0f),
+        Point2D(0.0f, 1.0f),
+        Point2D(0.0f, -1.0f),
+        Point2D(0.70710678f, 0.70710678f),
+        Point2D(0.70710678f, -0.70710678f),
+        Point2D(-0.70710678f, 0.70710678f),
+        Point2D(-0.70710678f, -0.70710678f),
+    }};
+
+    const Point2D BlockerHalfExtentsValue(BlockerUnitValue.radius, BlockerUnitValue.radius);
+    const float CandidateDistanceValue =
+        std::max(FootprintHalfExtentsValue.x, FootprintHalfExtentsValue.y) + BlockerUnitValue.radius +
+        DisplacementFootprintPaddingValue;
+
+    bool bFoundCandidateValue = false;
+    float BestCandidateDistanceSquaredValue = std::numeric_limits<float>::max();
+    for (const Point2D& CandidateDirectionValue : CandidateDirectionsValue)
+    {
+        const Point2D CandidatePointValue = ClampToPlayable(
+            *FrameValue.GameInfo, FootprintCenterValue + (CandidateDirectionValue * CandidateDistanceValue));
+        if (DoAxisAlignedFootprintsOverlap(CandidatePointValue, BlockerHalfExtentsValue, FootprintCenterValue,
+                                           FootprintHalfExtentsValue) ||
+            !FrameValue.Observation->IsPathable(CandidatePointValue))
+        {
+            continue;
+        }
+
+        const float PathingDistanceValue = FrameValue.Query->PathingDistance(&BlockerUnitValue, CandidatePointValue);
+        if (!IsGroundPathingResultValid(BlockerUnitValue, CandidatePointValue, PathingDistanceValue))
+        {
+            continue;
+        }
+
+        const float UnitTravelDistanceSquaredValue =
+            DistanceSquared2D(Point2D(BlockerUnitValue.pos), CandidatePointValue);
+        if (bFoundCandidateValue && UnitTravelDistanceSquaredValue >= BestCandidateDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        bFoundCandidateValue = true;
+        BestCandidateDistanceSquaredValue = UnitTravelDistanceSquaredValue;
+        OutDisplacementTargetPointValue = CandidatePointValue;
+    }
+
+    return bFoundCandidateValue;
+}
+
+uint32_t AddFriendlyBlockerReliefIntentsForFootprint(const FFrameContext& FrameValue, const Tag IgnoredActorTagValue,
+                                                     const Point2D& FootprintCenterValue,
+                                                     const Point2D& FootprintHalfExtentsValue,
+                                                     FIntentBuffer& IntentBufferValue)
+{
+    if (FrameValue.Observation == nullptr)
+    {
+        return 0U;
+    }
+
+    uint32_t AddedIntentCountValue = 0U;
+    const Units SelfUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Self);
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || !IsFriendlyMovableBlockerUnit(*SelfUnitValue, IgnoredActorTagValue) ||
+            !DoesUnitOverlapFootprint(*SelfUnitValue, FootprintCenterValue, FootprintHalfExtentsValue) ||
+            IntentBufferValue.HasIntentForActor(SelfUnitValue->tag))
+        {
+            continue;
+        }
+
+        Point2D DisplacementTargetPointValue;
+        if (!TryFindDisplacementTargetPoint(FrameValue, *SelfUnitValue, FootprintCenterValue,
+                                            FootprintHalfExtentsValue, DisplacementTargetPointValue) ||
+            DoesUnitAlreadyHaveMoveOrderNearPoint(*SelfUnitValue, DisplacementTargetPointValue))
+        {
+            continue;
+        }
+
+        IntentBufferValue.Add(FUnitIntent::CreatePointTarget(
+            SelfUnitValue->tag, ABILITY_ID::GENERAL_MOVE, DisplacementTargetPointValue,
+            FriendlyBlockerReliefIntentPriorityValue, EIntentDomain::Recovery, true));
+        ++AddedIntentCountValue;
+    }
+
+    return AddedIntentCountValue;
+}
+
+bool TryIssueFriendlyBlockerReliefForStructurePlacement(const FFrameContext& FrameValue,
+                                                        const FCommandOrderRecord& EconomyOrderValue,
+                                                        const Unit& WorkerUnitValue,
+                                                        const FBuildPlacementSlot& BuildPlacementSlotValue,
+                                                        FIntentBuffer& IntentBufferValue)
+{
+    const Point2D StructureHalfExtentsValue =
+        GetStructureFootprintHalfExtentsForAbility(EconomyOrderValue.AbilityId);
+    uint32_t AddedIntentCountValue = AddFriendlyBlockerReliefIntentsForFootprint(
+        FrameValue, WorkerUnitValue.tag, BuildPlacementSlotValue.BuildPoint, StructureHalfExtentsValue,
+        IntentBufferValue);
+
+    if (DoesStructureAbilityRequireAddonClearance(EconomyOrderValue.AbilityId))
+    {
+        AddedIntentCountValue += AddFriendlyBlockerReliefIntentsForFootprint(
+            FrameValue, WorkerUnitValue.tag, GetAddonFootprintCenter(BuildPlacementSlotValue.BuildPoint),
+            Point2D(1.0f, 1.0f), IntentBufferValue);
+    }
+
+    return AddedIntentCountValue > 0U;
+}
+
+bool DoesStructurePlacementHaveFriendlyMovableBlocker(const FFrameContext& FrameValue,
+                                                      const FCommandOrderRecord& EconomyOrderValue,
+                                                      const Unit& WorkerUnitValue,
+                                                      const FBuildPlacementSlot& BuildPlacementSlotValue)
+{
+    if (FrameValue.Observation == nullptr)
+    {
+        return false;
+    }
+
+    const Point2D StructureHalfExtentsValue =
+        GetStructureFootprintHalfExtentsForAbility(EconomyOrderValue.AbilityId);
+    if (DoesFootprintContainFriendlyMovableBlocker(*FrameValue.Observation, WorkerUnitValue.tag,
+                                                   BuildPlacementSlotValue.BuildPoint,
+                                                   StructureHalfExtentsValue))
+    {
+        return true;
+    }
+
+    if (!DoesStructureAbilityRequireAddonClearance(EconomyOrderValue.AbilityId))
+    {
+        return false;
+    }
+
+    return DoesFootprintContainFriendlyMovableBlocker(*FrameValue.Observation, WorkerUnitValue.tag,
+                                                      GetAddonFootprintCenter(BuildPlacementSlotValue.BuildPoint),
+                                                      Point2D(1.0f, 1.0f));
+}
+
+bool DoesAddonFootprintHaveHardBlocker(const FFrameContext& FrameValue, const Tag ProducerTagValue,
+                                       const Point2D& StructureBuildPointValue)
+{
+    if (FrameValue.GameInfo == nullptr || FrameValue.Observation == nullptr)
+    {
+        return true;
+    }
+
+    if (!DoesAddonFootprintSupportTerrain(*FrameValue.GameInfo, StructureBuildPointValue) ||
+        !DoesAddonFootprintAvoidObservedStructures(*FrameValue.Observation, StructureBuildPointValue))
+    {
+        return true;
+    }
+
+    return DoesFootprintContainFriendlyBuilding(*FrameValue.Observation, ProducerTagValue,
+                                                GetAddonFootprintCenter(StructureBuildPointValue),
+                                                Point2D(1.0f, 1.0f));
+}
+
+bool DoesAddonFootprintContainFriendlyMovableBlocker(const FFrameContext& FrameValue, const Tag ProducerTagValue,
+                                                     const Point2D& StructureBuildPointValue)
+{
+    if (FrameValue.Observation == nullptr)
+    {
+        return false;
+    }
+
+    return DoesFootprintContainFriendlyMovableBlocker(*FrameValue.Observation, ProducerTagValue,
+                                                      GetAddonFootprintCenter(StructureBuildPointValue),
+                                                      Point2D(1.0f, 1.0f));
+}
+
+bool TryIssueFriendlyBlockerReliefForAddonFootprint(const FFrameContext& FrameValue, const Unit& ProducerUnitValue,
+                                                    FIntentBuffer& IntentBufferValue)
+{
+    return AddFriendlyBlockerReliefIntentsForFootprint(
+               FrameValue, ProducerUnitValue.tag, GetAddonFootprintCenter(Point2D(ProducerUnitValue.pos)),
+               Point2D(1.0f, 1.0f), IntentBufferValue) > 0U;
+}
+
+bool HasPlacementSlotBeenAttempted(const std::vector<FBuildPlacementSlotId>& AttemptedPlacementSlotIdsValue,
+                                   const FBuildPlacementSlotId& BuildPlacementSlotIdValue)
+{
+    return std::find(AttemptedPlacementSlotIdsValue.begin(), AttemptedPlacementSlotIdsValue.end(),
+                     BuildPlacementSlotIdValue) != AttemptedPlacementSlotIdsValue.end();
+}
+
+bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
+                                const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                const FCommandOrderRecord& EconomyOrderValue,
+                                const UNIT_TYPEID ProducerUnitTypeIdValue,
+                                FIntentBuffer& IntentBufferValue,
+                                const Unit*& OutProducerUnitValue,
+                                ECommandOrderDeferralReason& OutDeferralReasonValue)
+{
+    OutProducerUnitValue = nullptr;
+    if (FrameValue.Observation == nullptr)
+    {
+        OutDeferralReasonValue = ECommandOrderDeferralReason::NoProducer;
+        return false;
+    }
+
+    const Units ProducerUnitsValue =
+        FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(ProducerUnitTypeIdValue));
+    bool HasBusyProducerWithoutAddonValue = false;
+    bool HasHardBlockedProducerValue = false;
+    bool HasSoftBlockedProducerValue = false;
+    for (const Unit* CandidateProducerUnitValue : ProducerUnitsValue)
+    {
+        if (CandidateProducerUnitValue == nullptr || CandidateProducerUnitValue->add_on_tag != NullTag)
+        {
+            continue;
+        }
+
+        if (CandidateProducerUnitValue->build_progress < 1.0f || !CandidateProducerUnitValue->orders.empty() ||
+            IntentBufferValue.HasIntentForActor(CandidateProducerUnitValue->tag) ||
+            HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue, CandidateProducerUnitValue->tag))
+        {
+            HasBusyProducerWithoutAddonValue = true;
+            continue;
+        }
+
+        const Point2D ProducerBuildPointValue = Point2D(CandidateProducerUnitValue->pos);
+        if (DoesAddonFootprintHaveHardBlocker(FrameValue, CandidateProducerUnitValue->tag, ProducerBuildPointValue))
+        {
+            HasHardBlockedProducerValue = true;
+            continue;
+        }
+
+        if (DoesAddonFootprintContainFriendlyMovableBlocker(FrameValue, CandidateProducerUnitValue->tag,
+                                                            ProducerBuildPointValue))
+        {
+            HasSoftBlockedProducerValue = true;
+            TryIssueFriendlyBlockerReliefForAddonFootprint(FrameValue, *CandidateProducerUnitValue, IntentBufferValue);
+            continue;
+        }
+
+        OutProducerUnitValue = CandidateProducerUnitValue;
+        return true;
+    }
+
+    if (HasBusyProducerWithoutAddonValue || HasSoftBlockedProducerValue)
+    {
+        OutDeferralReasonValue = ECommandOrderDeferralReason::ProducerBusy;
+        return false;
+    }
+
+    if (HasHardBlockedProducerValue)
+    {
+        OutDeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
+        return false;
+    }
+
+    OutDeferralReasonValue = ECommandOrderDeferralReason::NoProducer;
+    return false;
+}
+
 bool IsUnitProductionAbility(const ABILITY_ID AbilityIdValue)
 {
     switch (AbilityIdValue)
@@ -769,8 +1151,11 @@ bool TrySelectPlacementSlotCandidate(const FFrameContext& FrameValue,
                                      const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                      const FCommandOrderRecord& EconomyOrderValue, const Unit& WorkerUnitValue,
                                      const FBuildPlacementSlot& BuildPlacementSlotValue,
-                                     FBuildPlacementSlot& OutBuildPlacementSlotValue)
+                                     FIntentBuffer& IntentBufferValue,
+                                     FBuildPlacementSlot& OutBuildPlacementSlotValue,
+                                     bool& OutHasFriendlyMovableBlockerValue)
 {
+    OutHasFriendlyMovableBlockerValue = false;
     if (FrameValue.Observation == nullptr || FrameValue.GameInfo == nullptr || FrameValue.Query == nullptr)
     {
         return false;
@@ -800,6 +1185,16 @@ bool TrySelectPlacementSlotCandidate(const FFrameContext& FrameValue,
         return false;
     }
 
+    if (DoesStructurePlacementHaveFriendlyMovableBlocker(FrameValue, EconomyOrderValue, WorkerUnitValue,
+                                                         NormalizedBuildPlacementSlotValue))
+    {
+        OutHasFriendlyMovableBlockerValue = true;
+        TryIssueFriendlyBlockerReliefForStructurePlacement(FrameValue, EconomyOrderValue, WorkerUnitValue,
+                                                           NormalizedBuildPlacementSlotValue,
+                                                           IntentBufferValue);
+        return false;
+    }
+
     if (!FrameValue.Query->Placement(EconomyOrderValue.AbilityId, ClampedBuildPointValue, &WorkerUnitValue))
     {
         return false;
@@ -815,6 +1210,7 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
                                      const std::vector<Point2D>& ExpansionLocationsValue,
                                      const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                      const FCommandOrderRecord& EconomyOrderValue, const Unit& WorkerUnitValue,
+                                     FIntentBuffer& IntentBufferValue,
                                      FBuildPlacementSlot& OutBuildPlacementSlotValue,
                                      ECommandOrderDeferralReason& OutDeferralReasonValue)
 {
@@ -831,6 +1227,7 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
     const std::vector<FBuildPlacementSlot> BuildPlacementSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, EconomyOrderValue.AbilityId,
                                                               BuildPlacementContextValue);
+    bool HasFriendlyMovableBlockerValue = false;
 
     if (EconomyOrderValue.ReservedPlacementSlotId.IsValid())
     {
@@ -844,9 +1241,11 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
 
         if (!TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
                                              EconomyOrderValue, WorkerUnitValue, ReservedBuildPlacementSlotValue,
-                                             OutBuildPlacementSlotValue))
+                                             IntentBufferValue, OutBuildPlacementSlotValue,
+                                             HasFriendlyMovableBlockerValue))
         {
-            OutDeferralReasonValue = ECommandOrderDeferralReason::ReservedSlotOccupied;
+            OutDeferralReasonValue = HasFriendlyMovableBlockerValue ? ECommandOrderDeferralReason::ProducerBusy
+                                                                   : ECommandOrderDeferralReason::ReservedSlotOccupied;
             return false;
         }
 
@@ -865,15 +1264,19 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
 
         if (!TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
                                              EconomyOrderValue, WorkerUnitValue, PreferredBuildPlacementSlotValue,
-                                             OutBuildPlacementSlotValue))
+                                             IntentBufferValue, OutBuildPlacementSlotValue,
+                                             HasFriendlyMovableBlockerValue))
         {
-            OutDeferralReasonValue = ECommandOrderDeferralReason::ReservedSlotOccupied;
+            OutDeferralReasonValue = HasFriendlyMovableBlockerValue ? ECommandOrderDeferralReason::ProducerBusy
+                                                                   : ECommandOrderDeferralReason::ReservedSlotOccupied;
             return false;
         }
 
         return true;
     }
 
+    bool HasIssuedFriendlyBlockerReliefValue = false;
+    std::vector<FBuildPlacementSlotId> AttemptedPlacementSlotIdsValue;
     bool HasPreferredPlacementSlotCandidatesValue = false;
     if (EconomyOrderValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown)
     {
@@ -885,32 +1288,47 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
             }
 
             HasPreferredPlacementSlotCandidatesValue = true;
+            AttemptedPlacementSlotIdsValue.push_back(BuildPlacementSlotValue.SlotId);
             if (TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
                                                 EconomyOrderValue, WorkerUnitValue, BuildPlacementSlotValue,
-                                                OutBuildPlacementSlotValue))
+                                                IntentBufferValue, OutBuildPlacementSlotValue,
+                                                HasFriendlyMovableBlockerValue))
             {
                 return true;
             }
-        }
 
-        if (HasPreferredPlacementSlotCandidatesValue)
-        {
-            OutDeferralReasonValue = ECommandOrderDeferralReason::ReservedSlotOccupied;
-            return false;
+            HasIssuedFriendlyBlockerReliefValue =
+                HasIssuedFriendlyBlockerReliefValue || HasFriendlyMovableBlockerValue;
         }
     }
 
     for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
     {
+        if (HasPlacementSlotBeenAttempted(AttemptedPlacementSlotIdsValue, BuildPlacementSlotValue.SlotId))
+        {
+            continue;
+        }
+
         if (TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue,
                                             EconomyOrderValue, WorkerUnitValue, BuildPlacementSlotValue,
-                                            OutBuildPlacementSlotValue))
+                                            IntentBufferValue, OutBuildPlacementSlotValue,
+                                            HasFriendlyMovableBlockerValue))
         {
             return true;
         }
+
+        HasIssuedFriendlyBlockerReliefValue =
+            HasIssuedFriendlyBlockerReliefValue || HasFriendlyMovableBlockerValue;
     }
 
-    OutDeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
+    if (HasIssuedFriendlyBlockerReliefValue)
+    {
+        OutDeferralReasonValue = ECommandOrderDeferralReason::ProducerBusy;
+        return false;
+    }
+
+    OutDeferralReasonValue = HasPreferredPlacementSlotCandidatesValue ? ECommandOrderDeferralReason::ReservedSlotOccupied
+                                                                      : ECommandOrderDeferralReason::NoValidPlacement;
     return false;
 }
 
@@ -1451,7 +1869,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 if (!TrySelectStructurePlacementSlot(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
                                                      ExpansionLocationsValue,
                                                      CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                     *WorkerUnitValue, SelectedBuildPlacementSlotValue,
+                                                     *WorkerUnitValue, IntentBufferValue,
+                                                     SelectedBuildPlacementSlotValue,
                                                      DeferralReasonValue))
                 {
                     break;
@@ -1700,37 +2119,13 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                const Units BarracksUnitsValue =
-                    FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_BARRACKS));
                 const Unit* BarracksUnitValue = nullptr;
-                bool HasBusyBarracksWithoutAddonValue = false;
-                for (const Unit* CandidateBarracksUnitValue : BarracksUnitsValue)
-                {
-                    if (CandidateBarracksUnitValue == nullptr || CandidateBarracksUnitValue->add_on_tag != NullTag)
-                    {
-                        continue;
-                    }
-
-                    if (CandidateBarracksUnitValue->build_progress < 1.0f ||
-                        !CandidateBarracksUnitValue->orders.empty() ||
-                        IntentBufferValue.HasIntentForActor(CandidateBarracksUnitValue->tag) ||
-                        HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue,
-                                                        CandidateBarracksUnitValue->tag))
-                    {
-                        HasBusyBarracksWithoutAddonValue = true;
-                        continue;
-                    }
-
-                    BarracksUnitValue = CandidateBarracksUnitValue;
-                    break;
-                }
-
-                if (BarracksUnitValue == nullptr)
+                if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
+                                                UNIT_TYPEID::TERRAN_BARRACKS, IntentBufferValue, BarracksUnitValue,
+                                                DeferralReasonValue))
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
                                              VespeneCostValue, 0U);
-                    DeferralReasonValue = HasBusyBarracksWithoutAddonValue ? ECommandOrderDeferralReason::ProducerBusy
-                                                                           : ECommandOrderDeferralReason::NoProducer;
                     break;
                 }
 
@@ -1756,36 +2151,13 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                const Units FactoryUnitsValue =
-                    FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_FACTORY));
                 const Unit* FactoryUnitValue = nullptr;
-                bool HasBusyFactoryWithoutAddonValue = false;
-                for (const Unit* CandidateFactoryUnitValue : FactoryUnitsValue)
-                {
-                    if (CandidateFactoryUnitValue == nullptr || CandidateFactoryUnitValue->add_on_tag != NullTag)
-                    {
-                        continue;
-                    }
-
-                    if (CandidateFactoryUnitValue->build_progress < 1.0f || !CandidateFactoryUnitValue->orders.empty() ||
-                        IntentBufferValue.HasIntentForActor(CandidateFactoryUnitValue->tag) ||
-                        HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue,
-                                                        CandidateFactoryUnitValue->tag))
-                    {
-                        HasBusyFactoryWithoutAddonValue = true;
-                        continue;
-                    }
-
-                    FactoryUnitValue = CandidateFactoryUnitValue;
-                    break;
-                }
-
-                if (FactoryUnitValue == nullptr)
+                if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
+                                                UNIT_TYPEID::TERRAN_FACTORY, IntentBufferValue, FactoryUnitValue,
+                                                DeferralReasonValue))
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
                                              VespeneCostValue, 0U);
-                    DeferralReasonValue = HasBusyFactoryWithoutAddonValue ? ECommandOrderDeferralReason::ProducerBusy
-                                                                          : ECommandOrderDeferralReason::NoProducer;
                     break;
                 }
 
@@ -1798,43 +2170,25 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 break;
             }
             case ABILITY_ID::BUILD_REACTOR_STARPORT:
+            case ABILITY_ID::BUILD_TECHLAB_STARPORT:
             {
-                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, 50U, 50U, 0U))
+                const uint32_t MineralsCostValue = 50U;
+                const uint32_t VespeneCostValue =
+                    EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_STARPORT ? 50U : 25U;
+                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
+                                         VespeneCostValue, 0U))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
                 }
 
-                const Units StarportUnitsValue =
-                    FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_STARPORT));
                 const Unit* StarportUnitValue = nullptr;
-                bool HasBusyStarportWithoutAddonValue = false;
-                for (const Unit* CandidateStarportUnitValue : StarportUnitsValue)
+                if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
+                                                UNIT_TYPEID::TERRAN_STARPORT, IntentBufferValue, StarportUnitValue,
+                                                DeferralReasonValue))
                 {
-                    if (CandidateStarportUnitValue == nullptr || CandidateStarportUnitValue->add_on_tag != NullTag)
-                    {
-                        continue;
-                    }
-
-                    if (CandidateStarportUnitValue->build_progress < 1.0f ||
-                        !CandidateStarportUnitValue->orders.empty() ||
-                        IntentBufferValue.HasIntentForActor(CandidateStarportUnitValue->tag) ||
-                        HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue,
-                                                        CandidateStarportUnitValue->tag))
-                    {
-                        HasBusyStarportWithoutAddonValue = true;
-                        continue;
-                    }
-
-                    StarportUnitValue = CandidateStarportUnitValue;
-                    break;
-                }
-
-                if (StarportUnitValue == nullptr)
-                {
-                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, 50U, 50U, 0U);
-                    DeferralReasonValue = HasBusyStarportWithoutAddonValue ? ECommandOrderDeferralReason::ProducerBusy
-                                                                           : ECommandOrderDeferralReason::NoProducer;
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
+                                             VespeneCostValue, 0U);
                     break;
                 }
 

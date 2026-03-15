@@ -67,6 +67,8 @@ bool TestAgentExecutionTelemetry(int ArgC, char** ArgV)
                                                            EIntentDomain::StructureBuild);
     Check(AgentExecutionTelemetryValue.TotalActorIntentConflictCount == 1U, SuccessValue,
           "Execution telemetry should coalesce repeated actor conflicts inside the cooldown window.");
+    Check(AgentExecutionTelemetryValue.RecentActorIntentConflictCount == 1U, SuccessValue,
+          "Execution telemetry should track recent actor conflicts separately from lifetime totals.");
 
     AgentExecutionTelemetryValue.RecordIdleProductionConflict(60U, 500U, 202U, UNIT_TYPEID::TERRAN_BARRACKS,
                                                               ABILITY_ID::TRAIN_MARINE);
@@ -74,6 +76,8 @@ bool TestAgentExecutionTelemetry(int ArgC, char** ArgV)
                                                               ABILITY_ID::TRAIN_MARINE);
     Check(AgentExecutionTelemetryValue.TotalIdleProductionConflictCount == 1U, SuccessValue,
           "Execution telemetry should coalesce repeated idle-production conflicts inside the cooldown window.");
+    Check(AgentExecutionTelemetryValue.RecentIdleProductionConflictCount == 1U, SuccessValue,
+          "Execution telemetry should track recent idle-production conflicts separately from lifetime totals.");
 
     AgentExecutionTelemetryValue.RecordSchedulerOrderDeferred(70U, 600U, 3001U, 2U, 909U,
                                                               ABILITY_ID::BUILD_BARRACKS,
@@ -85,6 +89,8 @@ bool TestAgentExecutionTelemetry(int ArgC, char** ArgV)
                                                               ECommandOrderDeferralReason::NoValidPlacement);
     Check(AgentExecutionTelemetryValue.TotalSchedulerOrderDeferralCount == 1U, SuccessValue,
           "Execution telemetry should coalesce repeated scheduler deferrals with the same reason.");
+    Check(AgentExecutionTelemetryValue.RecentSchedulerOrderDeferralCount == 1U, SuccessValue,
+          "Execution telemetry should track recent scheduler deferrals separately from lifetime totals.");
     Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
               AgentExecutionTelemetryValue.RecentEvents.back().EventType ==
                   EAgentExecutionEventType::SchedulerOrderDeferred,
@@ -103,6 +109,18 @@ bool TestAgentExecutionTelemetry(int ArgC, char** ArgV)
                                                               ECommandOrderDeferralReason::InsufficientResources);
     Check(AgentExecutionTelemetryValue.TotalSchedulerOrderDeferralCount == 2U, SuccessValue,
           "A new scheduler deferral reason should produce a new telemetry event.");
+    Check(AgentExecutionTelemetryValue.GetTrackedSchedulerDeferralCooldownCount() == 1U, SuccessValue,
+          "Execution telemetry should retain one cooldown record for a tracked scheduler order.");
+
+    AgentExecutionTelemetryValue.AdvanceStep(200U);
+    Check(AgentExecutionTelemetryValue.RecentActorIntentConflictCount == 0U, SuccessValue,
+          "Execution telemetry should reset recent actor conflicts once the reporting window advances.");
+    Check(AgentExecutionTelemetryValue.RecentIdleProductionConflictCount == 0U, SuccessValue,
+          "Execution telemetry should reset recent idle-production conflicts once the reporting window advances.");
+    Check(AgentExecutionTelemetryValue.RecentSchedulerOrderDeferralCount == 0U, SuccessValue,
+          "Execution telemetry should reset recent scheduler deferrals once the reporting window advances.");
+    Check(AgentExecutionTelemetryValue.GetTrackedSchedulerDeferralCooldownCount() == 0U, SuccessValue,
+          "Execution telemetry should prune stale scheduler deferral cooldown state.");
 
     AgentExecutionTelemetryValue.RecordWallDescriptorInvalid(80U, 700U);
     Check(!AgentExecutionTelemetryValue.RecentEvents.empty() &&
@@ -139,6 +157,8 @@ bool TestAgentExecutionTelemetry(int ArgC, char** ArgV)
           "Execution telemetry reset should clear idle-production conflict counts.");
     Check(AgentExecutionTelemetryValue.TotalSchedulerOrderDeferralCount == 0U, SuccessValue,
           "Execution telemetry reset should clear scheduler deferral counts.");
+    Check(AgentExecutionTelemetryValue.RecentSchedulerOrderDeferralCount == 0U, SuccessValue,
+          "Execution telemetry reset should clear recent scheduler deferral counts.");
 
     return SuccessValue;
 }

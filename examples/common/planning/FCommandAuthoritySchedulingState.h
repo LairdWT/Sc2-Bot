@@ -32,6 +32,7 @@ public:
 
     void Reset();
     void Reserve(size_t OrderCapacityValue);
+    void AdvanceRecentBlockedTaskCounterWindow(uint64_t CurrentStepValue);
     void BeginMutationBatch();
     void EndMutationBatch();
     uint32_t EnqueueOrder(const FCommandOrderRecord& CommandOrderRecordValue);
@@ -71,11 +72,17 @@ public:
     uint32_t MutationBatchDepth;
     uint32_t RejectedUnitExecutionAdmissionCount;
     uint32_t SupersededUnitExecutionOrderCount;
-    uint32_t BufferedBlockedTaskCount;
-    uint32_t CoalescedBlockedTaskCount;
-    uint32_t DroppedBlockedTaskCount;
-    uint32_t ReactivatedBlockedTaskCount;
-    uint32_t RejectedMustRunBlockedTaskCount;
+    uint64_t RecentBlockedTaskCounterWindowStartStep;
+    uint32_t TotalBufferedBlockedTaskCount;
+    uint32_t TotalCoalescedBlockedTaskCount;
+    uint32_t TotalDroppedBlockedTaskCount;
+    uint32_t TotalReactivatedBlockedTaskCount;
+    uint32_t TotalRejectedMustRunBlockedTaskCount;
+    uint32_t RecentBufferedBlockedTaskCount;
+    uint32_t RecentCoalescedBlockedTaskCount;
+    uint32_t RecentDroppedBlockedTaskCount;
+    uint32_t RecentReactivatedBlockedTaskCount;
+    uint32_t RecentRejectedMustRunBlockedTaskCount;
     bool bDerivedQueuesDirty;
     bool bPrioritiesDirty;
     FSchedulerStimulusState SchedulerStimulusState;

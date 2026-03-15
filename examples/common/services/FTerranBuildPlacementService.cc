@@ -2635,7 +2635,26 @@ Point2D FTerranBuildPlacementService::GetPrimaryStructureAnchor(
 Point2D FTerranBuildPlacementService::GetArmyAssemblyPoint(
     const FGameStateDescriptor& GameStateDescriptorValue, const FBuildPlacementContext& BuildPlacementContextValue) const
 {
-    (void)GameStateDescriptorValue;
+    const FMainBaseLayoutDescriptor MainBaseLayoutDescriptorValue =
+        BuildPlacementContextValue.MainBaseLayoutDescriptor.bIsValid
+            ? BuildPlacementContextValue.MainBaseLayoutDescriptor
+            : GetMainBaseLayoutDescriptor(FFrameContext(), BuildPlacementContextValue);
+
+    if (!MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty())
+    {
+        float SumXValue = 0.0f;
+        float SumYValue = 0.0f;
+        for (const FBuildPlacementSlot& BuildPlacementSlotValue :
+             MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots)
+        {
+            SumXValue += BuildPlacementSlotValue.BuildPoint.x;
+            SumYValue += BuildPlacementSlotValue.BuildPoint.y;
+        }
+
+        const float SlotCountValue =
+            static_cast<float>(MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.size());
+        return Point2D(SumXValue / SlotCountValue, SumYValue / SlotCountValue);
+    }
 
     if (BuildPlacementContextValue.RampWallDescriptor.bIsValid)
     {
