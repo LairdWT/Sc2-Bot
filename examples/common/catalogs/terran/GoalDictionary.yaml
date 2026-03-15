@@ -1,0 +1,326 @@
+Goals:
+  - DefinitionId: HoldOwnedBase
+    GoalId: 100
+    DisplayName: Hold Owned Base
+    GoalDomain: Defense
+    GoalHorizon: Immediate
+    GoalType: HoldOwnedBase
+    BasePriorityValue: 300
+    ActivationRuleId: AlwaysActive
+    TargetRuleId: None
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: Invalid
+  - DefinitionId: SaturateWorkers
+    GoalId: 110
+    DisplayName: Saturate Workers
+    GoalDomain: Economy
+    GoalHorizon: Immediate
+    GoalType: SaturateWorkers
+    BasePriorityValue: 250
+    ActivationRuleId: ProjectedWorkersBelowTarget
+    TargetRuleId: DesiredWorkerCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_SCV
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: TrainScv
+  - DefinitionId: MaintainSupply
+    GoalId: 120
+    DisplayName: Maintain Supply
+    GoalDomain: Economy
+    GoalHorizon: Immediate
+    GoalType: MaintainSupply
+    BasePriorityValue: 240
+    ActivationRuleId: SupplyPressureOrProjectedDepotsBelowTarget
+    TargetRuleId: DesiredSupplyDepotCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_SUPPLYDEPOT
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildSupplyDepot
+  - DefinitionId: ExpandBaseCount
+    GoalId: 200
+    DisplayName: Expand Base Count
+    GoalDomain: Economy
+    GoalHorizon: NearTerm
+    GoalType: ExpandBaseCount
+    BasePriorityValue: 230
+    ActivationRuleId: ProjectedCommandCentersBelowTarget
+    TargetRuleId: DesiredBaseCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_COMMANDCENTER
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildCommandCenter
+  - DefinitionId: BuildRefineryCapacity
+    GoalId: 210
+    DisplayName: Build Refinery Capacity
+    GoalDomain: Economy
+    GoalHorizon: NearTerm
+    GoalType: BuildProductionCapacity
+    BasePriorityValue: 190
+    ActivationRuleId: ProjectedRefineriesBelowTarget
+    TargetRuleId: DesiredRefineryCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_REFINERY
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildRefinery
+  - DefinitionId: BuildBarracksCapacity
+    GoalId: 220
+    DisplayName: Build Barracks Capacity
+    GoalDomain: Production
+    GoalHorizon: NearTerm
+    GoalType: BuildProductionCapacity
+    BasePriorityValue: 210
+    ActivationRuleId: ProjectedBarracksBelowTarget
+    TargetRuleId: DesiredBarracksCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_BARRACKS
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildBarracks
+  - DefinitionId: BuildFactoryCapacity
+    GoalId: 221
+    DisplayName: Build Factory Capacity
+    GoalDomain: Production
+    GoalHorizon: NearTerm
+    GoalType: BuildProductionCapacity
+    BasePriorityValue: 205
+    ActivationRuleId: ProjectedFactoryBelowTarget
+    TargetRuleId: DesiredFactoryCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_FACTORY
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildFactory
+  - DefinitionId: BuildStarportCapacity
+    GoalId: 222
+    DisplayName: Build Starport Capacity
+    GoalDomain: Production
+    GoalHorizon: NearTerm
+    GoalType: BuildProductionCapacity
+    BasePriorityValue: 205
+    ActivationRuleId: ProjectedStarportBelowTarget
+    TargetRuleId: DesiredStarportCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_STARPORT
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildStarport
+  - DefinitionId: UnlockBarracksReactor
+    GoalId: 230
+    DisplayName: Unlock Barracks Reactor
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: UnlockTechnology
+    BasePriorityValue: 170
+    ActivationRuleId: MissingBarracksReactor
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: TERRAN_BARRACKSREACTOR
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildBarracksReactor
+  - DefinitionId: UnlockFactoryTechLab
+    GoalId: 231
+    DisplayName: Unlock Factory Tech Lab
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: UnlockTechnology
+    BasePriorityValue: 165
+    ActivationRuleId: MissingFactoryTechLab
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: TERRAN_FACTORYTECHLAB
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildFactoryTechLab
+  - DefinitionId: UnlockEngineeringBay
+    GoalId: 232
+    DisplayName: Unlock Engineering Bay
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: UnlockTechnology
+    BasePriorityValue: 150
+    ActivationRuleId: MissingEngineeringBayForUpgrades
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: TERRAN_ENGINEERINGBAY
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildEngineeringBay
+  - DefinitionId: UnlockStarportReactor
+    GoalId: 233
+    DisplayName: Unlock Starport Reactor
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: UnlockTechnology
+    BasePriorityValue: 145
+    ActivationRuleId: MissingStarportReactor
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: TERRAN_STARPORTREACTOR
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildStarportReactor
+  - DefinitionId: ResearchStimpack
+    GoalId: 240
+    DisplayName: Research Stimpack
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: ResearchUpgrade
+    BasePriorityValue: 160
+    ActivationRuleId: MissingStimpack
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: STIMPACK
+    TaskTemplateId: ResearchStimpack
+  - DefinitionId: ResearchCombatShield
+    GoalId: 241
+    DisplayName: Research Combat Shield
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: ResearchUpgrade
+    BasePriorityValue: 140
+    ActivationRuleId: MissingCombatShield
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: SHIELDWALL
+    TaskTemplateId: ResearchCombatShield
+  - DefinitionId: ResearchInfantryWeaponsLevel1
+    GoalId: 242
+    DisplayName: Research Terran Infantry Weapons Level 1
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: ResearchUpgrade
+    BasePriorityValue: 135
+    ActivationRuleId: MissingInfantryWeaponsLevel1
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: TERRANINFANTRYWEAPONSLEVEL1
+    TaskTemplateId: ResearchTerranInfantryWeaponsLevel1
+  - DefinitionId: ResearchConcussiveShells
+    GoalId: 243
+    DisplayName: Research Concussive Shells
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: ResearchUpgrade
+    BasePriorityValue: 120
+    ActivationRuleId: MissingConcussiveShells
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: PUNISHERGRENADES
+    TaskTemplateId: ResearchConcussiveShells
+  - DefinitionId: ProduceMarines
+    GoalId: 300
+    DisplayName: Produce Marines
+    GoalDomain: Army
+    GoalHorizon: Strategic
+    GoalType: ProduceArmy
+    BasePriorityValue: 180
+    ActivationRuleId: ProjectedMarinesBelowTarget
+    TargetRuleId: DesiredMarineCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_MARINE
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: TrainMarine
+  - DefinitionId: ProduceMarauders
+    GoalId: 301
+    DisplayName: Produce Marauders
+    GoalDomain: Army
+    GoalHorizon: Strategic
+    GoalType: ProduceArmy
+    BasePriorityValue: 165
+    ActivationRuleId: ProjectedMaraudersBelowTarget
+    TargetRuleId: DesiredMarauderCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_MARAUDER
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: TrainMarauder
+  - DefinitionId: ProduceCyclones
+    GoalId: 302
+    DisplayName: Produce Cyclones
+    GoalDomain: Army
+    GoalHorizon: Strategic
+    GoalType: ProduceArmy
+    BasePriorityValue: 150
+    ActivationRuleId: ProjectedCyclonesBelowTarget
+    TargetRuleId: DesiredCycloneCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_CYCLONE
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: TrainCyclone
+  - DefinitionId: ProduceSiegeTanks
+    GoalId: 303
+    DisplayName: Produce Siege Tanks
+    GoalDomain: Army
+    GoalHorizon: Strategic
+    GoalType: ProduceArmy
+    BasePriorityValue: 160
+    ActivationRuleId: ProjectedSiegeTanksBelowTarget
+    TargetRuleId: DesiredSiegeTankCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_SIEGETANK
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: TrainSiegeTank
+  - DefinitionId: ProduceMedivacs
+    GoalId: 304
+    DisplayName: Produce Medivacs
+    GoalDomain: Army
+    GoalHorizon: Strategic
+    GoalType: ProduceArmy
+    BasePriorityValue: 170
+    ActivationRuleId: ProjectedMedivacsBelowTarget
+    TargetRuleId: DesiredMedivacCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_MEDIVAC
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: TrainMedivac
+  - DefinitionId: ProduceLiberators
+    GoalId: 305
+    DisplayName: Produce Liberators
+    GoalDomain: Army
+    GoalHorizon: Strategic
+    GoalType: ProduceArmy
+    BasePriorityValue: 130
+    ActivationRuleId: ProjectedLiberatorsBelowTarget
+    TargetRuleId: DesiredLiberatorCount
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: TERRAN_LIBERATOR
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: TrainLiberator
+  - DefinitionId: PressureEnemy
+    GoalId: 400
+    DisplayName: Pressure Enemy
+    GoalDomain: Army
+    GoalHorizon: Strategic
+    GoalType: PressureEnemy
+    BasePriorityValue: 125
+    ActivationRuleId: AlwaysActive
+    TargetRuleId: None
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: Invalid
+  - DefinitionId: ClearEnemyPresence
+    GoalId: 410
+    DisplayName: Clear Enemy Presence
+    GoalDomain: Army
+    GoalHorizon: Strategic
+    GoalType: ClearEnemyPresence
+    BasePriorityValue: 120
+    ActivationRuleId: AlwaysActive
+    TargetRuleId: None
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: Invalid
+  - DefinitionId: ScoutExpansionLocations
+    GoalId: 420
+    DisplayName: Scout Expansion Locations
+    GoalDomain: Scouting
+    GoalHorizon: Strategic
+    GoalType: ScoutExpansionLocations
+    BasePriorityValue: 110
+    ActivationRuleId: AlwaysActive
+    TargetRuleId: None
+    DefaultTargetCount: 0
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: Invalid

@@ -4,6 +4,13 @@ set(sc2_terran_bot_common_sources
     armies/EArmyPosture.cc
     armies/FArmyDomainState.cc
     armies/FArmyMissionDescriptor.cc
+    catalogs/FTerranGoalDefinition.cc
+    catalogs/FTerranGoalDictionary.cc
+    catalogs/FTerranGoalRuleLibrary.cc
+    catalogs/FTerranTaskTemplateDefinition.cc
+    catalogs/FTerranTaskTemplateDictionary.cc
+    catalogs/generated/FTerranGoalDictionaryData.generated.cc
+    catalogs/generated/FTerranTaskTemplateDictionaryData.generated.cc
     build_orders/EOpeningPlanId.cc
     build_orders/EOpeningPlanLifecycleState.cc
     build_orders/FOpeningPlanDescriptor.cc

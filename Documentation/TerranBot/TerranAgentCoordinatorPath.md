@@ -43,6 +43,7 @@ Use this as the first runtime entrypoint reference before domain pages.
    - `InitializeMainBaseLayoutDescriptor(Frame)`
    - `RebuildObservedGameStateDescriptor(Frame)`
    - `RebuildForecastState()`
+   - `RebuildExecutionPressureDescriptor(Frame)`
    - `UpdateStrategicAndPlanningState()`
    - `PrintAgentState()`
 
@@ -58,6 +59,7 @@ Use this as the first runtime entrypoint reference before domain pages.
 6. Descriptor and planning refresh:
    - `RebuildObservedGameStateDescriptor(Frame)`
    - `RebuildForecastState()`
+   - `RebuildExecutionPressureDescriptor(Frame)`
    - `UpdateStrategicAndPlanningState()`
 7. Reset per-step buffers:
    - `IntentBuffer.Reset()`
@@ -98,7 +100,10 @@ The descriptor and planning refresh is split across three functions:
 
 1. `RebuildObservedGameStateDescriptor(const FFrameContext& Frame)`
 2. `RebuildForecastState()`
-3. `UpdateStrategicAndPlanningState()`
+3. `RebuildExecutionPressureDescriptor(const FFrameContext& Frame)`
+4. `UpdateStrategicAndPlanningState()`
+
+`RebuildExecutionPressureDescriptor(...)` rebuilds `GameStateDescriptor.ExecutionPressure` from current observed build-planning values plus recent `ExecutionTelemetry` signals (supply pressure, mineral banking pressure, deferral breakdown, and idle producer counts without active scheduled work).
 
 `UpdateStrategicAndPlanningState()` applies:
 

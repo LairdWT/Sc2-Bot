@@ -2,7 +2,7 @@
 
 ## Run Summary
 
-- RunTimeUtc: 2026-03-15T13:57:47Z
+- RunTimeUtc: 2026-03-15T17:56:24Z
 - Scope:
   - `L:\Sc2_Bot\examples\common`
   - `L:\Sc2_Bot\examples\terran`
@@ -34,7 +34,8 @@
   - `FIntentArbiter::Resolve`
   - `ExecuteResolvedIntents`
   - `CaptureNewlyDispatchedSchedulerOrders`
-- Focused supporting evidence also reviewed in:
+- `TerranAgentCoordinatorPath.md` now includes `RebuildExecutionPressureDescriptor(const FFrameContext& Frame)` in both `OnGameStart` and `OnStep` ordering and in the descriptor/planning boundary section.
+- Focused supporting evidence reviewed in:
   - `L:\Sc2_Bot\tests\test_command_authority_scheduling.cc`
   - `L:\Sc2_Bot\tests\test_terran_descriptor_pipeline.cc`
   - `L:\Sc2_Bot\tests\test_terran_opening_plan_scheduler.cc`

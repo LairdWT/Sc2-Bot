@@ -5,51 +5,66 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 ## Latest Resume Update
 
 ### Current Slice
-- The active slice is Terran macro recovery and targeted combat behavior on top of the scheduler-aware forecast and planning path.
-- The focus is to stop army rally overlap with production space, restore macro spending when the opening drifts, fan out unit production across idle producers, and add explicit Medivac, Widow Mine, and Siege Tank behavior where the generic scorer was not sufficient.
+- The active slice is the generated Terran goal and task dictionary refactor.
+- The focus is to move Terran goal definitions and reusable task-template defaults out of hardcoded C++ lists and into generated read-only runtime tables sourced from human-authored YAML.
 
 ### Implemented In This Slice
-- Added a separate production rally path so army assembly and production rally no longer share the same staging target.
-- `FTerranBuildPlacementService` now prefers the authored ramp-wall outside staging point for production rally and falls back to a projected point outside depot-lane and add-on-clearance space.
-- `FCommandAuthorityProcessor` no longer reserves entire producer families just because authored opening steps still exist later in the asset. Opening protection remains exact-step duplicate protection only.
-- `FTerranEconomyProductionOrderExpander` now uses `RequestedQueueCount` for non-SCV unit production so Marines, Medivacs, Siege Tanks, and similar units can fill multiple eligible queues in one scheduling step.
-- Strategic and planning pressure now considers prolonged mineral float and idle production through the execution-pressure descriptor path consumed by the strategic director, admission service, and priority service.
-- Build planning now materializes near-term Engineering Bay, Starport Reactor, and upgrade goals in addition to the earlier add-on handling.
-- `FTerranArmyUnitExecutionPlanner` now has targeted behavior branches for:
-  - Medivac heal and support-anchor positioning
-  - Widow Mine burrow and unburrow control
-  - Siege Tank siege and unsiege control
-- `FTerranBuildPlacementService::ClampPointToPlayableBounds(...)` now preserves synthetic test points when the playable-bounds query is absent, which fixed the new rally assertions in isolated placement contexts.
+- Added Terran YAML authoring sources:
+  - `examples/common/catalogs/terran/GoalDictionary.yaml`
+  - `examples/common/catalogs/terran/TaskTemplateDictionary.yaml`
+- Added the checked-in generator:
+  - `scripts/generate_sc2bot_dictionaries.py`
+- Added generated runtime outputs and generated review JSON under:
+  - `examples/common/catalogs/generated/`
+- Added runtime dictionary types and APIs:
+  - `ETerranGoalDefinitionId`
+  - `ETerranTaskTemplateId`
+  - `EGoalActivationRuleId`
+  - `EGoalTargetRuleId`
+  - `FTerranGoalDefinition`
+  - `FTerranTaskTemplateDefinition`
+  - `FTerranGoalDictionary`
+  - `FTerranTaskTemplateDictionary`
+  - `FTerranGoalRuleLibrary`
+- `FDefaultStrategicDirector` now builds Terran goals by iterating generated goal definitions and evaluating them through the Terran goal rule library instead of hardcoding the full goal list inline.
+- `FOpeningPlanRegistry` now creates opening task descriptors from generated task-template defaults first, then applies step-specific overrides such as trigger loop, priority, target count, prerequisites, and exact placement metadata.
+- `FCommandAuthorityProcessor` now seeds goal-driven strategic work from generated task templates, with a fallback template resolver for existing synthetic-goal test coverage.
+- Exact-slot opening structure steps remain mandatory after the template refactor:
+  - `CommitmentClass = MandatoryOpening`
+  - `ExecutionGuarantee = MustExecute`
+  - `RetentionPolicy = HotMustRun`
+- The generator now uses repo-relative default paths instead of hardcoded drive paths, and supports `--check` for deterministic validation.
 
 ### Test Coverage Added Or Extended
-- `test_terran_planners` now covers Engineering Bay, Starport Reactor, Stimpack, and Siege Tank goal materialization.
-- `test_terran_opening_plan_scheduler` now covers incomplete opening plans no longer suppressing unrelated add-on, upgrade, and Medivac strategic work.
-- `test_terran_economy_production_order_expander` now covers Medivac reactor fan-out and multi-factory Siege Tank fan-out.
-- `test_terran_army_order_pipeline` now covers Medivac healing and anchor movement, Widow Mine burrow transitions, and Siege Tank siege transitions.
-- `test_terran_build_placement_service` now covers the dedicated production rally point selection path.
+- Added `test_terran_goal_task_dictionary` to validate:
+  - generated goal-dictionary count and lookup
+  - generated task-template count and lookup
+  - action-to-template resolution
+  - task-descriptor materialization from templates
+  - opening-step parity and mandatory exact-slot metadata retention
+- `tests/all_tests.cc` and `tests/CMakeLists.txt` now include the new dictionary test.
 
 ### Current Validation State
 - Passed:
-  - `RunTests.bat build`
-  - `sc2::TestTerranPlanners`
+  - `python L:\Sc2_Bot\scripts\generate_sc2bot_dictionaries.py --check`
+  - `cmd /c Build.bat --target tutorial`
+  - `cmd /c BuildAllTests.bat`
+  - `sc2::TestTerranGoalTaskDictionary`
   - `sc2::TestTerranOpeningPlanScheduler`
-  - `sc2::TestTerranEconomyProductionOrderExpander`
-  - `sc2::TestTerranArmyOrderPipeline`
   - `sc2::TestCommandAuthorityScheduling`
+  - `sc2::TestTerranPlanners`
   - `sc2::TestTerranDescriptorPipeline`
-  - `sc2::TestTerranBotScaffolding`
-- Remaining known failure:
-  - `sc2::TestTerranBuildPlacementService` still has older authored rail and shared-rail placement expectation failures outside the new production-rally coverage.
-- Next live validation step:
-  - launch `cmd /c LaunchTerranEasyComputerMatch.bat` after the current work is pushed so the updated macro and combat behavior can be observed in match.
+  - `sc2::TestTerranEconomicModels`
+- Not run in this slice:
+  - visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat`
+- Important current scope note:
+  - this slice is a definition-source refactor. It does not resolve the still-open live gameplay issues around rally behavior, macro spending, expansion cadence, upgrade progression, or unit tactical control.
 
 ## Immediate User Requests
-- Push the current verified optimization work to git after updating `RESUME.md`.
-- Preserve the user-approved live launch path: only `cmd /c LaunchTerranEasyComputerMatch.bat`.
-- The Terran opening plan must not remain a time-gated special case; it should seed the command scheduler and then hand off to normal scheduler-driven follow-up packages and triggers.
-- Use a Medium opponent for live validation so stalled combat logic does not leave near-endless visible test runs.
-- Investigate and reduce the progressive late-game slowdown before continuing broader macro work.
-- Keep the optimization work aligned with the scheduler-owned army pipeline rather than reviving legacy direct-control code.
+- Push the generated Terran goal/task dictionary refactor to git after updating `RESUME.md`.
+- Preserve the generated YAML plus generated C++ plus generated JSON review flow. Do not add runtime YAML parsing.
+- Keep Terran runtime consumers reading only generated static dictionary data.
+- The next likely follow-on requested by the user is a skill for authoring Sc2Bot goals and task templates against this new schema.
 
 ## Mandatory Local Standards
 - Read `L:\Sc2_Bot\CodingStandards.md` before making code changes.

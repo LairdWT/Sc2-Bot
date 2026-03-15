@@ -1,0 +1,533 @@
+TaskTemplates:
+  - TemplateId: BuildSupplyDepot
+    DisplayName: Build Supply Depot
+    PackageKind: Supply
+    NeedKind: Structure
+    ActionKind: BuildStructure
+    CompletionKind: CountAtLeast
+    TaskType: Supply
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_SUPPLYDEPOT
+    ActionProducerUnitTypeId: TERRAN_SCV
+    ActionResultUnitTypeId: TERRAN_SUPPLYDEPOT
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildBarracks
+    DisplayName: Build Barracks
+    PackageKind: ProductionScale
+    NeedKind: Structure
+    ActionKind: BuildStructure
+    CompletionKind: CountAtLeast
+    TaskType: ProductionStructure
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_BARRACKS
+    ActionProducerUnitTypeId: TERRAN_SCV
+    ActionResultUnitTypeId: TERRAN_BARRACKS
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildRefinery
+    DisplayName: Build Refinery
+    PackageKind: Macro
+    NeedKind: Structure
+    ActionKind: BuildStructure
+    CompletionKind: CountAtLeast
+    TaskType: Refinery
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_REFINERY
+    ActionProducerUnitTypeId: TERRAN_SCV
+    ActionResultUnitTypeId: TERRAN_REFINERY
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainMarine
+    DisplayName: Train Marine
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_MARINE
+    ActionProducerUnitTypeId: TERRAN_BARRACKS
+    ActionResultUnitTypeId: TERRAN_MARINE
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: MorphOrbitalCommand
+    DisplayName: Morph Orbital Command
+    PackageKind: Macro
+    NeedKind: Structure
+    ActionKind: MorphStructure
+    CompletionKind: CountAtLeast
+    TaskType: Unknown
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: MORPH_ORBITALCOMMAND
+    ActionProducerUnitTypeId: TERRAN_COMMANDCENTER
+    ActionResultUnitTypeId: TERRAN_ORBITALCOMMAND
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildCommandCenter
+    DisplayName: Build Command Center
+    PackageKind: Expansion
+    NeedKind: Expansion
+    ActionKind: Expand
+    CompletionKind: CountAtLeast
+    TaskType: Expansion
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_COMMANDCENTER
+    ActionProducerUnitTypeId: TERRAN_SCV
+    ActionResultUnitTypeId: TERRAN_COMMANDCENTER
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildBarracksReactor
+    DisplayName: Build Barracks Reactor
+    PackageKind: TechTransition
+    NeedKind: AddOn
+    ActionKind: BuildAddon
+    CompletionKind: CountAtLeast
+    TaskType: AddOn
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_REACTOR_BARRACKS
+    ActionProducerUnitTypeId: TERRAN_BARRACKS
+    ActionResultUnitTypeId: TERRAN_BARRACKSREACTOR
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildFactory
+    DisplayName: Build Factory
+    PackageKind: ProductionScale
+    NeedKind: Structure
+    ActionKind: BuildStructure
+    CompletionKind: CountAtLeast
+    TaskType: ProductionStructure
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_FACTORY
+    ActionProducerUnitTypeId: TERRAN_SCV
+    ActionResultUnitTypeId: TERRAN_FACTORY
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildStarport
+    DisplayName: Build Starport
+    PackageKind: ProductionScale
+    NeedKind: Structure
+    ActionKind: BuildStructure
+    CompletionKind: CountAtLeast
+    TaskType: ProductionStructure
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_STARPORT
+    ActionProducerUnitTypeId: TERRAN_SCV
+    ActionResultUnitTypeId: TERRAN_STARPORT
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainHellion
+    DisplayName: Train Hellion
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_HELLION
+    ActionProducerUnitTypeId: TERRAN_FACTORY
+    ActionResultUnitTypeId: TERRAN_HELLION
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildFactoryTechLab
+    DisplayName: Build Factory Tech Lab
+    PackageKind: TechTransition
+    NeedKind: AddOn
+    ActionKind: BuildAddon
+    CompletionKind: CountAtLeast
+    TaskType: AddOn
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_TECHLAB_FACTORY
+    ActionProducerUnitTypeId: TERRAN_FACTORY
+    ActionResultUnitTypeId: TERRAN_FACTORYTECHLAB
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainMedivac
+    DisplayName: Train Medivac
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_MEDIVAC
+    ActionProducerUnitTypeId: TERRAN_STARPORT
+    ActionResultUnitTypeId: TERRAN_MEDIVAC
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainCyclone
+    DisplayName: Train Cyclone
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_CYCLONE
+    ActionProducerUnitTypeId: TERRAN_FACTORY
+    ActionResultUnitTypeId: TERRAN_CYCLONE
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainLiberator
+    DisplayName: Train Liberator
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_LIBERATOR
+    ActionProducerUnitTypeId: TERRAN_STARPORT
+    ActionResultUnitTypeId: TERRAN_LIBERATOR
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainSiegeTank
+    DisplayName: Train Siege Tank
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_SIEGETANK
+    ActionProducerUnitTypeId: TERRAN_FACTORY
+    ActionResultUnitTypeId: TERRAN_SIEGETANK
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildEngineeringBay
+    DisplayName: Build Engineering Bay
+    PackageKind: TechTransition
+    NeedKind: Structure
+    ActionKind: BuildStructure
+    CompletionKind: CountAtLeast
+    TaskType: TechStructure
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_ENGINEERINGBAY
+    ActionProducerUnitTypeId: TERRAN_SCV
+    ActionResultUnitTypeId: TERRAN_ENGINEERINGBAY
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: ResearchStimpack
+    DisplayName: Research Stimpack
+    PackageKind: TechTransition
+    NeedKind: Upgrade
+    ActionKind: ResearchUpgrade
+    CompletionKind: CountAtLeast
+    TaskType: UpgradeResearch
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: RESEARCH_STIMPACK
+    ActionProducerUnitTypeId: TERRAN_BARRACKSTECHLAB
+    ActionResultUnitTypeId: INVALID
+    ActionUpgradeId: STIMPACK
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildStarportReactor
+    DisplayName: Build Starport Reactor
+    PackageKind: TechTransition
+    NeedKind: AddOn
+    ActionKind: BuildAddon
+    CompletionKind: CountAtLeast
+    TaskType: AddOn
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_REACTOR_STARPORT
+    ActionProducerUnitTypeId: TERRAN_STARPORT
+    ActionResultUnitTypeId: TERRAN_STARPORTREACTOR
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainMarauder
+    DisplayName: Train Marauder
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_MARAUDER
+    ActionProducerUnitTypeId: TERRAN_BARRACKS
+    ActionResultUnitTypeId: TERRAN_MARAUDER
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildFactoryReactor
+    DisplayName: Build Factory Reactor
+    PackageKind: TechTransition
+    NeedKind: AddOn
+    ActionKind: BuildAddon
+    CompletionKind: CountAtLeast
+    TaskType: AddOn
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_REACTOR_FACTORY
+    ActionProducerUnitTypeId: TERRAN_FACTORY
+    ActionResultUnitTypeId: TERRAN_FACTORYREACTOR
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: ResearchCombatShield
+    DisplayName: Research Combat Shield
+    PackageKind: TechTransition
+    NeedKind: Upgrade
+    ActionKind: ResearchUpgrade
+    CompletionKind: CountAtLeast
+    TaskType: UpgradeResearch
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: RESEARCH_COMBATSHIELD
+    ActionProducerUnitTypeId: TERRAN_BARRACKSTECHLAB
+    ActionResultUnitTypeId: INVALID
+    ActionUpgradeId: SHIELDWALL
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: ResearchTerranInfantryWeaponsLevel1
+    DisplayName: Research Terran Infantry Weapons Level 1
+    PackageKind: TechTransition
+    NeedKind: Upgrade
+    ActionKind: ResearchUpgrade
+    CompletionKind: CountAtLeast
+    TaskType: UpgradeResearch
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: RESEARCH_TERRANINFANTRYWEAPONSLEVEL1
+    ActionProducerUnitTypeId: TERRAN_ENGINEERINGBAY
+    ActionResultUnitTypeId: INVALID
+    ActionUpgradeId: TERRANINFANTRYWEAPONSLEVEL1
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainWidowMine
+    DisplayName: Train Widow Mine
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_WIDOWMINE
+    ActionProducerUnitTypeId: TERRAN_FACTORY
+    ActionResultUnitTypeId: TERRAN_WIDOWMINE
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: ResearchConcussiveShells
+    DisplayName: Research Concussive Shells
+    PackageKind: TechTransition
+    NeedKind: Upgrade
+    ActionKind: ResearchUpgrade
+    CompletionKind: CountAtLeast
+    TaskType: UpgradeResearch
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: RESEARCH_CONCUSSIVESHELLS
+    ActionProducerUnitTypeId: TERRAN_BARRACKSTECHLAB
+    ActionResultUnitTypeId: INVALID
+    ActionUpgradeId: PUNISHERGRENADES
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildBunker
+    DisplayName: Build Bunker
+    PackageKind: Defense
+    NeedKind: Structure
+    ActionKind: BuildStructure
+    CompletionKind: CountAtLeast
+    TaskType: StaticDefense
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_BUNKER
+    ActionProducerUnitTypeId: TERRAN_SCV
+    ActionResultUnitTypeId: TERRAN_BUNKER
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: BuildBarracksTechLab
+    DisplayName: Build Barracks Tech Lab
+    PackageKind: TechTransition
+    NeedKind: AddOn
+    ActionKind: BuildAddon
+    CompletionKind: CountAtLeast
+    TaskType: AddOn
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: Placement
+    ActionAbilityId: BUILD_TECHLAB_BARRACKS
+    ActionProducerUnitTypeId: TERRAN_BARRACKS
+    ActionResultUnitTypeId: TERRAN_BARRACKSTECHLAB
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainScv
+    DisplayName: Train SCV
+    PackageKind: Macro
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: WorkerProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: HotMustRun
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_SCV
+    ActionProducerUnitTypeId: TERRAN_COMMANDCENTER
+    ActionResultUnitTypeId: TERRAN_SCV
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown
+  - TemplateId: TrainVikingFighter
+    DisplayName: Train Viking Fighter
+    PackageKind: TimingAttack
+    NeedKind: Unit
+    ActionKind: TrainUnit
+    CompletionKind: CountAtLeast
+    TaskType: UnitProduction
+    Origin: GoalMacro
+    CommitmentClass: FlexibleMacro
+    ExecutionGuarantee: Preferred
+    RetentionPolicy: BufferedRetry
+    BlockedTaskWakeKind: ProducerAvailability
+    ActionAbilityId: TRAIN_VIKINGFIGHTER
+    ActionProducerUnitTypeId: TERRAN_STARPORT
+    ActionResultUnitTypeId: TERRAN_VIKINGFIGHTER
+    ActionUpgradeId: INVALID
+    DefaultTargetCount: 1
+    DefaultRequestedQueueCount: 1
+    DefaultPreferredPlacementSlotType: Unknown

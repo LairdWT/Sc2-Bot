@@ -3,6 +3,8 @@
 #include <initializer_list>
 #include <string>
 
+#include "common/catalogs/FTerranTaskTemplateDictionary.h"
+
 namespace sc2
 {
 namespace
@@ -158,15 +160,21 @@ FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_
 {
     FOpeningPlanStep OpeningPlanStepValue;
     FCommandTaskDescriptor& TaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
+    if (!FTerranTaskTemplateDictionary::TryCreateTaskDescriptorForAction(AbilityIdValue, ResultUnitTypeIdValue,
+                                                                         UpgradeIdValue, TaskDescriptorValue))
+    {
+        TaskDescriptorValue.TaskId = StepIdValue;
+        TaskDescriptorValue.ActionKind = DetermineTaskActionKind(AbilityIdValue);
+        TaskDescriptorValue.NeedKind = DetermineTaskNeedKind(TaskDescriptorValue.ActionKind);
+        TaskDescriptorValue.CompletionKind = ECommandTaskCompletionKind::CountAtLeast;
+        TaskDescriptorValue.TaskType = DetermineTaskType(AbilityIdValue, ResultUnitTypeIdValue);
+        TaskDescriptorValue.CommitmentClass = ECommandCommitmentClass::FlexibleMacro;
+        TaskDescriptorValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
+    }
+
     TaskDescriptorValue.TaskId = StepIdValue;
     TaskDescriptorValue.PackageKind = ECommandTaskPackageKind::Opening;
-    TaskDescriptorValue.ActionKind = DetermineTaskActionKind(AbilityIdValue);
-    TaskDescriptorValue.NeedKind = DetermineTaskNeedKind(TaskDescriptorValue.ActionKind);
-    TaskDescriptorValue.CompletionKind = ECommandTaskCompletionKind::CountAtLeast;
-    TaskDescriptorValue.TaskType = DetermineTaskType(AbilityIdValue, ResultUnitTypeIdValue);
     TaskDescriptorValue.Origin = ECommandTaskOrigin::Opening;
-    TaskDescriptorValue.CommitmentClass = ECommandCommitmentClass::FlexibleMacro;
-    TaskDescriptorValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
     TaskDescriptorValue.BasePriorityValue = PriorityValue;
     TaskDescriptorValue.TriggerMinGameLoop = MinGameLoopValue;
     TaskDescriptorValue.TriggerReferenceClockTime = BuildReferenceClockTime(MinGameLoopValue);
