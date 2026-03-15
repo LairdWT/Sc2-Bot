@@ -18,6 +18,8 @@ public:
                                       const FBuildPlacementContext& BuildPlacementContextValue) const final;
     Point2D GetArmyAssemblyPoint(const FGameStateDescriptor& GameStateDescriptorValue,
                                  const FBuildPlacementContext& BuildPlacementContextValue) const final;
+    Point2D GetProductionRallyPoint(const FGameStateDescriptor& GameStateDescriptorValue,
+                                    const FBuildPlacementContext& BuildPlacementContextValue) const final;
     std::vector<FBuildPlacementSlot> GetStructurePlacementSlots(
         const FGameStateDescriptor& GameStateDescriptorValue, ABILITY_ID StructureAbilityId,
         const FBuildPlacementContext& BuildPlacementContextValue) const final;

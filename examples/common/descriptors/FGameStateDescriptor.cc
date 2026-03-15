@@ -16,8 +16,10 @@ void FGameStateDescriptor::Reset()
     MacroState.Reset();
     ArmyState.Reset();
     BuildPlanning.Reset();
+    CommitmentLedger.Reset();
     EconomyState.Reset();
     ProductionState.Reset();
+    ExecutionPressure.Reset();
     OpeningPlanExecutionState.Reset();
     CommandAuthoritySchedulingState.Reset();
     SchedulerOutlook.Reset();

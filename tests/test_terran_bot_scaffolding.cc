@@ -15,6 +15,7 @@
 #include "common/planning/EIntentPlaybackState.h"
 #include "common/planning/EPlanningProcessorState.h"
 #include "common/spatial/FSpatialFieldSet.h"
+#include "terran/terran.h"
 
 namespace sc2
 {
@@ -214,6 +215,35 @@ bool TestTerranBotScaffolding(int ArgC, char** ArgV)
           "Army goal string conversion should expose HoldBase.");
     Check(std::string(ToString(EArmyPosture::Engage)) == "Engage", SuccessValue,
           "Army posture string conversion should expose Engage.");
+
+    TerranAgent TerranAgentValue;
+    Unit ScvUnitValue;
+    ScvUnitValue.unit_type = UNIT_TYPEID::TERRAN_SCV;
+    UnitOrder BarracksBuildOrderValue;
+    BarracksBuildOrderValue.ability_id = ABILITY_ID::BUILD_BARRACKS;
+    ScvUnitValue.orders.push_back(BarracksBuildOrderValue);
+
+    FCommandOrderRecord BarracksConstructionOrderValue = FCommandOrderRecord::CreatePointTarget(
+        ECommandAuthorityLayer::UnitExecution, 4001U, ABILITY_ID::BUILD_BARRACKS, Point2D(30.0f, 30.0f), 150,
+        EIntentDomain::StructureBuild, 100U);
+    BarracksConstructionOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    BarracksConstructionOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+
+    Check(!TerranAgentValue.HasProducerConfirmedDispatchedOrder(BarracksConstructionOrderValue, &ScvUnitValue),
+          SuccessValue,
+          "Structure construction should not count as confirmed merely because the worker still carries the build order.");
+
+    Unit BarracksUnitValue;
+    BarracksUnitValue.unit_type = UNIT_TYPEID::TERRAN_BARRACKS;
+    BarracksUnitValue.add_on_tag = 9001U;
+    FCommandOrderRecord AddonConstructionOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::UnitExecution, 4002U, ABILITY_ID::BUILD_REACTOR_BARRACKS, 150,
+        EIntentDomain::StructureBuild, 100U);
+    AddonConstructionOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    AddonConstructionOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKSREACTOR;
+
+    Check(TerranAgentValue.HasProducerConfirmedDispatchedOrder(AddonConstructionOrderValue, &BarracksUnitValue),
+          SuccessValue, "Add-on construction should still confirm from the producer once the add-on is attached.");
 
     return SuccessValue;
 }

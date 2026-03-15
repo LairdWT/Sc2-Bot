@@ -10,6 +10,7 @@
 #include "common/descriptors/FSchedulerOutlookDescriptor.h"
 #include "common/economic_models.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
+#include "common/services/FTerranEconomicService.h"
 
 namespace sc2
 {
@@ -281,6 +282,96 @@ uint64_t RoundPositiveFloatToUint64(const float Value)
     return Value > 0.0f ? static_cast<uint64_t>(Value + 0.5f) : 0U;
 }
 
+uint64_t ConvertDurationSecondsToGameLoops(const uint8_t DurationSecondsValue)
+{
+    return ((static_cast<uint64_t>(DurationSecondsValue) * 112U) + 2U) / 5U;
+}
+
+uint64_t GetRemainingGameLoopsForObservedBuilding(const Unit& ControlledUnitValue)
+{
+    const UNIT_TYPEID BuildingTypeIdValue = ControlledUnitValue.unit_type.ToType();
+    if (!IsTerranBuilding(BuildingTypeIdValue))
+    {
+        return 0U;
+    }
+
+    const FBuildingCostData& BuildingCostDataValue = TERRAN_ECONOMIC_DATA.GetBuildingCostData(BuildingTypeIdValue);
+    const uint64_t TotalBuildGameLoopsValue =
+        ConvertDurationSecondsToGameLoops(BuildingCostDataValue.CostData.BuildTime);
+    if (TotalBuildGameLoopsValue == 0U || ControlledUnitValue.build_progress >= 1.0f)
+    {
+        return 0U;
+    }
+
+    const float RemainingBuildRatioValue = 1.0f - ControlledUnitValue.build_progress;
+    return RoundPositiveFloatToUint64(static_cast<float>(TotalBuildGameLoopsValue) * RemainingBuildRatioValue);
+}
+
+uint32_t GetObservedSupplyCapDeltaForHorizon(const FAgentState& AgentStateValue, const uint64_t HorizonGameLoopsValue)
+{
+    uint32_t ObservedSupplyCapDeltaValue = 0U;
+
+    for (const Unit* ControlledUnitValue : AgentStateValue.UnitContainer.ControlledUnits)
+    {
+        if (ControlledUnitValue == nullptr || !ControlledUnitValue->is_building || ControlledUnitValue->is_flying ||
+            ControlledUnitValue->build_progress >= 1.0f)
+        {
+            continue;
+        }
+
+        const UNIT_TYPEID BuildingTypeIdValue = ControlledUnitValue->unit_type.ToType();
+        const uint32_t SupplyCapContributionValue = GetSupplyCapContributionForBuildingType(BuildingTypeIdValue);
+        if (SupplyCapContributionValue == 0U)
+        {
+            continue;
+        }
+
+        const uint64_t RemainingGameLoopsValue = GetRemainingGameLoopsForObservedBuilding(*ControlledUnitValue);
+        if (RemainingGameLoopsValue > HorizonGameLoopsValue)
+        {
+            continue;
+        }
+
+        ObservedSupplyCapDeltaValue += SupplyCapContributionValue;
+    }
+
+    return ObservedSupplyCapDeltaValue;
+}
+
+uint32_t GetScheduledSupplyCapDeltaForHorizon(const FSchedulerOutlookDescriptor& SchedulerOutlookDescriptorValue,
+                                              const uint64_t HorizonGameLoopsValue)
+{
+    uint32_t ScheduledSupplyCapDeltaValue = 0U;
+
+    for (const UNIT_TYPEID BuildingTypeIdValue : TERRAN_BUILDING_TYPES)
+    {
+        const size_t BuildingTypeIndexValue = GetTerranBuildingTypeIndex(BuildingTypeIdValue);
+        if (!IsTerranBuildingTypeIndexValid(BuildingTypeIndexValue))
+        {
+            continue;
+        }
+
+        const uint32_t ScheduledCountValue = SchedulerOutlookDescriptorValue.ScheduledBuildingCounts[BuildingTypeIndexValue];
+        const uint32_t SupplyCapContributionValue = GetSupplyCapContributionForBuildingType(BuildingTypeIdValue);
+        if (ScheduledCountValue == 0U || SupplyCapContributionValue == 0U)
+        {
+            continue;
+        }
+
+        const FBuildingCostData& BuildingCostDataValue = TERRAN_ECONOMIC_DATA.GetBuildingCostData(BuildingTypeIdValue);
+        const uint64_t BuildDurationGameLoopsValue =
+            ConvertDurationSecondsToGameLoops(BuildingCostDataValue.CostData.BuildTime);
+        if (BuildDurationGameLoopsValue > HorizonGameLoopsValue)
+        {
+            continue;
+        }
+
+        ScheduledSupplyCapDeltaValue += ScheduledCountValue * SupplyCapContributionValue;
+    }
+
+    return ScheduledSupplyCapDeltaValue;
+}
+
 void PopulateSchedulerOutlook(const FBuildPlanningState& BuildPlanningStateValue,
                               const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                               FSchedulerOutlookDescriptor& SchedulerOutlookDescriptorValue)
@@ -315,7 +406,8 @@ void PopulateSchedulerOutlook(const FBuildPlanningState& BuildPlanningStateValue
                 break;
         }
 
-        if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] == ECommandAuthorityLayer::UnitExecution)
+        if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] == ECommandAuthorityLayer::UnitExecution &&
+            LifecycleStateValue == EOrderLifecycleState::Dispatched)
         {
             ++SchedulerOutlookDescriptorValue.InFlightOrderCount;
         }
@@ -666,14 +758,6 @@ void PopulateEconomyState(const FAgentState& AgentStateValue, const FEconomyDoma
                   (EconomyStateDescriptorValue.ReservedSupply + EconomyStateDescriptorValue.CommittedSupply)
             : 0U;
 
-    const uint32_t ObservedInProgressSupplyCapDeltaValue =
-        (GetSupplyCapContributionForBuildingType(UNIT_TYPEID::TERRAN_SUPPLYDEPOT) *
-         GetBuildingCountFromObservedArray(BuildPlanningStateValue.ObservedBuildingsInConstruction,
-                                           UNIT_TYPEID::TERRAN_SUPPLYDEPOT)) +
-        (GetSupplyCapContributionForBuildingType(UNIT_TYPEID::TERRAN_COMMANDCENTER) *
-         static_cast<uint32_t>(BuildPlanningStateValue.ObservedBuildingsInConstruction[GetTerranBuildingTypeIndex(
-             UNIT_TYPEID::TERRAN_COMMANDCENTER)]));
-
     for (size_t HorizonIndexValue = 0U; HorizonIndexValue < ForecastHorizonCountValue; ++HorizonIndexValue)
     {
         const uint64_t ElapsedGameLoopsValue =
@@ -711,10 +795,13 @@ void PopulateEconomyState(const FAgentState& AgentStateValue, const FEconomyDoma
                                                 ProjectedGrossMineralIncomeValue;
         const uint64_t ProjectedVespeneValue = static_cast<uint64_t>(EconomyStateDescriptorValue.CurrentVespene) +
                                                ProjectedGrossVespeneIncomeValue;
+        const uint32_t ObservedSupplyCapDeltaValue =
+            GetObservedSupplyCapDeltaForHorizon(AgentStateValue, HorizonGameLoopsValue);
+        const uint32_t ScheduledSupplyCapDeltaValue =
+            GetScheduledSupplyCapDeltaForHorizon(SchedulerOutlookDescriptorValue, HorizonGameLoopsValue);
         const uint64_t ProjectedSupplyAvailableValue =
             static_cast<uint64_t>(EconomyStateDescriptorValue.CurrentSupplyAvailable) +
-            static_cast<uint64_t>(ObservedInProgressSupplyCapDeltaValue) +
-            static_cast<uint64_t>(SchedulerOutlookDescriptorValue.ExpectedSupplyCapDelta);
+            static_cast<uint64_t>(ObservedSupplyCapDeltaValue) + static_cast<uint64_t>(ScheduledSupplyCapDeltaValue);
         const uint64_t ProjectedSupplyDemandValue =
             static_cast<uint64_t>(SchedulerOutlookDescriptorValue.ExpectedSupplyUsedDelta);
 
@@ -774,6 +861,8 @@ void FTerranForecastStateBuilder::RebuildForecastState(const FAgentState& AgentS
                                                        FEconomyDomainState& EconomyDomainStateValue,
                                                        FGameStateDescriptor& GameStateDescriptorValue) const
 {
+    static const FTerranEconomicService DefaultEconomicServiceValue;
+
     EconomyDomainStateValue.Update(AgentStateValue, GameStateDescriptorValue.CurrentGameLoop);
     PopulateSchedulerOutlook(GameStateDescriptorValue.BuildPlanning,
                              GameStateDescriptorValue.CommandAuthoritySchedulingState,
@@ -783,6 +872,8 @@ void FTerranForecastStateBuilder::RebuildForecastState(const FAgentState& AgentS
                             GameStateDescriptorValue.SchedulerOutlook, GameStateDescriptorValue.ProductionState);
     PopulateEconomyState(AgentStateValue, EconomyDomainStateValue, GameStateDescriptorValue.BuildPlanning,
                          GameStateDescriptorValue.SchedulerOutlook, GameStateDescriptorValue.EconomyState);
+    DefaultEconomicServiceValue.RebuildEconomicState(AgentStateValue, EconomyDomainStateValue,
+                                                     GameStateDescriptorValue);
 }
 
 }  // namespace sc2

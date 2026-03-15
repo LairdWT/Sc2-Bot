@@ -8,9 +8,11 @@
 
 #include "common/planning/EBlockedTaskWakeKind.h"
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/ECommandCommitmentClass.h"
 #include "common/planning/ECommandPriorityTier.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
 #include "common/planning/ECommandTaskOrigin.h"
+#include "common/planning/ECommandTaskExecutionGuarantee.h"
 #include "common/planning/ECommandTaskRetentionPolicy.h"
 #include "common/planning/FCommandTaskSignatureKey.h"
 #include "common/planning/FBlockedTaskRingBuffer.h"
@@ -102,6 +104,8 @@ public:
     std::vector<ECommandTaskNeedKind> TaskNeedKinds;
     std::vector<ECommandTaskType> TaskTypes;
     std::vector<ECommandTaskOrigin> TaskOrigins;
+    std::vector<ECommandCommitmentClass> CommitmentClasses;
+    std::vector<ECommandTaskExecutionGuarantee> ExecutionGuarantees;
     std::vector<ECommandTaskRetentionPolicy> RetentionPolicies;
     std::vector<EBlockedTaskWakeKind> BlockedTaskWakeKinds;
     std::vector<int> BasePriorityValues;

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake --build:*)",
+      "Bash(cmd //c:*)",
+      "Bash(cmd.exe /c \"BuildAllTests.bat\")",
+      "Bash(cmd.exe /c \"cd /d L:\\\\Sc2_Bot && BuildAllTests.bat\")",
+      "Bash(cmd.exe /c \"cd /d L:\\\\Sc2_Bot && call BuildAllTests.bat\")",
+      "Bash(powershell.exe -NoProfile -Command \"Set-Location ''L:\\\\Sc2_Bot''; & ''.\\\\BuildAllTests.bat'' 2>&1\")",
+      "Bash(powershell.exe -NoProfile -Command \"Set-Location ''L:\\\\Sc2_Bot''; & ''.\\\\RunTests.bat'' --filter ''sc2::TestTerranDescriptorPipeline'' --timeout 120 2>&1\")",
+      "Bash(powershell.exe -NoProfile -Command \"Set-Location ''L:\\\\Sc2_Bot''; & ''.\\\\RunTests.bat'' --filter ''sc2::TestTerranEconomicModels'' --timeout 120 2>&1\")",
+      "Bash(powershell.exe -NoProfile -Command \"Set-Location ''L:\\\\Sc2_Bot''; & ''.\\\\RunTests.bat'' --filter ''sc2::TestTerranBotScaffolding'' --timeout 120 2>&1\")",
+      "Bash(powershell.exe -NoProfile -Command \"Set-Location ''L:\\\\Sc2_Bot''; & ''.\\\\RunTests.bat'' --filter ''sc2::TestCommandAuthorityScheduling'' --timeout 120 2>&1\")",
+      "Bash(powershell.exe -NoProfile -Command \"Set-Location ''L:\\\\Sc2_Bot''; & ''.\\\\RunTests.bat'' --filter ''sc2::TestTerranEconomyProductionOrderExpander'' --timeout 120 2>&1\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

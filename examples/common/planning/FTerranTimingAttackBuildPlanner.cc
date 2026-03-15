@@ -27,6 +27,8 @@ void ResetDesiredCounts(FBuildPlanningState& BuildPlanningStateValue)
     BuildPlanningStateValue.DesiredFactoryCount = 0U;
     BuildPlanningStateValue.DesiredFactoryTechLabCount = 0U;
     BuildPlanningStateValue.DesiredStarportCount = 0U;
+    BuildPlanningStateValue.DesiredStarportReactorCount = 0U;
+    BuildPlanningStateValue.DesiredEngineeringBayCount = 0U;
     BuildPlanningStateValue.DesiredMarineCount = 0U;
     BuildPlanningStateValue.DesiredMarauderCount = 0U;
     BuildPlanningStateValue.DesiredHellionCount = 0U;
@@ -34,6 +36,21 @@ void ResetDesiredCounts(FBuildPlanningState& BuildPlanningStateValue)
     BuildPlanningStateValue.DesiredMedivacCount = 0U;
     BuildPlanningStateValue.DesiredLiberatorCount = 0U;
     BuildPlanningStateValue.DesiredSiegeTankCount = 0U;
+    BuildPlanningStateValue.DesiredCompletedUpgradeCounts.fill(0U);
+}
+
+void ApplyDesiredUpgradeGoal(const UpgradeID UpgradeIdValue, const uint32_t DesiredCountValue,
+                             FBuildPlanningState& BuildPlanningStateValue)
+{
+    const size_t UpgradeTypeIndexValue = GetTerranUpgradeTypeIndex(UpgradeIdValue);
+    if (!IsTerranUpgradeTypeIndexValid(UpgradeTypeIndexValue))
+    {
+        return;
+    }
+
+    BuildPlanningStateValue.DesiredCompletedUpgradeCounts[UpgradeTypeIndexValue] = static_cast<uint8_t>(
+        std::max<uint32_t>(BuildPlanningStateValue.DesiredCompletedUpgradeCounts[UpgradeTypeIndexValue],
+                           DesiredCountValue));
 }
 
 void ApplyGoalDescriptorToBuildPlan(const FGoalDescriptor& GoalDescriptorValue,
@@ -91,9 +108,21 @@ void ApplyGoalDescriptorToBuildPlan(const FGoalDescriptor& GoalDescriptorValue,
                     BuildPlanningStateValue.DesiredFactoryTechLabCount =
                         std::max(BuildPlanningStateValue.DesiredFactoryTechLabCount, GoalDescriptorValue.TargetCount);
                     break;
+                case UNIT_TYPEID::TERRAN_STARPORTREACTOR:
+                    BuildPlanningStateValue.DesiredStarportReactorCount =
+                        std::max(BuildPlanningStateValue.DesiredStarportReactorCount, GoalDescriptorValue.TargetCount);
+                    break;
+                case UNIT_TYPEID::TERRAN_ENGINEERINGBAY:
+                    BuildPlanningStateValue.DesiredEngineeringBayCount =
+                        std::max(BuildPlanningStateValue.DesiredEngineeringBayCount, GoalDescriptorValue.TargetCount);
+                    break;
                 default:
                     break;
             }
+            break;
+        case EGoalType::ResearchUpgrade:
+            ApplyDesiredUpgradeGoal(GoalDescriptorValue.TargetUpgradeId, GoalDescriptorValue.TargetCount,
+                                    BuildPlanningStateValue);
             break;
         case EGoalType::ProduceArmy:
             switch (GoalDescriptorValue.TargetUnitTypeId)
@@ -131,7 +160,6 @@ void ApplyGoalDescriptorToBuildPlan(const FGoalDescriptor& GoalDescriptorValue,
             }
             break;
         case EGoalType::HoldOwnedBase:
-        case EGoalType::ResearchUpgrade:
         case EGoalType::PressureEnemy:
         case EGoalType::ClearEnemyPresence:
         case EGoalType::ScoutExpansionLocations:
@@ -275,6 +303,11 @@ uint32_t FTerranTimingAttackBuildPlanner::CountOutstandingNeeds(
     {
         ++OutstandingNeedCountValue;
     }
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_ORBITALCOMMAND) <
+        BuildPlanningStateValue.DesiredOrbitalCommandCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
     if (EconomyStateDescriptorValue.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <= 2U)
     {
         ++OutstandingNeedCountValue;
@@ -297,8 +330,18 @@ uint32_t FTerranTimingAttackBuildPlanner::CountOutstandingNeeds(
     {
         ++OutstandingNeedCountValue;
     }
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_BARRACKSREACTOR) <
+        BuildPlanningStateValue.DesiredBarracksReactorCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
     if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_FACTORY) <
         BuildPlanningStateValue.DesiredFactoryCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_FACTORYTECHLAB) <
+        BuildPlanningStateValue.DesiredFactoryTechLabCount)
     {
         ++OutstandingNeedCountValue;
     }
@@ -307,10 +350,68 @@ uint32_t FTerranTimingAttackBuildPlanner::CountOutstandingNeeds(
     {
         ++OutstandingNeedCountValue;
     }
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_STARPORTREACTOR) <
+        BuildPlanningStateValue.DesiredStarportReactorCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
+    if (ProductionStateDescriptorValue.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_ENGINEERINGBAY) <
+        BuildPlanningStateValue.DesiredEngineeringBayCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
     if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_MARINE) <
         BuildPlanningStateValue.DesiredMarineCount)
     {
         ++OutstandingNeedCountValue;
+    }
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_MARAUDER) <
+        BuildPlanningStateValue.DesiredMarauderCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_HELLION) <
+        BuildPlanningStateValue.DesiredHellionCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_CYCLONE) <
+        BuildPlanningStateValue.DesiredCycloneCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC) <
+        BuildPlanningStateValue.DesiredMedivacCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_LIBERATOR) <
+        BuildPlanningStateValue.DesiredLiberatorCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
+    if (ProductionStateDescriptorValue.GetProjectedUnitCount(UNIT_TYPEID::TERRAN_SIEGETANK) <
+        BuildPlanningStateValue.DesiredSiegeTankCount)
+    {
+        ++OutstandingNeedCountValue;
+    }
+
+    for (size_t UpgradeTypeIndexValue = 0U; UpgradeTypeIndexValue < NUM_TERRAN_UPGRADES; ++UpgradeTypeIndexValue)
+    {
+        const uint32_t DesiredUpgradeCountValue =
+            BuildPlanningStateValue.DesiredCompletedUpgradeCounts[UpgradeTypeIndexValue];
+        if (DesiredUpgradeCountValue == 0U)
+        {
+            continue;
+        }
+
+        const uint32_t ProjectedUpgradeCountValue =
+            static_cast<uint32_t>(BuildPlanningStateValue.ObservedCompletedUpgradeCounts[UpgradeTypeIndexValue]) +
+            GameStateDescriptorValue.SchedulerOutlook.ScheduledUpgradeCounts[UpgradeTypeIndexValue];
+        if (ProjectedUpgradeCountValue < DesiredUpgradeCountValue)
+        {
+            ++OutstandingNeedCountValue;
+        }
     }
 
     return OutstandingNeedCountValue;

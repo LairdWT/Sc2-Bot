@@ -187,6 +187,38 @@ If any load fails, `Reset()` is called and `Valid` remains false.
 - Source-proven implication:
   - current channel validity depends on height-map availability even when active Terran decision inputs and derived occupancy metrics do not consume height-map data
 
+## Feature-Layer Setup Versus Channel Dimension Parity Boundary
+
+- Selected topic: `SC2-API-FEATURE-LAYER-SETUP-CHANNEL-DIMENSION-PARITY-BOUNDARY`
+- Source-proven setup and payload dimension sources:
+  - `ControlImp::RequestJoinGame(...)` writes requested feature-layer setup dimensions into `InterfaceOptions::feature_layer` in `src\sc2api\sc2_client.cc`.
+  - `ObservationImp::GetGameInfo()` converts `ResponseGameInfo::options` into `GameInfo::options.feature_layer` via `Convert(..., game_info.options)` in `src\sc2api\sc2_proto_to_pods.cc`.
+  - `FAgentSpatialChannels::Update(const FFrameContext& Frame)` loads `MapPlayerRelative`, `MinimapPlayerRelative`, and `MinimapHeightMap` dimensions from `RawObservation::feature_layer_data()` payload images in `examples\common\agent_framework.h`.
+- Source-proven boundary in conversion helpers:
+  - `FAgentSpatialChannels::ConvertWorldToMinimap(...)` computes pixel scaling from `FeatureLayerSetup.minimap_resolution_x` and `FeatureLayerSetup.minimap_resolution_y`, not from `MinimapPlayerRelative.Width` and `MinimapPlayerRelative.Height`.
+  - `FAgentSpatialChannels::ConvertWorldToCamera(...)` computes pixel scaling from `FeatureLayerSetup.map_resolution_x` and `FeatureLayerSetup.map_resolution_y`, not from `MapPlayerRelative.Width` and `MapPlayerRelative.Height`.
+- Current validation gap:
+  - `FAgentSpatialChannels::Update(...)` validates each channel payload independently through `FSpatialChannel8BPP::Load(...)`.
+  - No source-proven parity check currently asserts that loaded payload dimensions match `GameInfo::options.feature_layer` resolution fields before marking channels valid.
+- Terran integration impact boundary:
+  - `TerranAgent` scheduler and intent execution in `examples\terran\terran.cc` do not currently consume `ConvertWorldToMinimap(...)` or `ConvertWorldToCamera(...)`.
+  - Parity risk is currently latent for Terran command authority, but active for any future owner that relies on those conversion helpers as decision input.
+
+## Feature-Layer Conversion Test Matrix Coverage Boundary
+
+- Selected topic: `SC2-API-FEATURE-LAYER-CONVERSION-TEST-MATRIX-COVERAGE-BOUNDARY`
+- Source-proven end-to-end conversion coverage:
+  - `tests\test_feature_layer.cc` runs a matrix of `FeatureLayerSettings` (`sizeSquare`, `sizeLong`, `sizeTall`) across `kMapEmpty`, `kMapEmptyLong`, and `kMapEmptyTall`.
+  - `FeatureLayerTestBot` repeatedly executes `TestCoordinateSystemMinimap` and `TestCoordinateSystemMap` (10 iterations each) and validates converted positions are in bounds and hit occupied cells.
+  - `tests\feature_layers_shared.cc` conversion helpers (`ConvertWorldToMinimap(...)`, `ConvertWorldToCamera(...)`) apply the same setup-field scaling model as `FAgentSpatialChannels` conversion helpers in `examples\common\agent_framework.h`.
+- Source-proven setup propagation boundary covered by the matrix:
+  - `coordinator.SetFeatureLayers(settings)` drives setup into `ControlImp::RequestJoinGame(...)`.
+  - `ObservationImp::GetGameInfo()` converts `ResponseGameInfo::options` into `GameInfo::options`.
+  - The tests then convert world points using `GameInfo::options.feature_layer` and validate against received feature-layer payloads.
+- Remaining coverage gap:
+  - No local test currently injects or asserts a setup-to-payload dimension mismatch case where `GameInfo::options.feature_layer` diverges from `RawObservation::feature_layer_data()` image dimensions.
+  - Current matrix therefore proves expected parity behavior under normal engine responses, but does not close the explicit mismatch-handling ambiguity.
+
 ## Remaining Ambiguities After This Pass
 - `FL-001`
   - `TerranAgent` declares `DrawFeatureLayer1BPP(...)`, `DrawFeatureLayerUnits8BPP(...)`, and `DrawFeatureLayerHeightMap8BPP(...)` in `terran.h`.
@@ -203,4 +235,10 @@ If any load fails, `Reset()` is called and `Valid` remains false.
   - `FAgentSpatialChannels::Update(...)` requires and loads `MinimapHeightMap` from `minimap_renders().height_map()`.
   - `FAgentSpatialMetrics::Update(...)` does not consume `MinimapHeightMap`, and no source-proven `TerranAgent` decision path currently consumes that channel.
   - Follow-up needed: either add an owned consumer for height-map channel data or relax the channel-validity gate so unused height-map absence does not invalidate all feature-layer channels.
+
+- `FL-005`
+  - `FAgentSpatialChannels::Update(...)` marks channels valid after successful payload loads and separately copies `FeatureLayerSetup` from `GameInfo::options.feature_layer`.
+  - `ConvertWorldToMinimap(...)` and `ConvertWorldToCamera(...)` scale by setup resolution fields, not loaded channel dimensions.
+  - No source-proven parity check currently verifies setup dimensions against loaded `MapPlayerRelative` and `MinimapPlayerRelative` dimensions before conversion helpers are used.
+  - Follow-up needed: add a setup-to-payload dimension parity guard in `FAgentSpatialChannels::Update(...)` or define explicit precedence when setup and payload dimensions diverge.
 

@@ -16,6 +16,8 @@ constexpr int GasHarvestIntentPriorityValue = 320;
 constexpr int GasReliefIntentPriorityValue = 321;
 constexpr uint64_t TerminalOrderCompactionIntervalStepCountValue = 120U;
 constexpr size_t TerminalOrderCompactionTriggerCountValue = 512U;
+constexpr uint64_t ProductionRallyRetryDelayGameLoopsValue = 16U;
+constexpr uint64_t RecentProductionRallyCounterWindowStepCountValue = 120U;
 using FSteadyClock = std::chrono::steady_clock;
 using FSteadyTimePoint = std::chrono::time_point<FSteadyClock>;
 
@@ -82,6 +84,44 @@ bool IsWallDepotUnitType(const UNIT_TYPEID UnitTypeIdValue)
         default:
             return false;
     }
+}
+
+bool HasActiveSchedulerOrderForActorTag(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                        const Tag ActorTagValue)
+{
+    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != ActorTagValue ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool IsTownHallStructureType(const UNIT_TYPEID UnitTypeIdValue)
+{
+    switch (UnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_COMMANDCENTER:
+        case UNIT_TYPEID::TERRAN_ORBITALCOMMAND:
+        case UNIT_TYPEID::TERRAN_PLANETARYFORTRESS:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsIdleStructureWithoutScheduledWork(const Unit& ControlledUnitValue,
+                                         const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue)
+{
+    return ControlledUnitValue.build_progress >= 1.0f && ControlledUnitValue.orders.empty() &&
+           !HasActiveSchedulerOrderForActorTag(CommandAuthoritySchedulingStateValue, ControlledUnitValue.tag);
 }
 
 void PrintMainLayoutSlotFamily(const char* LabelPtrValue,
@@ -168,6 +208,98 @@ void PrintReadyIntentQueueSummary(
 
         const ECommandPriorityTier CommandPriorityTierValue = static_cast<ECommandPriorityTier>(PriorityTierIndexValue);
         std::cout << ToString(CommandPriorityTierValue) << " " << TierIntentCountValue;
+    }
+}
+
+bool IsMandatoryCommitmentClass(const ECommandCommitmentClass CommandCommitmentClassValue)
+{
+    switch (CommandCommitmentClassValue)
+    {
+        case ECommandCommitmentClass::MandatoryOpening:
+        case ECommandCommitmentClass::MandatoryRecovery:
+            return true;
+        case ECommandCommitmentClass::FlexibleMacro:
+        case ECommandCommitmentClass::Opportunistic:
+        default:
+            return false;
+    }
+}
+
+uint32_t CountActiveMandatoryOpeningTasks(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue)
+{
+    uint32_t ActiveTaskCountValue = 0U;
+    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.CommitmentClasses[OrderIndexValue] !=
+                ECommandCommitmentClass::MandatoryOpening ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        ++ActiveTaskCountValue;
+    }
+
+    return ActiveTaskCountValue;
+}
+
+uint32_t CountBlockedMandatoryTasks(const FBlockedTaskRingBuffer& BlockedTaskRingBufferValue)
+{
+    uint32_t BlockedTaskCountValue = 0U;
+    const size_t BlockedRecordCountValue = BlockedTaskRingBufferValue.GetCount();
+    for (size_t BlockedRecordIndexValue = 0U; BlockedRecordIndexValue < BlockedRecordCountValue;
+         ++BlockedRecordIndexValue)
+    {
+        const FBlockedTaskRecord* BlockedTaskRecordPtrValue =
+            BlockedTaskRingBufferValue.GetRecordAtOrderedIndex(BlockedRecordIndexValue);
+        if (BlockedTaskRecordPtrValue == nullptr ||
+            !IsMandatoryCommitmentClass(BlockedTaskRecordPtrValue->CommitmentClass))
+        {
+            continue;
+        }
+
+        ++BlockedTaskCountValue;
+    }
+
+    return BlockedTaskCountValue;
+}
+
+void PrintMandatorySlotOwners(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue)
+{
+    std::cout << "Mandatory Slot Owners: ";
+    bool HasPrintedOwnerValue = false;
+    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.CommitmentClasses[OrderIndexValue] !=
+                ECommandCommitmentClass::MandatoryOpening ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]) ||
+            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdTypes[OrderIndexValue] ==
+                EBuildPlacementSlotType::Unknown)
+        {
+            continue;
+        }
+
+        if (HasPrintedOwnerValue)
+        {
+            std::cout << " | ";
+        }
+
+        FBuildPlacementSlotId BuildPlacementSlotIdValue;
+        BuildPlacementSlotIdValue.SlotType =
+            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdTypes[OrderIndexValue];
+        BuildPlacementSlotIdValue.Ordinal =
+            CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdOrdinals[OrderIndexValue];
+        std::cout << ToString(BuildPlacementSlotIdValue.SlotType)
+                  << ":" << static_cast<uint32_t>(BuildPlacementSlotIdValue.Ordinal)
+                  << "=Order" << CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue];
+        HasPrintedOwnerValue = true;
+    }
+
+    if (!HasPrintedOwnerValue)
+    {
+        std::cout << "None";
     }
 }
 
@@ -324,6 +456,24 @@ bool IsWorkerCommittedToConstruction(const Unit& WorkerUnitValue)
         case ABILITY_ID::BUILD_STARPORT:
         case ABILITY_ID::BUILD_REFINERY:
         case ABILITY_ID::BUILD_COMMANDCENTER:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool DoesAbilityRequireObservedConstructionConfirmation(const ABILITY_ID AbilityIdValue)
+{
+    switch (AbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_SUPPLYDEPOT:
+        case ABILITY_ID::BUILD_BARRACKS:
+        case ABILITY_ID::BUILD_FACTORY:
+        case ABILITY_ID::BUILD_STARPORT:
+        case ABILITY_ID::BUILD_REFINERY:
+        case ABILITY_ID::BUILD_COMMANDCENTER:
+        case ABILITY_ID::BUILD_BUNKER:
+        case ABILITY_ID::BUILD_ENGINEERINGBAY:
             return true;
         default:
             return false;
@@ -647,6 +797,8 @@ void TerranAgent::OnGameStart()
     CurrentWallGateState = EWallGateState::Unavailable;
     LastArmyExecutionOrderCount = 0U;
     LastProductionRallyApplyCount = 0U;
+    RecentProductionRallyCounterWindowStartStep = 0U;
+    RecentProductionRallyApplyCount = 0U;
     LastBlockerReliefMoveCount = 0U;
     LastRelocationTaskCount = 0U;
     LastUnitExecutionReplanCount = 0U;
@@ -660,6 +812,7 @@ void TerranAgent::OnGameStart()
     InitializeMainBaseLayoutDescriptor(Frame);
     RebuildObservedGameStateDescriptor(Frame);
     RebuildForecastState();
+    RebuildExecutionPressureDescriptor(Frame);
     UpdateStrategicAndPlanningState();
     PrintAgentState();
 }
@@ -691,6 +844,7 @@ void TerranAgent::OnStep()
     PhaseStartTimeValue = FSteadyClock::now();
     RebuildObservedGameStateDescriptor(Frame);
     RebuildForecastState();
+    RebuildExecutionPressureDescriptor(Frame);
     UpdateStrategicAndPlanningState();
     PhaseEndTimeValue = FSteadyClock::now();
     LastDescriptorRebuildMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
@@ -828,6 +982,118 @@ void TerranAgent::RebuildForecastState()
     DefaultForecastStateBuilder.RebuildForecastState(AgentState, EconomyDomainState, GameStateDescriptor);
 }
 
+void TerranAgent::RebuildExecutionPressureDescriptor(const FFrameContext& Frame)
+{
+    FExecutionPressureDescriptor& ExecutionPressureDescriptorValue = GameStateDescriptor.ExecutionPressure;
+    ExecutionPressureDescriptorValue.Reset();
+
+    const bool IsSupplyBlockedValue = ObservationPtr != nullptr && ObservationPtr->GetFoodCap() < 200U &&
+                                      GameStateDescriptor.BuildPlanning.AvailableSupply == 0U;
+    ExecutionPressureDescriptorValue.SupplyBlockState = GetExecutionConditionState(IsSupplyBlockedValue);
+    if (IsSupplyBlockedValue)
+    {
+        ExecutionPressureDescriptorValue.SupplyBlockDurationGameLoops =
+            ExecutionTelemetry.SupplyBlockState == EExecutionConditionState::Active
+                ? ExecutionTelemetry.GetCurrentSupplyBlockDurationGameLoops(Frame.GameLoop)
+                : 0U;
+    }
+
+    const bool IsBankingMineralsValue = GameStateDescriptor.BuildPlanning.AvailableMinerals >= 400U;
+    ExecutionPressureDescriptorValue.MineralBankState = GetExecutionConditionState(IsBankingMineralsValue);
+    ExecutionPressureDescriptorValue.CurrentMineralBankAmount = GameStateDescriptor.BuildPlanning.AvailableMinerals;
+    if (IsBankingMineralsValue)
+    {
+        ExecutionPressureDescriptorValue.MineralBankDurationGameLoops =
+            ExecutionTelemetry.MineralBankState == EExecutionConditionState::Active
+                ? ExecutionTelemetry.GetCurrentMineralBankDurationGameLoops(Frame.GameLoop)
+                : 0U;
+    }
+
+    ExecutionPressureDescriptorValue.RecentIdleProductionConflictCount =
+        ExecutionTelemetry.RecentIdleProductionConflictCount;
+    ExecutionPressureDescriptorValue.RecentSchedulerOrderDeferralCount =
+        ExecutionTelemetry.RecentSchedulerOrderDeferralCount;
+
+    for (const FExecutionEventRecord& ExecutionEventRecordValue : ExecutionTelemetry.RecentEvents)
+    {
+        if (ExecutionEventRecordValue.EventType != EAgentExecutionEventType::SchedulerOrderDeferred)
+        {
+            continue;
+        }
+
+        switch (ExecutionEventRecordValue.DeferralReason)
+        {
+            case ECommandOrderDeferralReason::NoProducer:
+                ++ExecutionPressureDescriptorValue.RecentNoProducerDeferralCount;
+                break;
+            case ECommandOrderDeferralReason::ProducerBusy:
+                ++ExecutionPressureDescriptorValue.RecentProducerBusyDeferralCount;
+                break;
+            case ECommandOrderDeferralReason::InsufficientResources:
+                ++ExecutionPressureDescriptorValue.RecentInsufficientResourcesDeferralCount;
+                break;
+            case ECommandOrderDeferralReason::NoValidPlacement:
+            case ECommandOrderDeferralReason::ReservedSlotOccupied:
+            case ECommandOrderDeferralReason::ReservedSlotInvalidated:
+                ++ExecutionPressureDescriptorValue.RecentPlacementDeferralCount;
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (ObservationPtr == nullptr)
+    {
+        return;
+    }
+
+    const Units SelfUnitsValue = ObservationPtr->GetUnits(Unit::Alliance::Self);
+    for (const Unit* SelfUnitValue : SelfUnitsValue)
+    {
+        if (SelfUnitValue == nullptr || SelfUnitValue->is_flying)
+        {
+            continue;
+        }
+
+        const UNIT_TYPEID UnitTypeIdValue = SelfUnitValue->unit_type.ToType();
+        if (IsTownHallStructureType(UnitTypeIdValue))
+        {
+            if (IsIdleStructureWithoutScheduledWork(*SelfUnitValue, GameStateDescriptor.CommandAuthoritySchedulingState))
+            {
+                ++ExecutionPressureDescriptorValue.IdleTownHallCount;
+            }
+            continue;
+        }
+
+        switch (UnitTypeIdValue)
+        {
+            case UNIT_TYPEID::TERRAN_BARRACKS:
+                if (IsIdleStructureWithoutScheduledWork(*SelfUnitValue,
+                                                        GameStateDescriptor.CommandAuthoritySchedulingState))
+                {
+                    ++ExecutionPressureDescriptorValue.IdleBarracksCount;
+                }
+                break;
+            case UNIT_TYPEID::TERRAN_FACTORY:
+                if (IsIdleStructureWithoutScheduledWork(*SelfUnitValue,
+                                                        GameStateDescriptor.CommandAuthoritySchedulingState))
+                {
+                    ++ExecutionPressureDescriptorValue.IdleFactoryCount;
+                }
+                break;
+            case UNIT_TYPEID::TERRAN_STARPORT:
+                if (IsIdleStructureWithoutScheduledWork(*SelfUnitValue,
+                                                        GameStateDescriptor.CommandAuthoritySchedulingState))
+                {
+                    ++ExecutionPressureDescriptorValue.IdleStarportCount;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 void TerranAgent::UpdateStrategicAndPlanningState()
 {
     if (StrategicDirector)
@@ -858,6 +1124,10 @@ void TerranAgent::UpdateRallyAnchor()
     ArmyAssemblyPoint = BuildPlacementService
                             ? BuildPlacementService->GetArmyAssemblyPoint(GameStateDescriptor, BuildPlacementContextValue)
                             : BaseLocationValue;
+    ProductionRallyPoint = BuildPlacementService
+                               ? BuildPlacementService->GetProductionRallyPoint(GameStateDescriptor,
+                                                                               BuildPlacementContextValue)
+                               : ArmyAssemblyPoint;
 }
 
 FBuildPlacementContext TerranAgent::CreateBuildPlacementContext() const
@@ -917,6 +1187,76 @@ void TerranAgent::PrintAgentState()
               << " | Starport " << GameStateDescriptor.BuildPlanning.DesiredStarportCount
               << " | Marines " << GameStateDescriptor.BuildPlanning.DesiredMarineCount
               << " | Needs " << GameStateDescriptor.BuildPlanning.ActiveNeedCount << "\n";
+    std::cout << "Economic Ledger: "
+              << "MandatoryReserved M" << (GameStateDescriptor.CommitmentLedger.GetReservedMinerals(
+                                               ECommandCommitmentClass::MandatoryOpening) +
+                                           GameStateDescriptor.CommitmentLedger.GetReservedMinerals(
+                                               ECommandCommitmentClass::MandatoryRecovery))
+              << "/G" << (GameStateDescriptor.CommitmentLedger.GetReservedVespene(
+                              ECommandCommitmentClass::MandatoryOpening) +
+                          GameStateDescriptor.CommitmentLedger.GetReservedVespene(
+                              ECommandCommitmentClass::MandatoryRecovery))
+              << "/S" << (GameStateDescriptor.CommitmentLedger.GetReservedSupply(
+                              ECommandCommitmentClass::MandatoryOpening) +
+                          GameStateDescriptor.CommitmentLedger.GetReservedSupply(
+                              ECommandCommitmentClass::MandatoryRecovery))
+              << " | MandatoryCommitted M" << (GameStateDescriptor.CommitmentLedger.GetCommittedMinerals(
+                                                   ECommandCommitmentClass::MandatoryOpening) +
+                                               GameStateDescriptor.CommitmentLedger.GetCommittedMinerals(
+                                                   ECommandCommitmentClass::MandatoryRecovery))
+              << "/G" << (GameStateDescriptor.CommitmentLedger.GetCommittedVespene(
+                              ECommandCommitmentClass::MandatoryOpening) +
+                          GameStateDescriptor.CommitmentLedger.GetCommittedVespene(
+                              ECommandCommitmentClass::MandatoryRecovery))
+              << "/S" << (GameStateDescriptor.CommitmentLedger.GetCommittedSupply(
+                              ECommandCommitmentClass::MandatoryOpening) +
+                          GameStateDescriptor.CommitmentLedger.GetCommittedSupply(
+                              ECommandCommitmentClass::MandatoryRecovery))
+              << " | FlexibleReserved M" << (GameStateDescriptor.CommitmentLedger.GetReservedMinerals(
+                                                  ECommandCommitmentClass::FlexibleMacro) +
+                                              GameStateDescriptor.CommitmentLedger.GetReservedMinerals(
+                                                  ECommandCommitmentClass::Opportunistic))
+              << "/G" << (GameStateDescriptor.CommitmentLedger.GetReservedVespene(
+                              ECommandCommitmentClass::FlexibleMacro) +
+                          GameStateDescriptor.CommitmentLedger.GetReservedVespene(
+                              ECommandCommitmentClass::Opportunistic))
+              << "/S" << (GameStateDescriptor.CommitmentLedger.GetReservedSupply(
+                              ECommandCommitmentClass::FlexibleMacro) +
+                          GameStateDescriptor.CommitmentLedger.GetReservedSupply(
+                              ECommandCommitmentClass::Opportunistic))
+              << " | FlexibleCommitted M" << (GameStateDescriptor.CommitmentLedger.GetCommittedMinerals(
+                                                   ECommandCommitmentClass::FlexibleMacro) +
+                                               GameStateDescriptor.CommitmentLedger.GetCommittedMinerals(
+                                                   ECommandCommitmentClass::Opportunistic))
+              << "/G" << (GameStateDescriptor.CommitmentLedger.GetCommittedVespene(
+                              ECommandCommitmentClass::FlexibleMacro) +
+                          GameStateDescriptor.CommitmentLedger.GetCommittedVespene(
+                              ECommandCommitmentClass::Opportunistic))
+              << "/S" << (GameStateDescriptor.CommitmentLedger.GetCommittedSupply(
+                              ECommandCommitmentClass::FlexibleMacro) +
+                          GameStateDescriptor.CommitmentLedger.GetCommittedSupply(
+                              ECommandCommitmentClass::Opportunistic))
+              << "\n";
+    std::cout << "Projected Discretionary: "
+              << "Short M" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionaryMinerals(
+                                  ShortForecastHorizonIndexValue)
+              << "/G" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionaryVespene(
+                                  ShortForecastHorizonIndexValue)
+              << "/S" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionarySupply(
+                                  ShortForecastHorizonIndexValue)
+              << " | Medium M" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionaryMinerals(
+                                       MediumForecastHorizonIndexValue)
+              << "/G" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionaryVespene(
+                                  MediumForecastHorizonIndexValue)
+              << "/S" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionarySupply(
+                                  MediumForecastHorizonIndexValue)
+              << " | Long M" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionaryMinerals(
+                                     LongForecastHorizonIndexValue)
+              << "/G" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionaryVespene(
+                                  LongForecastHorizonIndexValue)
+              << "/S" << GameStateDescriptor.CommitmentLedger.GetProjectedDiscretionarySupply(
+                                  LongForecastHorizonIndexValue)
+              << "\n";
     std::cout << "Step Timing (us): "
               << "Total " << LastStepMicroseconds
               << " | State " << LastAgentStateUpdateMicroseconds
@@ -1013,6 +1353,15 @@ void TerranAgent::PrintAgentState()
               << " | UnitExec " << GameStateDescriptor.CommandAuthoritySchedulingState.GetActiveOrderCountForLayer(
                                       ECommandAuthorityLayer::UnitExecution)
               << "\n";
+    std::cout << "Mandatory Opening: "
+              << "Active " << CountActiveMandatoryOpeningTasks(GameStateDescriptor.CommandAuthoritySchedulingState)
+              << " | Blocked " << (CountBlockedMandatoryTasks(
+                                       GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks) +
+                                   CountBlockedMandatoryTasks(
+                                       GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks))
+              << "\n";
+    PrintMandatorySlotOwners(GameStateDescriptor.CommandAuthoritySchedulingState);
+    std::cout << std::endl;
     std::cout << "Blocked Tasks: "
               << "Strategic " << GameStateDescriptor.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount()
               << " | Planning " << GameStateDescriptor.CommandAuthoritySchedulingState.BlockedPlanningTasks.GetCount()
@@ -1058,7 +1407,8 @@ void TerranAgent::PrintAgentState()
               << GameStateDescriptor.CommandAuthoritySchedulingState.SupersededUnitExecutionOrderCount << "\n";
     std::cout << "Execution Control: "
               << "Assembly (" << ArmyAssemblyPoint.x << ", " << ArmyAssemblyPoint.y << ")"
-              << " | RallyApplies " << LastProductionRallyApplyCount
+              << " | ProductionRally (" << ProductionRallyPoint.x << ", " << ProductionRallyPoint.y << ")"
+              << " | RallyAppliesRecent " << RecentProductionRallyApplyCount
               << " | BlockerReliefMoves " << LastBlockerReliefMoveCount
               << " | Relocations " << LastRelocationTaskCount
               << " | UnitReplans " << LastUnitExecutionReplanCount
@@ -1204,9 +1554,13 @@ void TerranAgent::UpdateExecutionTelemetry(const FFrameContext& Frame)
     const uint32_t PlannedMarineCountValue = AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARINE) +
                                              AgentState.Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_MARINE) +
                                              CountOrdersAndIntentsForAbility(ABILITY_ID::TRAIN_MARINE);
-    const bool HasMarineDemandValue =
-        PlannedMarineCountValue < GameStateDescriptor.BuildPlanning.DesiredMarineCount;
-    if (ObservationPtr != nullptr && HasMarineDemandValue)
+    const uint32_t PlannedMarauderCountValue = AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_MARAUDER) +
+                                               AgentState.Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_MARAUDER) +
+                                               CountOrdersAndIntentsForAbility(ABILITY_ID::TRAIN_MARAUDER);
+    const bool HasBarracksDemandValue =
+        PlannedMarineCountValue < GameStateDescriptor.BuildPlanning.DesiredMarineCount ||
+        PlannedMarauderCountValue < GameStateDescriptor.BuildPlanning.DesiredMarauderCount;
+    if (ObservationPtr != nullptr && HasBarracksDemandValue)
     {
         const Units BarracksUnitsValue =
             ObservationPtr->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_BARRACKS));
@@ -1220,7 +1574,10 @@ void TerranAgent::UpdateExecutionTelemetry(const FFrameContext& Frame)
 
             ExecutionTelemetry.RecordIdleProductionConflict(CurrentStep, Frame.GameLoop, BarracksUnitValue->tag,
                                                             UNIT_TYPEID::TERRAN_BARRACKS,
-                                                            ABILITY_ID::TRAIN_MARINE);
+                                                            PlannedMarineCountValue <
+                                                                    GameStateDescriptor.BuildPlanning.DesiredMarineCount
+                                                                ? ABILITY_ID::TRAIN_MARINE
+                                                                : ABILITY_ID::TRAIN_MARAUDER);
         }
     }
 
@@ -1238,6 +1595,73 @@ void TerranAgent::UpdateExecutionTelemetry(const FFrameContext& Frame)
             ExecutionTelemetry.RecordIdleProductionConflict(CurrentStep, Frame.GameLoop, TownHallUnitValue->tag,
                                                             TownHallUnitValue->unit_type.ToType(),
                                                             ABILITY_ID::TRAIN_SCV);
+        }
+    }
+
+    const uint32_t PlannedHellionCountValue = AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_HELLION) +
+                                              AgentState.Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_HELLION) +
+                                              CountOrdersAndIntentsForAbility(ABILITY_ID::TRAIN_HELLION);
+    const uint32_t PlannedCycloneCountValue = AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_CYCLONE) +
+                                              AgentState.Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_CYCLONE) +
+                                              CountOrdersAndIntentsForAbility(ABILITY_ID::TRAIN_CYCLONE);
+    const uint32_t PlannedSiegeTankCountValue = AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_SIEGETANK) +
+                                                AgentState.Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_SIEGETANK) +
+                                                CountOrdersAndIntentsForAbility(ABILITY_ID::TRAIN_SIEGETANK);
+    const bool HasFactoryDemandValue =
+        PlannedHellionCountValue < GameStateDescriptor.BuildPlanning.DesiredHellionCount ||
+        PlannedCycloneCountValue < GameStateDescriptor.BuildPlanning.DesiredCycloneCount ||
+        PlannedSiegeTankCountValue < GameStateDescriptor.BuildPlanning.DesiredSiegeTankCount;
+    if (ObservationPtr != nullptr && HasFactoryDemandValue)
+    {
+        const Units FactoryUnitsValue =
+            ObservationPtr->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_FACTORY));
+        for (const Unit* FactoryUnitValue : FactoryUnitsValue)
+        {
+            if (FactoryUnitValue == nullptr || FactoryUnitValue->build_progress < 1.0f || !FactoryUnitValue->orders.empty() ||
+                IntentBuffer.HasIntentForActor(FactoryUnitValue->tag))
+            {
+                continue;
+            }
+
+            const ABILITY_ID FactoryDemandAbilityValue =
+                PlannedSiegeTankCountValue < GameStateDescriptor.BuildPlanning.DesiredSiegeTankCount
+                    ? ABILITY_ID::TRAIN_SIEGETANK
+                    : (PlannedCycloneCountValue < GameStateDescriptor.BuildPlanning.DesiredCycloneCount
+                           ? ABILITY_ID::TRAIN_CYCLONE
+                           : ABILITY_ID::TRAIN_HELLION);
+            ExecutionTelemetry.RecordIdleProductionConflict(CurrentStep, Frame.GameLoop, FactoryUnitValue->tag,
+                                                            UNIT_TYPEID::TERRAN_FACTORY,
+                                                            FactoryDemandAbilityValue);
+        }
+    }
+
+    const uint32_t PlannedMedivacCountValue = AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_MEDIVAC) +
+                                              AgentState.Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_MEDIVAC) +
+                                              CountOrdersAndIntentsForAbility(ABILITY_ID::TRAIN_MEDIVAC);
+    const uint32_t PlannedLiberatorCountValue = AgentState.Units.GetUnitCount(UNIT_TYPEID::TERRAN_LIBERATOR) +
+                                                AgentState.Units.GetUnitsInConstruction(UNIT_TYPEID::TERRAN_LIBERATOR) +
+                                                CountOrdersAndIntentsForAbility(ABILITY_ID::TRAIN_LIBERATOR);
+    const bool HasStarportDemandValue =
+        PlannedMedivacCountValue < GameStateDescriptor.BuildPlanning.DesiredMedivacCount ||
+        PlannedLiberatorCountValue < GameStateDescriptor.BuildPlanning.DesiredLiberatorCount;
+    if (ObservationPtr != nullptr && HasStarportDemandValue)
+    {
+        const Units StarportUnitsValue =
+            ObservationPtr->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_STARPORT));
+        for (const Unit* StarportUnitValue : StarportUnitsValue)
+        {
+            if (StarportUnitValue == nullptr || StarportUnitValue->build_progress < 1.0f ||
+                !StarportUnitValue->orders.empty() || IntentBuffer.HasIntentForActor(StarportUnitValue->tag))
+            {
+                continue;
+            }
+
+            ExecutionTelemetry.RecordIdleProductionConflict(CurrentStep, Frame.GameLoop, StarportUnitValue->tag,
+                                                            UNIT_TYPEID::TERRAN_STARPORT,
+                                                            PlannedMedivacCountValue <
+                                                                    GameStateDescriptor.BuildPlanning.DesiredMedivacCount
+                                                                ? ABILITY_ID::TRAIN_MEDIVAC
+                                                                : ABILITY_ID::TRAIN_LIBERATOR);
         }
     }
 
@@ -1565,6 +1989,13 @@ void TerranAgent::ProduceProductionRallyIntents()
         return;
     }
 
+    if (CurrentStep >=
+        (RecentProductionRallyCounterWindowStartStep + RecentProductionRallyCounterWindowStepCountValue))
+    {
+        RecentProductionRallyCounterWindowStartStep = CurrentStep;
+        RecentProductionRallyApplyCount = 0U;
+    }
+
     std::unordered_set<Tag> ActiveProductionStructureTagsValue;
     for (const Unit* ControlledUnitValue : AgentState.UnitContainer.ControlledUnits)
     {
@@ -1581,11 +2012,21 @@ void TerranAgent::ProduceProductionRallyIntents()
 
         ActiveProductionStructureTagsValue.insert(ControlledUnitValue->tag);
         FProductionRallyState& ProductionRallyStateValue = ProductionRallyStates[ControlledUnitValue->tag];
-        ProductionRallyStateValue.DesiredRallyPoint = ArmyAssemblyPoint;
+        const bool bAssemblyAnchorChangedValue =
+            DistanceSquared2D(ProductionRallyStateValue.DesiredRallyPoint, ProductionRallyPoint) > 1.0f;
+        if (bAssemblyAnchorChangedValue)
+        {
+            ProductionRallyStateValue.DesiredRallyPoint = ProductionRallyPoint;
+            ProductionRallyStateValue.bNeedsInitialApply = true;
+            ProductionRallyStateValue.PendingApplyAttemptCount = FProductionRallyState::DefaultMaxApplyAttemptCount;
+            ProductionRallyStateValue.NextAllowedApplyGameLoop = 0U;
+        }
 
         const bool bShouldApplyRallyValue =
-            ProductionRallyStateValue.bNeedsInitialApply || ProductionRallyStateValue.LastAppliedGameLoop == 0U ||
-            DistanceSquared2D(ProductionRallyStateValue.LastAppliedRallyPoint, ArmyAssemblyPoint) > 1.0f;
+            ProductionRallyStateValue.PendingApplyAttemptCount > 0U &&
+            GameStateDescriptor.CurrentGameLoop >= ProductionRallyStateValue.NextAllowedApplyGameLoop &&
+            (ProductionRallyStateValue.bNeedsInitialApply || ProductionRallyStateValue.LastAppliedGameLoop == 0U ||
+             DistanceSquared2D(ProductionRallyStateValue.LastAppliedRallyPoint, ProductionRallyPoint) > 1.0f);
         if (!bShouldApplyRallyValue)
         {
             continue;
@@ -1598,11 +2039,18 @@ void TerranAgent::ProduceProductionRallyIntents()
         }
 
         PendingProductionRallyIntents.push_back(FUnitIntent::CreatePointTarget(
-            ControlledUnitValue->tag, RallyAbilityValue, ArmyAssemblyPoint, 5, EIntentDomain::UnitProduction));
-        ProductionRallyStateValue.LastAppliedRallyPoint = ArmyAssemblyPoint;
+            ControlledUnitValue->tag, RallyAbilityValue, ProductionRallyPoint, 5, EIntentDomain::UnitProduction));
+        ProductionRallyStateValue.LastAppliedRallyPoint = ProductionRallyPoint;
         ProductionRallyStateValue.LastAppliedGameLoop = GameStateDescriptor.CurrentGameLoop;
-        ProductionRallyStateValue.bNeedsInitialApply = false;
+        ProductionRallyStateValue.NextAllowedApplyGameLoop =
+            GameStateDescriptor.CurrentGameLoop + ProductionRallyRetryDelayGameLoopsValue;
+        if (ProductionRallyStateValue.PendingApplyAttemptCount > 0U)
+        {
+            --ProductionRallyStateValue.PendingApplyAttemptCount;
+        }
+        ProductionRallyStateValue.bNeedsInitialApply = ProductionRallyStateValue.PendingApplyAttemptCount > 0U;
         ++LastProductionRallyApplyCount;
+        ++RecentProductionRallyApplyCount;
     }
 
     for (std::unordered_map<Tag, FProductionRallyState>::iterator RallyStateIteratorValue =
@@ -1662,8 +2110,8 @@ void TerranAgent::ExecuteResolvedIntents(const FFrameContext& Frame, const std::
 void TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)
 {
     (void)Frame;
-
-    constexpr uint64_t DispatchConfirmationTimeoutGameLoopsValue = 96U;
+    constexpr uint64_t ProducerConfirmationTimeoutGameLoopsValue = 96U;
+    constexpr uint64_t ObservedConstructionConfirmationTimeoutGameLoopsValue = 224U;
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptor.CommandAuthoritySchedulingState;
     CommandAuthoritySchedulingStateValue.BeginMutationBatch();
@@ -1707,6 +2155,10 @@ void TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)
             continue;
         }
 
+        const uint64_t DispatchConfirmationTimeoutGameLoopsValue =
+            DoesAbilityRequireObservedConstructionConfirmation(CommandOrderRecordValue.AbilityId)
+                ? ObservedConstructionConfirmationTimeoutGameLoopsValue
+                : ProducerConfirmationTimeoutGameLoopsValue;
         if (CommandOrderRecordValue.DispatchGameLoop == 0U ||
             GameStateDescriptor.CurrentGameLoop <
                 (CommandOrderRecordValue.DispatchGameLoop + DispatchConfirmationTimeoutGameLoopsValue))
@@ -1875,6 +2327,11 @@ bool TerranAgent::HasProducerConfirmedDispatchedOrder(const FCommandOrderRecord&
                                                       const Unit* ActorUnitValue) const
 {
     if (ActorUnitValue == nullptr)
+    {
+        return false;
+    }
+
+    if (DoesAbilityRequireObservedConstructionConfirmation(CommandOrderRecordValue.AbilityId))
     {
         return false;
     }

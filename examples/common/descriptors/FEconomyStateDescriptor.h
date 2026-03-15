@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "common/descriptors/FEconomicCommitmentLedgerDescriptor.h"
 #include "common/economy/EconomyForecastConstants.h"
 
 namespace sc2
@@ -21,6 +22,27 @@ public:
     uint32_t GetProjectedAvailableMineralsAtHorizon(size_t HorizonIndexValue) const;
     uint32_t GetProjectedAvailableVespeneAtHorizon(size_t HorizonIndexValue) const;
     uint32_t GetProjectedAvailableSupplyAtHorizon(size_t HorizonIndexValue) const;
+    uint32_t GetCurrentSpendableMineralsAfterMandatory(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const;
+    uint32_t GetCurrentSpendableVespeneAfterMandatory(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const;
+    uint32_t GetCurrentSpendableSupplyAfterMandatory(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const;
+    uint32_t GetCurrentDiscretionaryMinerals(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const;
+    uint32_t GetCurrentDiscretionaryVespene(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const;
+    uint32_t GetCurrentDiscretionarySupply(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const;
+    uint32_t GetProjectedDiscretionaryMineralsAtHorizon(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue,
+        size_t HorizonIndexValue) const;
+    uint32_t GetProjectedDiscretionaryVespeneAtHorizon(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue,
+        size_t HorizonIndexValue) const;
+    uint32_t GetProjectedDiscretionarySupplyAtHorizon(
+        const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue,
+        size_t HorizonIndexValue) const;
 
 public:
     uint32_t CurrentMinerals;

@@ -247,6 +247,8 @@ bool TryPopulateUpgradeGoalOrder(const FGoalDescriptor& GoalDescriptorValue, con
     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Upgrade;
     CommandOrderRecordValue.TaskType = ECommandTaskType::UpgradeResearch;
     CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+    CommandOrderRecordValue.CommitmentClass = ECommandCommitmentClass::FlexibleMacro;
+    CommandOrderRecordValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
     CommandOrderRecordValue.ProducerUnitTypeId = ProducerUnitTypeIdValue;
     CommandOrderRecordValue.UpgradeId = GoalDescriptorValue.TargetUpgradeId;
     CommandOrderRecordValue.TargetCount = std::max<uint32_t>(1U, GoalDescriptorValue.TargetCount);
@@ -257,6 +259,23 @@ bool IsCriticalRecoveryMacroState(const FGameStateDescriptor& GameStateDescripto
 {
     return GameStateDescriptorValue.MacroState.ActiveBaseCount == 0U ||
            GameStateDescriptorValue.MacroState.WorkerCount < 12U;
+}
+
+void ApplyGoalDrivenCommitmentMetadata(FCommandOrderRecord& CommandOrderRecordValue,
+                                       const bool IsCriticalRecoveryMacroStateValue)
+{
+    if (IsCriticalRecoveryMacroStateValue)
+    {
+        CommandOrderRecordValue.Origin = ECommandTaskOrigin::Recovery;
+        CommandOrderRecordValue.CommitmentClass = ECommandCommitmentClass::MandatoryRecovery;
+        CommandOrderRecordValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::MustExecute;
+        CommandOrderRecordValue.RetentionPolicy = ECommandTaskRetentionPolicy::HotMustRun;
+        return;
+    }
+
+    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+    CommandOrderRecordValue.CommitmentClass = ECommandCommitmentClass::FlexibleMacro;
+    CommandOrderRecordValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
 }
 
 uint32_t GetReadyTownHallCount(const FGameStateDescriptor& GameStateDescriptorValue)
@@ -281,9 +300,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
             CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::Macro;
             CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Unit;
             CommandOrderRecordValue.TaskType = ECommandTaskType::WorkerProduction;
-            CommandOrderRecordValue.Origin = IsCriticalRecoveryMacroState(GameStateDescriptorValue)
-                                                 ? ECommandTaskOrigin::Recovery
-                                                 : ECommandTaskOrigin::GoalMacro;
+            ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, IsCriticalRecoveryMacroState(GameStateDescriptorValue));
             CommandOrderRecordValue.RetentionPolicy = ECommandTaskRetentionPolicy::HotMustRun;
             CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_COMMANDCENTER;
             CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
@@ -299,9 +316,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
             CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::Supply;
             CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
             CommandOrderRecordValue.TaskType = ECommandTaskType::Supply;
-            CommandOrderRecordValue.Origin = IsCriticalRecoveryMacroState(GameStateDescriptorValue)
-                                                 ? ECommandTaskOrigin::Recovery
-                                                 : ECommandTaskOrigin::GoalMacro;
+            ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, IsCriticalRecoveryMacroState(GameStateDescriptorValue));
             CommandOrderRecordValue.RetentionPolicy = IsCriticalRecoveryMacroState(GameStateDescriptorValue)
                                                           ? ECommandTaskRetentionPolicy::HotMustRun
                                                           : ECommandTaskRetentionPolicy::BufferedRetry;
@@ -316,9 +331,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
             CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::Expansion;
             CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Expansion;
             CommandOrderRecordValue.TaskType = ECommandTaskType::Expansion;
-            CommandOrderRecordValue.Origin = IsCriticalRecoveryMacroState(GameStateDescriptorValue)
-                                                 ? ECommandTaskOrigin::Recovery
-                                                 : ECommandTaskOrigin::GoalMacro;
+            ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, IsCriticalRecoveryMacroState(GameStateDescriptorValue));
             CommandOrderRecordValue.RetentionPolicy = IsCriticalRecoveryMacroState(GameStateDescriptorValue)
                                                           ? ECommandTaskRetentionPolicy::HotMustRun
                                                           : ECommandTaskRetentionPolicy::BufferedRetry;
@@ -336,7 +349,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::Macro;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::Refinery;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_REFINERY;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -348,7 +361,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::ProductionScale;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::ProductionStructure;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -360,7 +373,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::ProductionScale;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::ProductionStructure;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -372,7 +385,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::ProductionScale;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::ProductionStructure;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_STARPORT;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -384,7 +397,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::TechTransition;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::TechStructure;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_ENGINEERINGBAY;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -402,7 +415,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::TechTransition;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::AddOn;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::AddOn;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKSREACTOR;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -414,7 +427,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::TechTransition;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::AddOn;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::AddOn;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_FACTORY;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_FACTORYTECHLAB;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -426,7 +439,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::TechTransition;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::AddOn;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::AddOn;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_STARPORT;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_STARPORTREACTOR;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -438,7 +451,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
                     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::TechTransition;
                     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
                     CommandOrderRecordValue.TaskType = ECommandTaskType::TechStructure;
-                    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+                    ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
                     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
                     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_ENGINEERINGBAY;
                     CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
@@ -493,7 +506,7 @@ bool TryPopulateGoalOrder(const FGameStateDescriptor& GameStateDescriptorValue, 
             CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::TimingAttack;
             CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Unit;
             CommandOrderRecordValue.TaskType = ECommandTaskType::UnitProduction;
-            CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+            ApplyGoalDrivenCommitmentMetadata(CommandOrderRecordValue, false);
             CommandOrderRecordValue.ResultUnitTypeId = GoalDescriptorValue.TargetUnitTypeId;
             CommandOrderRecordValue.TargetCount = GoalDescriptorValue.TargetCount;
             return true;
@@ -531,6 +544,88 @@ bool DoesRemainingOpeningPlanCoverOrder(const FGameStateDescriptor& GameStateDes
 bool IsOpeningIncomplete(const FGameStateDescriptor& GameStateDescriptorValue)
 {
     return GameStateDescriptorValue.OpeningPlanExecutionState.LifecycleState != EOpeningPlanLifecycleState::Completed;
+}
+
+UNIT_TYPEID GetStructureCommitmentFamilyUnitType(const UNIT_TYPEID ResultUnitTypeIdValue)
+{
+    switch (ResultUnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOT:
+        case UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED:
+            return UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+        case UNIT_TYPEID::TERRAN_BARRACKSFLYING:
+        case UNIT_TYPEID::TERRAN_BARRACKSREACTOR:
+        case UNIT_TYPEID::TERRAN_BARRACKSTECHLAB:
+            return UNIT_TYPEID::TERRAN_BARRACKS;
+        case UNIT_TYPEID::TERRAN_FACTORY:
+        case UNIT_TYPEID::TERRAN_FACTORYFLYING:
+        case UNIT_TYPEID::TERRAN_FACTORYREACTOR:
+        case UNIT_TYPEID::TERRAN_FACTORYTECHLAB:
+            return UNIT_TYPEID::TERRAN_FACTORY;
+        case UNIT_TYPEID::TERRAN_STARPORT:
+        case UNIT_TYPEID::TERRAN_STARPORTFLYING:
+        case UNIT_TYPEID::TERRAN_STARPORTREACTOR:
+        case UNIT_TYPEID::TERRAN_STARPORTTECHLAB:
+            return UNIT_TYPEID::TERRAN_STARPORT;
+        default:
+            return UNIT_TYPEID::INVALID;
+    }
+}
+
+bool IsMandatoryExactOpeningStructureTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return CommandTaskDescriptorValue.CommitmentClass == ECommandCommitmentClass::MandatoryOpening &&
+           CommandTaskDescriptorValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute &&
+           CommandTaskDescriptorValue.ActionKind == ECommandTaskActionKind::BuildStructure &&
+           CommandTaskDescriptorValue.ActionPreferredPlacementSlotType != EBuildPlacementSlotType::Unknown;
+}
+
+bool DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(const FGameStateDescriptor& GameStateDescriptorValue,
+                                                            const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    if (!IsOpeningIncomplete(GameStateDescriptorValue) ||
+        CommandOrderRecordValue.Origin != ECommandTaskOrigin::GoalMacro)
+    {
+        return false;
+    }
+
+    switch (CommandOrderRecordValue.TaskType)
+    {
+        case ECommandTaskType::ProductionStructure:
+        case ECommandTaskType::Supply:
+            break;
+        default:
+            return false;
+    }
+
+    const UNIT_TYPEID ResultFamilyUnitTypeValue =
+        GetStructureCommitmentFamilyUnitType(CommandOrderRecordValue.ResultUnitTypeId);
+    if (ResultFamilyUnitTypeValue == UNIT_TYPEID::INVALID)
+    {
+        return false;
+    }
+
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
+        FOpeningPlanRegistry::GetOpeningPlanDescriptor(OpeningPlanExecutionStateValue.ActivePlanId);
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        const FCommandTaskDescriptor& OpeningTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId) ||
+            !IsMandatoryExactOpeningStructureTask(OpeningTaskDescriptorValue))
+        {
+            continue;
+        }
+
+        if (GetStructureCommitmentFamilyUnitType(OpeningTaskDescriptorValue.ActionResultUnitTypeId) ==
+            ResultFamilyUnitTypeValue)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 UNIT_TYPEID GetProducerFamilyUnitType(const UNIT_TYPEID ProducerUnitTypeIdValue)
@@ -860,6 +955,8 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(
         ArmyMissionOrderValue.TaskNeedKind = ECommandTaskNeedKind::Unit;
         ArmyMissionOrderValue.TaskType = ECommandTaskType::ArmyMission;
         ArmyMissionOrderValue.Origin = ECommandTaskOrigin::GoalMacro;
+        ArmyMissionOrderValue.CommitmentClass = ECommandCommitmentClass::Opportunistic;
+        ArmyMissionOrderValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
         ArmyMissionOrderValue.SourceGoalId = ArmyMissionGoalDescriptorValue->GoalId;
         ArmyMissionOrderValue.OwningArmyIndex = 0;
         uint32_t ArmyMissionOrderIdValue = 0U;
@@ -896,6 +993,10 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(
 
             GoalOrderValue.SourceGoalId = GoalDescriptorValue.GoalId;
             if (DoesRemainingOpeningPlanCoverOrder(GameStateDescriptorValue, GoalOrderValue))
+            {
+                continue;
+            }
+            if (DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(GameStateDescriptorValue, GoalOrderValue))
             {
                 continue;
             }
@@ -947,6 +1048,8 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
             ArmyOrderValue.TaskNeedKind = StrategicOrderValue.TaskNeedKind;
             ArmyOrderValue.TaskType = StrategicOrderValue.TaskType;
             ArmyOrderValue.Origin = StrategicOrderValue.Origin;
+            ArmyOrderValue.CommitmentClass = StrategicOrderValue.CommitmentClass;
+            ArmyOrderValue.ExecutionGuarantee = StrategicOrderValue.ExecutionGuarantee;
             ArmyOrderValue.EffectivePriorityValue = StrategicOrderValue.EffectivePriorityValue;
             ArmyOrderValue.PriorityTier = StrategicOrderValue.PriorityTier;
             ArmyOrderValue.OwningArmyIndex = StrategicOrderValue.OwningArmyIndex;
@@ -970,6 +1073,8 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
         EconomyOrderValue.TaskNeedKind = StrategicOrderValue.TaskNeedKind;
         EconomyOrderValue.TaskType = StrategicOrderValue.TaskType;
         EconomyOrderValue.Origin = StrategicOrderValue.Origin;
+        EconomyOrderValue.CommitmentClass = StrategicOrderValue.CommitmentClass;
+        EconomyOrderValue.ExecutionGuarantee = StrategicOrderValue.ExecutionGuarantee;
         EconomyOrderValue.EffectivePriorityValue = StrategicOrderValue.EffectivePriorityValue;
         EconomyOrderValue.PriorityTier = StrategicOrderValue.PriorityTier;
         EconomyOrderValue.PlanStepId = StrategicOrderValue.PlanStepId;

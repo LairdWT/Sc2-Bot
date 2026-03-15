@@ -21,6 +21,7 @@ public:
     bool IsFull() const;
     bool HasEquivalentRecord(const FBlockedTaskRecord& BlockedTaskRecordValue) const;
     bool HasEquivalentOrderSignature(const FCommandOrderRecord& CommandOrderRecordValue) const;
+    const FBlockedTaskRecord* GetRecordAtOrderedIndex(size_t OrderedIndexValue) const;
     bool TryPushOrCoalesce(const FBlockedTaskRecord& BlockedTaskRecordValue, bool& bOutCoalescedValue,
                            bool& bOutDroppedValue, bool& bOutRejectedMustRunValue);
     void CollectReactivatableRecords(const uint64_t CurrentGameLoopValue,

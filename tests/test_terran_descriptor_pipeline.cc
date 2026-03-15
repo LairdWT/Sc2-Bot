@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "common/armies/EArmyGoal.h"
 #include "common/bot_status_models.h"
@@ -12,6 +13,7 @@
 #include "common/descriptors/FGameStateDescriptor.h"
 #include "common/economy/EconomyForecastConstants.h"
 #include "common/economy/FEconomyDomainState.h"
+#include "FTestUnitFactory.h"
 #include "common/goals/EGoalStatus.h"
 #include "common/goals/EGoalType.h"
 #include "common/goals/FGoalDescriptor.h"
@@ -254,6 +256,11 @@ bool TestTerranDescriptorPipeline(int ArgC, char** ArgV)
         ForecastAgentStateValue.Buildings.SetCurrentlyInConstruction(UNIT_TYPEID::TERRAN_BARRACKS, 1U);
         ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_FACTORY, 1U);
         ForecastAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_STARPORT, 1U);
+        std::vector<Unit> ForecastUnitStorageValue;
+        ForecastUnitStorageValue.push_back(
+            MakeSelfBuildingUnit(1001U, UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 0.9f));
+        std::vector<const Unit*> ForecastUnitPointersValue = {&ForecastUnitStorageValue[0]};
+        ForecastAgentStateValue.UnitContainer.SetUnits(ForecastUnitPointersValue);
 
         FEconomyDomainState EconomyDomainStateValue = EconomyDomainStateSeedValue;
         FEconomyDomainState EconomyDomainStateCopyValue = EconomyDomainStateSeedValue;
@@ -280,6 +287,22 @@ bool TestTerranDescriptorPipeline(int ArgC, char** ArgV)
         ForecastDescriptorCopyValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
             ForecastMarineOrderCopyIdValue, EOrderLifecycleState::Ready);
 
+        FCommandOrderRecord SupplyDepotOrderValue = FCommandOrderRecord::CreateNoTarget(
+            ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_SUPPLYDEPOT, 170,
+            EIntentDomain::StructureBuild, 2496U);
+        SupplyDepotOrderValue.TaskType = ECommandTaskType::Supply;
+        SupplyDepotOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+        SupplyDepotOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
+        SupplyDepotOrderValue.TargetCount = 4U;
+        const uint32_t ForecastSupplyDepotOrderIdValue =
+            ForecastDescriptorValue.CommandAuthoritySchedulingState.EnqueueOrder(SupplyDepotOrderValue);
+        ForecastDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
+            ForecastSupplyDepotOrderIdValue, EOrderLifecycleState::Ready);
+        const uint32_t ForecastSupplyDepotOrderCopyIdValue =
+            ForecastDescriptorCopyValue.CommandAuthoritySchedulingState.EnqueueOrder(SupplyDepotOrderValue);
+        ForecastDescriptorCopyValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
+            ForecastSupplyDepotOrderCopyIdValue, EOrderLifecycleState::Ready);
+
         ForecastStateBuilderValue.RebuildForecastState(ForecastAgentStateValue, EconomyDomainStateValue,
                                                        ForecastDescriptorValue);
         ForecastStateBuilderValue.RebuildForecastState(ForecastAgentStateValue, EconomyDomainStateCopyValue,
@@ -292,7 +315,10 @@ bool TestTerranDescriptorPipeline(int ArgC, char** ArgV)
               SuccessValue, "Forecast rebuild should project in-progress barracks into near-term capacity.");
         Check(ForecastDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] ==
                   7U,
-              SuccessValue, "Forecast rebuild should project imminent supply relief minus scheduled unit demand.");
+              SuccessValue, "Short-horizon supply projection should only count observed relief that can finish inside the horizon.");
+        Check(ForecastDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[LongForecastHorizonIndexValue] ==
+                  15U,
+              SuccessValue, "Long-horizon supply projection should include scheduled supply depots once their build time fits inside the horizon.");
         Check(HasGoalOfTypeForTarget(ForecastDescriptorValue.GoalSet.NearTermGoals,
                                      EGoalType::BuildProductionCapacity, EGoalStatus::Satisfied,
                                      UNIT_TYPEID::TERRAN_BARRACKS),

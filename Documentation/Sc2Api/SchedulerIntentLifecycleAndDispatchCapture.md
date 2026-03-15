@@ -146,6 +146,26 @@
 - Coverage anchors:
   - `tests\test_singularity_framework.cc` verifies one winning intent per actor and tie ordering in `FIntentArbiter::Resolve(...)`
   - `tests\test_agent_execution_telemetry.cc` verifies cooldown and counting behavior for telemetry event recording
+
+## Mutation Batch And Derived Queue Visibility Boundary
+
+- Selected topic: `SC2-API-SCHEDULER-MUTATION-BATCH-DERIVED-QUEUE-VISIBILITY-BOUNDARY`
+- Source boundary in `FCommandAuthoritySchedulingState`:
+  - `BeginMutationBatch()` increments `MutationBatchDepth`.
+  - Mutating operations call `MarkDerivedQueuesDirty()`, which sets `bDerivedQueuesDirty = true`.
+  - `MarkDerivedQueuesDirty()` rebuilds immediately only when `MutationBatchDepth == 0U`.
+  - `EndMutationBatch()` decrements `MutationBatchDepth` and triggers one `RebuildDerivedQueues()` when depth returns to zero and `bDerivedQueuesDirty` is set.
+- Source boundary in `TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)`:
+  - Each scheduler producer phase (`ExpandEconomyAndProductionOrders`, `ExpandArmyOrders`, `ExpandSquadOrders`, `ExpandUnitExecutionOrders`) is wrapped in `BeginMutationBatch()` / `EndMutationBatch()`.
+  - `FIntentSchedulingService::DrainReadyIntents(...)` executes after those batches and consumes `ReadyIntentIndices` built from the post-batch derived queues.
+- Source-proven implication:
+  - authoritative SoA rows (`OrderIds` and peer vectors) mutate immediately
+  - derived queue views (`ReadyIntentIndices`, `DispatchedOrderIndices`, `ActiveExecutionOrderIndexByActorTag`) are deferred until the batch closes
+  - scheduler drain and dispatch transitions run against a stable, rebuilt derived snapshot after each producer phase boundary
+- Coverage anchors:
+  - `tests\test_command_authority_scheduling.cc` validates batched mutation semantics, including deferred derived-queue visibility until `EndMutationBatch()`.
+  - No Terran end-to-end test currently asserts `ProduceSchedulerIntents(...)` phase batching and `DrainReadyIntents(...)` ordering as one integrated invariant.
+
 ## Verified Invariants
 
 - Produced ready orders and dispatched captures are correlated by the same `OrderId` row in `FCommandAuthoritySchedulingState`.
@@ -158,3 +178,23 @@
 - None opened in this topic pass.
 
 
+
+## Construction Confirmation Policy Boundary
+
+- Selected topic: `SC2-API-SCHEDULER-CONSTRUCTION-CONFIRMATION-POLICY-BOUNDARY`
+- Source anchors:
+  - `TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)` in `examples\terran\terran.cc`
+  - `DoesAbilityRequireObservedConstructionConfirmation(const ABILITY_ID AbilityIdValue)` in `examples\terran\terran.cc`
+  - `TerranAgent::HasProducerConfirmedDispatchedOrder(const FCommandOrderRecord& CommandOrderRecordValue, const Unit* ActorUnitValue) const` in `examples\terran\terran.cc`
+- Source-backed policy split for dispatched `ECommandAuthorityLayer::UnitExecution` orders:
+  - Construction-class abilities selected by `DoesAbilityRequireObservedConstructionConfirmation(...)` use `ObservedConstructionConfirmationTimeoutGameLoopsValue = 224U`.
+  - Non-construction abilities use `ProducerConfirmationTimeoutGameLoopsValue = 96U`.
+- Confirmation path boundary:
+  - `HasProducerConfirmedDispatchedOrder(...)` returns `false` for construction-class abilities, so completion for these rows depends on observed-count deltas from `GetObservedCountForOrder(...)` or `GetObservedInConstructionCountForOrder(...)`.
+  - For non-construction abilities, producer confirmation can complete rows when the actor has the matching `UnitOrder::ability_id` or ability-specific producer state (`MORPH_ORBITALCOMMAND`, addon build abilities).
+- Lifecycle implication in `UpdateDispatchedSchedulerOrders(...)`:
+  - Completion precedence is observed-count delta or producer confirmation before timeout evaluation.
+  - Timeout path evaluates against `GameStateDescriptor.CurrentGameLoop` and `CommandOrderRecord.DispatchGameLoop` using the policy-selected timeout value.
+  - Actor loss after dispatch (`ActorUnitValue == nullptr` and current game loop advanced) aborts the row before timeout checks.
+- Ambiguity status:
+  - No new ambiguity opened for this topic.

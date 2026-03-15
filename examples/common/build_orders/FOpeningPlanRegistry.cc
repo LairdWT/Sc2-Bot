@@ -137,6 +137,12 @@ std::string BuildReferenceClockTime(const uint64_t MinGameLoopValue)
     return std::to_string(MinutesValue) + ":" + (SecondsValue < 10U ? "0" : "") + std::to_string(SecondsValue);
 }
 
+bool IsExactSlotOpeningStructureTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return CommandTaskDescriptorValue.ActionKind == ECommandTaskActionKind::BuildStructure &&
+           CommandTaskDescriptorValue.ActionPreferredPlacementSlotType != EBuildPlacementSlotType::Unknown;
+}
+
 FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_t MinGameLoopValue,
                                        const int PriorityValue, const AbilityID AbilityIdValue,
                                        const UNIT_TYPEID ProducerUnitTypeIdValue,
@@ -158,6 +164,9 @@ FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_
     TaskDescriptorValue.NeedKind = DetermineTaskNeedKind(TaskDescriptorValue.ActionKind);
     TaskDescriptorValue.CompletionKind = ECommandTaskCompletionKind::CountAtLeast;
     TaskDescriptorValue.TaskType = DetermineTaskType(AbilityIdValue, ResultUnitTypeIdValue);
+    TaskDescriptorValue.Origin = ECommandTaskOrigin::Opening;
+    TaskDescriptorValue.CommitmentClass = ECommandCommitmentClass::FlexibleMacro;
+    TaskDescriptorValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
     TaskDescriptorValue.BasePriorityValue = PriorityValue;
     TaskDescriptorValue.TriggerMinGameLoop = MinGameLoopValue;
     TaskDescriptorValue.TriggerReferenceClockTime = BuildReferenceClockTime(MinGameLoopValue);
@@ -173,6 +182,12 @@ FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_
     TaskDescriptorValue.ActionPreferredPlacementSlotType = PreferredPlacementSlotTypeValue;
     TaskDescriptorValue.ActionPreferredPlacementSlotId = PreferredPlacementSlotIdValue;
     TaskDescriptorValue.CompletionObservedCountAtLeast = TargetCountValue;
+    if (IsExactSlotOpeningStructureTask(TaskDescriptorValue))
+    {
+        TaskDescriptorValue.CommitmentClass = ECommandCommitmentClass::MandatoryOpening;
+        TaskDescriptorValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::MustExecute;
+        TaskDescriptorValue.RetentionPolicy = ECommandTaskRetentionPolicy::HotMustRun;
+    }
     return OpeningPlanStepValue;
 }
 

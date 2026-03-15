@@ -38,6 +38,8 @@ public:
     std::array<uint16_t, NUM_TERRAN_UNITS> LastObservedUnitsInConstruction;
     std::array<uint16_t, NUM_TERRAN_BUILDINGS> LastObservedBuildingCounts;
     std::array<uint16_t, NUM_TERRAN_BUILDINGS> LastObservedBuildingsInConstruction;
+    std::array<uint16_t, NUM_TERRAN_UPGRADES> LastObservedActiveUpgradeCounts;
+    std::array<uint8_t, NUM_TERRAN_UPGRADES> LastObservedCompletedUpgradeCounts;
     uint64_t CumulativeGrossMineralIncome;
     uint64_t CumulativeGrossVespeneIncome;
     std::array<uint64_t, NUM_TERRAN_UNITS> CumulativeUnitCompletionCounts;

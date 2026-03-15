@@ -1,6 +1,7 @@
 #include "test_terran_economic_models.h"
 
 #include <iostream>
+#include <vector>
 
 #include "common/bot_status_models.h"
 #include "common/descriptors/FTerranForecastStateBuilder.h"
@@ -10,6 +11,7 @@
 #include "common/economy/EconomyForecastConstants.h"
 #include "common/economy/FEconomyDomainState.h"
 #include "common/terran_models.h"
+#include "FTestUnitFactory.h"
 
 namespace sc2
 {
@@ -156,6 +158,54 @@ bool TestTerranEconomicModels(int ArgC, char** ArgV)
           "Invalid building type should not mutate building counts.");
     Check(AgentBuildingsValue.GetCurrentlyInConstruction(InvalidBuildingTypeValue) == 0U, SuccessValue,
           "Invalid building type should not mutate in-construction building counts.");
+
+    {
+        FEconomyDomainState EconomyDomainStateValue;
+
+        FAgentState SeedAgentStateValue;
+        SeedAgentStateValue.Economy.Minerals = 150U;
+        SeedAgentStateValue.Economy.Vespene = 120U;
+        SeedAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_ENGINEERINGBAY, 1U);
+        std::vector<Unit> SeedUnitStorageValue;
+        SeedUnitStorageValue.push_back(
+            MakeSelfBuildingUnit(2001U, UNIT_TYPEID::TERRAN_ENGINEERINGBAY, 1.0f));
+        std::vector<const Unit*> SeedUnitPointersValue = {&SeedUnitStorageValue[0]};
+        SeedAgentStateValue.UnitContainer.SetUnits(SeedUnitPointersValue);
+        EconomyDomainStateValue.Update(SeedAgentStateValue, 100U);
+
+        FAgentState ResearchingAgentStateValue;
+        ResearchingAgentStateValue.Economy.Minerals = 80U;
+        ResearchingAgentStateValue.Economy.Vespene = 20U;
+        ResearchingAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_ENGINEERINGBAY, 1U);
+        std::vector<Unit> ResearchingUnitStorageValue;
+        ResearchingUnitStorageValue.push_back(
+            MakeSelfBuildingUnit(2001U, UNIT_TYPEID::TERRAN_ENGINEERINGBAY, 1.0f));
+        ResearchingUnitStorageValue[0].orders.push_back(
+            {ABILITY_ID::RESEARCH_STIMPACK, NullTag, Point2D(), 0.25f});
+        std::vector<const Unit*> ResearchingUnitPointersValue = {&ResearchingUnitStorageValue[0]};
+        ResearchingAgentStateValue.UnitContainer.SetUnits(ResearchingUnitPointersValue);
+        EconomyDomainStateValue.Update(ResearchingAgentStateValue, 196U);
+
+        FAgentState RefundedAgentStateValue;
+        RefundedAgentStateValue.Economy.Minerals = 180U;
+        RefundedAgentStateValue.Economy.Vespene = 120U;
+        RefundedAgentStateValue.Buildings.SetBuildingCount(UNIT_TYPEID::TERRAN_ENGINEERINGBAY, 1U);
+        std::vector<Unit> RefundedUnitStorageValue;
+        RefundedUnitStorageValue.push_back(
+            MakeSelfBuildingUnit(2001U, UNIT_TYPEID::TERRAN_ENGINEERINGBAY, 1.0f));
+        std::vector<const Unit*> RefundedUnitPointersValue = {&RefundedUnitStorageValue[0]};
+        RefundedAgentStateValue.UnitContainer.SetUnits(RefundedUnitPointersValue);
+        EconomyDomainStateValue.Update(RefundedAgentStateValue, 292U);
+
+        Check(EconomyDomainStateValue.GetGrossMineralIncomeForHorizon(MediumForecastHorizonIndexValue) == 30U,
+              SuccessValue, "Gross mineral gather should include confirmed upgrade spend when research begins.");
+        Check(EconomyDomainStateValue.GetGrossVespeneIncomeForHorizon(MediumForecastHorizonIndexValue) == 0U,
+              SuccessValue, "Gross vespene gather should stay stable when upgrade spend exactly matches the observed bank drop.");
+        Check(EconomyDomainStateValue.GetGrossMineralIncomeForHorizon(ShortForecastHorizonIndexValue) == 0U,
+              SuccessValue, "Gross mineral gather should subtract confirmed upgrade refunds instead of counting canceled research as income.");
+        Check(EconomyDomainStateValue.GetGrossVespeneIncomeForHorizon(ShortForecastHorizonIndexValue) == 0U,
+              SuccessValue, "Gross vespene gather should subtract confirmed upgrade refunds instead of counting canceled research as income.");
+    }
 
     {
         FTerranGameStateDescriptorBuilder GameStateDescriptorBuilderValue;

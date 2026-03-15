@@ -475,6 +475,57 @@ uint32_t CountActiveUnitExecutionChildrenForParent(
     return ActiveChildCountValue;
 }
 
+bool DoesOrderSelfContributeToProjectedCount(
+    const FGameStateDescriptor& GameStateDescriptorValue,
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+    const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    if (HasActiveUnitExecutionChild(CommandAuthoritySchedulingStateValue, CommandOrderRecordValue.OrderId))
+    {
+        return false;
+    }
+
+    if (CommandOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::INVALID &&
+        CommandOrderRecordValue.UpgradeId.ToType() == UPGRADE_ID::INVALID)
+    {
+        return false;
+    }
+
+    if (CommandOrderRecordValue.DispatchAttemptCount == 0U)
+    {
+        return true;
+    }
+
+    const uint32_t CurrentObservedCountValue =
+        GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, CommandOrderRecordValue);
+    const uint32_t CurrentObservedInConstructionCountValue =
+        GetObservedInConstructionCountForOrder(GameStateDescriptorValue.BuildPlanning, CommandOrderRecordValue);
+
+    return !(CurrentObservedCountValue > CommandOrderRecordValue.ObservedCountAtDispatch ||
+             CurrentObservedInConstructionCountValue >
+                 CommandOrderRecordValue.ObservedInConstructionCountAtDispatch);
+}
+
+uint32_t GetProjectedCountForOrderExcludingSelf(
+    const FGameStateDescriptor& GameStateDescriptorValue,
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+    const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    uint32_t ProjectedCountValue = GetProjectedCountForOrder(GameStateDescriptorValue, CommandOrderRecordValue);
+    if (ProjectedCountValue == 0U)
+    {
+        return 0U;
+    }
+
+    if (DoesOrderSelfContributeToProjectedCount(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue,
+                                                CommandOrderRecordValue))
+    {
+        --ProjectedCountValue;
+    }
+
+    return ProjectedCountValue;
+}
+
 bool TryGetLatestUnitExecutionChildDispatchGameLoop(
     const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const uint32_t ParentOrderIdValue,
     uint64_t& OutLatestDispatchGameLoopValue)
@@ -1076,6 +1127,8 @@ void CopyTaskMetadataToChildOrder(const FCommandOrderRecord& SourceOrderValue, F
     ChildOrderValue.TaskNeedKind = SourceOrderValue.TaskNeedKind;
     ChildOrderValue.TaskType = SourceOrderValue.TaskType;
     ChildOrderValue.Origin = SourceOrderValue.Origin;
+    ChildOrderValue.CommitmentClass = SourceOrderValue.CommitmentClass;
+    ChildOrderValue.ExecutionGuarantee = SourceOrderValue.ExecutionGuarantee;
     ChildOrderValue.RetentionPolicy = SourceOrderValue.RetentionPolicy;
     ChildOrderValue.BlockedTaskWakeKind = SourceOrderValue.BlockedTaskWakeKind;
     ChildOrderValue.EffectivePriorityValue = SourceOrderValue.EffectivePriorityValue;
@@ -1649,55 +1702,51 @@ bool DoesPlacementSlotSatisfyFootprintPolicy(const FFrameContext& FrameValue,
     }
 }
 
-bool CanReserveResources(const FBuildPlanningState& BuildPlanningStateValue, const uint32_t MineralsCostValue,
-                         const uint32_t VespeneCostValue, const uint32_t SupplyCostValue)
+bool TryReserveResources(FBuildPlanningState& BuildPlanningStateValue,
+                         const ECommandCommitmentClass CommandCommitmentClassValue,
+                         const uint32_t MineralsCostValue, const uint32_t VespeneCostValue,
+                         const uint32_t SupplyCostValue)
 {
-    return BuildPlanningStateValue.AvailableMinerals >=
-               (BuildPlanningStateValue.ReservedMinerals + MineralsCostValue) &&
-           BuildPlanningStateValue.AvailableVespene >= (BuildPlanningStateValue.ReservedVespene + VespeneCostValue) &&
-           BuildPlanningStateValue.AvailableSupply >= (BuildPlanningStateValue.ReservedSupply + SupplyCostValue);
+    return BuildPlanningStateValue.TryReserveResources(CommandCommitmentClassValue, MineralsCostValue,
+                                                       VespeneCostValue, SupplyCostValue);
 }
 
-bool TryReserveResources(FBuildPlanningState& BuildPlanningStateValue, const uint32_t MineralsCostValue,
-                         const uint32_t VespeneCostValue, const uint32_t SupplyCostValue)
+void ReleaseReservedResources(FBuildPlanningState& BuildPlanningStateValue,
+                              const ECommandCommitmentClass CommandCommitmentClassValue,
+                              const uint32_t MineralsCostValue, const uint32_t VespeneCostValue,
+                              const uint32_t SupplyCostValue)
 {
-    if (!CanReserveResources(BuildPlanningStateValue, MineralsCostValue, VespeneCostValue, SupplyCostValue))
-    {
-        return false;
-    }
-
-    BuildPlanningStateValue.ReservedMinerals += MineralsCostValue;
-    BuildPlanningStateValue.ReservedVespene += VespeneCostValue;
-    BuildPlanningStateValue.ReservedSupply += SupplyCostValue;
-    return true;
+    BuildPlanningStateValue.ReleaseReservedResources(CommandCommitmentClassValue, MineralsCostValue,
+                                                     VespeneCostValue, SupplyCostValue);
 }
 
-void ReleaseReservedResources(FBuildPlanningState& BuildPlanningStateValue, const uint32_t MineralsCostValue,
-                              const uint32_t VespeneCostValue, const uint32_t SupplyCostValue)
-{
-    BuildPlanningStateValue.ReservedMinerals -= MineralsCostValue;
-    BuildPlanningStateValue.ReservedVespene -= VespeneCostValue;
-    BuildPlanningStateValue.ReservedSupply -= SupplyCostValue;
-}
-
-bool TryReserveStructureCost(FBuildPlanningState& BuildPlanningStateValue, const UNIT_TYPEID StructureTypeIdValue)
+bool TryReserveStructureCost(FBuildPlanningState& BuildPlanningStateValue,
+                             const ECommandCommitmentClass CommandCommitmentClassValue,
+                             const UNIT_TYPEID StructureTypeIdValue)
 {
     const FBuildingCostData& BuildingCostDataValue = TERRAN_ECONOMIC_DATA.GetBuildingCostData(StructureTypeIdValue);
-    return TryReserveResources(BuildPlanningStateValue, BuildingCostDataValue.CostData.Minerals,
+    return TryReserveResources(BuildPlanningStateValue, CommandCommitmentClassValue,
+                               BuildingCostDataValue.CostData.Minerals,
                                BuildingCostDataValue.CostData.Vespine, 0U);
 }
 
-bool TryReserveUnitCost(FBuildPlanningState& BuildPlanningStateValue, const UNIT_TYPEID UnitTypeIdValue)
+bool TryReserveUnitCost(FBuildPlanningState& BuildPlanningStateValue,
+                        const ECommandCommitmentClass CommandCommitmentClassValue,
+                        const UNIT_TYPEID UnitTypeIdValue)
 {
     const FUnitCostData& UnitCostDataValue = TERRAN_ECONOMIC_DATA.GetUnitCostData(UnitTypeIdValue);
-    return TryReserveResources(BuildPlanningStateValue, UnitCostDataValue.CostData.Minerals,
+    return TryReserveResources(BuildPlanningStateValue, CommandCommitmentClassValue,
+                               UnitCostDataValue.CostData.Minerals,
                                UnitCostDataValue.CostData.Vespine, UnitCostDataValue.CostData.Supply);
 }
 
-bool TryReserveUpgradeCost(FBuildPlanningState& BuildPlanningStateValue, const ABILITY_ID UpgradeAbilityIdValue)
+bool TryReserveUpgradeCost(FBuildPlanningState& BuildPlanningStateValue,
+                           const ECommandCommitmentClass CommandCommitmentClassValue,
+                           const ABILITY_ID UpgradeAbilityIdValue)
 {
     const FUpgradeCostData& UpgradeCostDataValue = TERRAN_ECONOMIC_DATA.GetUpgradeCostData(UpgradeAbilityIdValue);
-    return TryReserveResources(BuildPlanningStateValue, UpgradeCostDataValue.CostData.Minerals,
+    return TryReserveResources(BuildPlanningStateValue, CommandCommitmentClassValue,
+                               UpgradeCostDataValue.CostData.Minerals,
                                UpgradeCostDataValue.CostData.Vespine, 0U);
 }
 
@@ -1982,7 +2031,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
         }
 
         const uint32_t ProjectedCountValue =
-            GetProjectedCountForOrder(GameStateDescriptorValue, EconomyOrderValue) +
+            GetProjectedCountForOrderExcludingSelf(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue,
+                                                   EconomyOrderValue) +
             CountPendingIntentsForAbility(IntentBufferValue, EconomyOrderValue.AbilityId);
         if (ProjectedCountValue >= EconomyOrderValue.TargetCount)
         {
@@ -2027,7 +2077,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.ResultUnitTypeId))
+                if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             EconomyOrderValue.ResultUnitTypeId))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -2056,7 +2107,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, UNIT_TYPEID::TERRAN_REFINERY))
+                if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             UNIT_TYPEID::TERRAN_REFINERY))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -2154,7 +2206,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 {
                     const FBuildingCostData& RefineryCostDataValue =
                         TERRAN_ECONOMIC_DATA.GetBuildingCostData(UNIT_TYPEID::TERRAN_REFINERY);
-                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, RefineryCostDataValue.CostData.Minerals,
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             RefineryCostDataValue.CostData.Minerals,
                                              RefineryCostDataValue.CostData.Vespine, 0U);
                     if (HasWorkerAvailabilityFailureValue)
                     {
@@ -2193,7 +2246,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, UNIT_TYPEID::TERRAN_COMMANDCENTER))
+                if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             UNIT_TYPEID::TERRAN_COMMANDCENTER))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -2210,7 +2264,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             }
             case ABILITY_ID::MORPH_ORBITALCOMMAND:
             {
-                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, 150U, 0U, 0U))
+                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass, 150U,
+                                         0U, 0U))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -2242,7 +2297,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 if (TownHallUnitValue == nullptr)
                 {
-                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, 150U, 0U, 0U);
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             150U, 0U, 0U);
                     DeferralReasonValue = HasBusyCommandCenterValue ? ECommandOrderDeferralReason::ProducerBusy
                                                                     : ECommandOrderDeferralReason::NoProducer;
                     break;
@@ -2263,8 +2319,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_BARRACKS ? 50U : 50U;
                 const uint32_t VespeneCostValue =
                     EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_BARRACKS ? 50U : 25U;
-                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue, VespeneCostValue,
-                                         0U))
+                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                         MineralsCostValue, VespeneCostValue, 0U))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -2276,7 +2332,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                                                 ProductionBlockerResolutions, IntentBufferValue, BarracksUnitValue,
                                                 DeferralReasonValue))
                 {
-                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             MineralsCostValue,
                                              VespeneCostValue, 0U);
                     break;
                 }
@@ -2296,8 +2353,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_FACTORY ? 50U : 50U;
                 const uint32_t VespeneCostValue =
                     EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_FACTORY ? 50U : 25U;
-                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue, VespeneCostValue,
-                                         0U))
+                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                         MineralsCostValue, VespeneCostValue, 0U))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -2309,7 +2366,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                                                 ProductionBlockerResolutions, IntentBufferValue, FactoryUnitValue,
                                                 DeferralReasonValue))
                 {
-                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             MineralsCostValue,
                                              VespeneCostValue, 0U);
                     break;
                 }
@@ -2328,8 +2386,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 const uint32_t MineralsCostValue = 50U;
                 const uint32_t VespeneCostValue =
                     EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_STARPORT ? 50U : 25U;
-                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
-                                         VespeneCostValue, 0U))
+                if (!TryReserveResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                         MineralsCostValue, VespeneCostValue, 0U))
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                     break;
@@ -2341,7 +2399,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                                                 ProductionBlockerResolutions, IntentBufferValue, StarportUnitValue,
                                                 DeferralReasonValue))
                 {
-                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, MineralsCostValue,
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             MineralsCostValue,
                                              VespeneCostValue, 0U);
                     break;
                 }
@@ -2425,7 +2484,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                             continue;
                         }
 
-                        if (!TryReserveUnitCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.ResultUnitTypeId))
+                        if (!TryReserveUnitCost(GameStateDescriptorValue.BuildPlanning,
+                                                EconomyOrderValue.CommitmentClass,
+                                                EconomyOrderValue.ResultUnitTypeId))
                         {
                             DeferralReasonValue = ECommandOrderDeferralReason::InsufficientResources;
                             break;
@@ -2508,8 +2569,11 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     const bool IsResearchUpgradeValue = EconomyOrderValue.UpgradeId.ToType() != UPGRADE_ID::INVALID;
                     const bool ReservedCostValue =
                         IsResearchUpgradeValue
-                            ? TryReserveUpgradeCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.AbilityId)
+                            ? TryReserveUpgradeCost(GameStateDescriptorValue.BuildPlanning,
+                                                   EconomyOrderValue.CommitmentClass,
+                                                   EconomyOrderValue.AbilityId)
                             : TryReserveUnitCost(GameStateDescriptorValue.BuildPlanning,
+                                                 EconomyOrderValue.CommitmentClass,
                                                  EconomyOrderValue.ResultUnitTypeId);
                     if (!ReservedCostValue)
                     {

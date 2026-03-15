@@ -16,7 +16,9 @@ set(sc2_terran_bot_common_sources
     descriptors/EObservedWallSlotState.cc
     descriptors/EGamePlan.cc
     descriptors/EProductionFocus.cc
+    descriptors/FEconomicCommitmentLedgerDescriptor.cc
     descriptors/FEconomyStateDescriptor.cc
+    descriptors/FExecutionPressureDescriptor.cc
     descriptors/FObservedRampWallState.cc
     descriptors/FProductionStateDescriptor.cc
     descriptors/FSchedulerOutlookDescriptor.cc
@@ -33,7 +35,9 @@ set(sc2_terran_bot_common_sources
     goals/FGoalDescriptor.cc
     descriptors/IGameStateDescriptorBuilder.cc
     planning/ECommandAuthorityLayer.cc
+    planning/ECommandCommitmentClass.cc
     planning/ECommandTaskOrigin.cc
+    planning/ECommandTaskExecutionGuarantee.cc
     planning/ECommandTaskRetentionPolicy.cc
     planning/ECommandPriorityTier.cc
     planning/EBlockedTaskWakeKind.cc
@@ -92,6 +96,7 @@ set(sc2_terran_bot_common_sources
     services/FRampWallDescriptor.cc
     services/FTerranMainBaseLayoutRegistry.cc
     services/FTerranBuildPlacementService.cc
+    services/FTerranEconomicService.cc
     services/IBuildPlacementService.cc
     services/IExpansionSelectionService.cc
     services/ISpatialFieldBuilder.cc

@@ -10,6 +10,35 @@ namespace sc2
 namespace
 {
 
+std::array<uint16_t, NUM_TERRAN_UPGRADES> GetObservedActiveUpgradeCounts(const FAgentState& AgentStateValue)
+{
+    std::array<uint16_t, NUM_TERRAN_UPGRADES> ObservedActiveUpgradeCountsValue;
+    ObservedActiveUpgradeCountsValue.fill(0U);
+
+    for (const Unit* ControlledUnitValue : AgentStateValue.UnitContainer.ControlledUnits)
+    {
+        if (ControlledUnitValue == nullptr || !ControlledUnitValue->is_building)
+        {
+            continue;
+        }
+
+        for (const UnitOrder& UnitOrderValue : ControlledUnitValue->orders)
+        {
+            size_t UpgradeTypeIndexValue = INVALID_TERRAN_UPGRADE_TYPE_INDEX;
+            const bool IsTrackedUpgradeValue =
+                TryGetTerranUpgradeTypeIndex(UnitOrderValue.ability_id, UpgradeTypeIndexValue);
+            if (!IsTrackedUpgradeValue || !IsTerranUpgradeTypeIndexValid(UpgradeTypeIndexValue))
+            {
+                continue;
+            }
+
+            ++ObservedActiveUpgradeCountsValue[UpgradeTypeIndexValue];
+        }
+    }
+
+    return ObservedActiveUpgradeCountsValue;
+}
+
 uint64_t GetConfirmedMineralSpend(const FAgentState& AgentStateValue,
                                   const std::array<uint16_t, NUM_TERRAN_UNITS>& LastObservedUnitsInConstructionValue,
                                   const std::array<uint16_t, NUM_TERRAN_BUILDINGS>&
@@ -116,6 +145,58 @@ uint64_t GetConfirmedVespeneSpend(const FAgentState& AgentStateValue,
     return ConfirmedVespeneSpendValue;
 }
 
+void AccumulateConfirmedUpgradeSpendAndRefund(
+    const std::array<uint16_t, NUM_TERRAN_UPGRADES>& CurrentObservedActiveUpgradeCountsValue,
+    const std::array<uint16_t, NUM_TERRAN_UPGRADES>& LastObservedActiveUpgradeCountsValue,
+    const std::array<uint8_t, NUM_TERRAN_UPGRADES>& CurrentObservedCompletedUpgradeCountsValue,
+    const std::array<uint8_t, NUM_TERRAN_UPGRADES>& LastObservedCompletedUpgradeCountsValue,
+    uint64_t& ConfirmedMineralSpendValue, uint64_t& ConfirmedVespeneSpendValue,
+    uint64_t& ConfirmedMineralRefundValue, uint64_t& ConfirmedVespeneRefundValue)
+{
+    for (const ABILITY_ID UpgradeTypeValue : TERRAN_RESEARCH_UPGRADE_TYPES)
+    {
+        const size_t UpgradeTypeIndexValue = GetTerranUpgradeTypeIndex(UpgradeTypeValue);
+        if (!IsTerranUpgradeTypeIndexValid(UpgradeTypeIndexValue))
+        {
+            continue;
+        }
+
+        const uint16_t CurrentActiveUpgradeCountValue = CurrentObservedActiveUpgradeCountsValue[UpgradeTypeIndexValue];
+        const uint16_t LastActiveUpgradeCountValue = LastObservedActiveUpgradeCountsValue[UpgradeTypeIndexValue];
+        const uint8_t CurrentCompletedUpgradeCountValue =
+            CurrentObservedCompletedUpgradeCountsValue[UpgradeTypeIndexValue];
+        const uint8_t LastCompletedUpgradeCountValue =
+            LastObservedCompletedUpgradeCountsValue[UpgradeTypeIndexValue];
+        const FUpgradeCostData& UpgradeCostDataValue = TERRAN_ECONOMIC_DATA.GetUpgradeCostData(UpgradeTypeValue);
+
+        if (CurrentActiveUpgradeCountValue > LastActiveUpgradeCountValue)
+        {
+            const uint16_t StartedUpgradeCountValue = CurrentActiveUpgradeCountValue - LastActiveUpgradeCountValue;
+            ConfirmedMineralSpendValue += static_cast<uint64_t>(StartedUpgradeCountValue) *
+                                          static_cast<uint64_t>(UpgradeCostDataValue.CostData.Minerals);
+            ConfirmedVespeneSpendValue += static_cast<uint64_t>(StartedUpgradeCountValue) *
+                                          static_cast<uint64_t>(UpgradeCostDataValue.CostData.Vespine);
+        }
+
+        const uint16_t CompletedUpgradeDeltaValue =
+            CurrentCompletedUpgradeCountValue > LastCompletedUpgradeCountValue
+                ? static_cast<uint16_t>(CurrentCompletedUpgradeCountValue - LastCompletedUpgradeCountValue)
+                : 0U;
+        const uint16_t ResolvedActiveUpgradeCountValue =
+            CurrentActiveUpgradeCountValue + CompletedUpgradeDeltaValue;
+        if (ResolvedActiveUpgradeCountValue >= LastActiveUpgradeCountValue)
+        {
+            continue;
+        }
+
+        const uint16_t RefundedUpgradeCountValue = LastActiveUpgradeCountValue - ResolvedActiveUpgradeCountValue;
+        ConfirmedMineralRefundValue += static_cast<uint64_t>(RefundedUpgradeCountValue) *
+                                       static_cast<uint64_t>(UpgradeCostDataValue.CostData.Minerals);
+        ConfirmedVespeneRefundValue += static_cast<uint64_t>(RefundedUpgradeCountValue) *
+                                       static_cast<uint64_t>(UpgradeCostDataValue.CostData.Vespine);
+    }
+}
+
 }  // namespace
 
 FEconomyDomainState::FEconomyDomainState()
@@ -133,6 +214,8 @@ void FEconomyDomainState::Reset()
     LastObservedUnitsInConstruction.fill(0U);
     LastObservedBuildingCounts.fill(0U);
     LastObservedBuildingsInConstruction.fill(0U);
+    LastObservedActiveUpgradeCounts.fill(0U);
+    LastObservedCompletedUpgradeCounts.fill(0U);
     CumulativeGrossMineralIncome = 0U;
     CumulativeGrossVespeneIncome = 0U;
     CumulativeUnitCompletionCounts.fill(0U);
@@ -152,6 +235,8 @@ void FEconomyDomainState::Update(const FAgentState& AgentStateValue, const uint6
 
     const uint32_t CurrentMineralsValue = AgentStateValue.Economy.Minerals;
     const uint32_t CurrentVespeneValue = AgentStateValue.Economy.Vespene;
+    const std::array<uint16_t, NUM_TERRAN_UPGRADES> CurrentObservedActiveUpgradeCountsValue =
+        GetObservedActiveUpgradeCounts(AgentStateValue);
     if (!bHasObservedState)
     {
         bHasObservedState = true;
@@ -161,14 +246,23 @@ void FEconomyDomainState::Update(const FAgentState& AgentStateValue, const uint6
         LastObservedUnitsInConstruction = AgentStateValue.Units.UnitsInConstruction;
         LastObservedBuildingCounts = AgentStateValue.Buildings.BuildingCounts;
         LastObservedBuildingsInConstruction = AgentStateValue.Buildings.CurrentlyInConstruction;
+        LastObservedActiveUpgradeCounts = CurrentObservedActiveUpgradeCountsValue;
+        LastObservedCompletedUpgradeCounts = AgentStateValue.CompletedUpgradeCounts;
         RecordCurrentSample(CurrentMineralsValue, CurrentVespeneValue);
         return;
     }
 
-    const uint64_t ConfirmedMineralSpendValue =
+    uint64_t ConfirmedMineralSpendValue =
         GetConfirmedMineralSpend(AgentStateValue, LastObservedUnitsInConstruction, LastObservedBuildingsInConstruction);
-    const uint64_t ConfirmedVespeneSpendValue =
+    uint64_t ConfirmedVespeneSpendValue =
         GetConfirmedVespeneSpend(AgentStateValue, LastObservedUnitsInConstruction, LastObservedBuildingsInConstruction);
+    uint64_t ConfirmedMineralRefundValue = 0U;
+    uint64_t ConfirmedVespeneRefundValue = 0U;
+    AccumulateConfirmedUpgradeSpendAndRefund(CurrentObservedActiveUpgradeCountsValue, LastObservedActiveUpgradeCounts,
+                                             AgentStateValue.CompletedUpgradeCounts,
+                                             LastObservedCompletedUpgradeCounts, ConfirmedMineralSpendValue,
+                                             ConfirmedVespeneSpendValue, ConfirmedMineralRefundValue,
+                                             ConfirmedVespeneRefundValue);
 
     const int64_t MineralBankDeltaValue =
         static_cast<int64_t>(CurrentMineralsValue) - static_cast<int64_t>(LastObservedMinerals);
@@ -176,9 +270,11 @@ void FEconomyDomainState::Update(const FAgentState& AgentStateValue, const uint6
         static_cast<int64_t>(CurrentVespeneValue) - static_cast<int64_t>(LastObservedVespene);
 
     const int64_t GrossMineralIncomeValue =
-        MineralBankDeltaValue + static_cast<int64_t>(ConfirmedMineralSpendValue);
+        MineralBankDeltaValue + static_cast<int64_t>(ConfirmedMineralSpendValue) -
+        static_cast<int64_t>(ConfirmedMineralRefundValue);
     const int64_t GrossVespeneIncomeValue =
-        VespeneBankDeltaValue + static_cast<int64_t>(ConfirmedVespeneSpendValue);
+        VespeneBankDeltaValue + static_cast<int64_t>(ConfirmedVespeneSpendValue) -
+        static_cast<int64_t>(ConfirmedVespeneRefundValue);
 
     if (GrossMineralIncomeValue > 0)
     {
@@ -229,6 +325,8 @@ void FEconomyDomainState::Update(const FAgentState& AgentStateValue, const uint6
     LastObservedUnitsInConstruction = AgentStateValue.Units.UnitsInConstruction;
     LastObservedBuildingCounts = AgentStateValue.Buildings.BuildingCounts;
     LastObservedBuildingsInConstruction = AgentStateValue.Buildings.CurrentlyInConstruction;
+    LastObservedActiveUpgradeCounts = CurrentObservedActiveUpgradeCountsValue;
+    LastObservedCompletedUpgradeCounts = AgentStateValue.CompletedUpgradeCounts;
 
     RecordCurrentSample(CurrentMineralsValue, CurrentVespeneValue);
     TrimHistory();

@@ -155,7 +155,8 @@ void FDefaultStrategicDirector::AppendImmediateGoals(
     const uint32_t ProjectedWorkerCountValue =
         GetProjectedUnitCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SCV);
     const bool HasSupplyPressureValue =
-        GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <= 4U ||
+        GameStateDescriptorValue.EconomyState.GetProjectedDiscretionarySupplyAtHorizon(
+            GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) <= 4U ||
         GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
             DesiredSupplyDepotCountValue;
 
@@ -364,7 +365,8 @@ EProductionFocus FDefaultStrategicDirector::DeterminePrimaryProductionFocus(
         }
     }
 
-    if (EconomyStateDescriptorValue.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <= 1U)
+    if (EconomyStateDescriptorValue.GetProjectedDiscretionarySupplyAtHorizon(
+            GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) <= 1U)
     {
         return EProductionFocus::Supply;
     }
@@ -385,7 +387,8 @@ EProductionFocus FDefaultStrategicDirector::DeterminePrimaryProductionFocus(
         return EProductionFocus::Workers;
     }
 
-    if (EconomyStateDescriptorValue.ProjectedAvailableMineralsByHorizon[ShortForecastHorizonIndexValue] >= 500U)
+    if (EconomyStateDescriptorValue.GetProjectedDiscretionaryMineralsAtHorizon(
+            GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) >= 500U)
     {
         return EProductionFocus::Production;
     }
@@ -675,7 +678,9 @@ uint32_t FDefaultStrategicDirector::DetermineDesiredLiberatorCount(
 bool FDefaultStrategicDirector::ShouldPrioritizeUpgrades(const FGameStateDescriptor& GameStateDescriptorValue) const
 {
     return GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_COMMANDCENTER) >= 2U &&
-           GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U;
+           GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U &&
+           GameStateDescriptorValue.EconomyState.GetProjectedDiscretionaryMineralsAtHorizon(
+               GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) >= 100U;
 }
 
 EArmyGoal FDefaultStrategicDirector::DeterminePrimaryArmyGoal(

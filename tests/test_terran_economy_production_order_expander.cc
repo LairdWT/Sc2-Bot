@@ -1181,6 +1181,72 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
               "A relocated factory order should reserve the factory fallback slot instead of drifting without a slot id.");
     }
 
+    std::vector<Unit> ProjectedSelfContributionUnitStorageValue;
+    ProjectedSelfContributionUnitStorageValue.push_back(
+        MakeUnit(703U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(16.0f, 12.0f), false));
+
+    Units ProjectedSelfContributionUnitPointersValue;
+    AppendUnitPointers(ProjectedSelfContributionUnitStorageValue, ProjectedSelfContributionUnitPointersValue);
+
+    FakeObservation ProjectedSelfContributionObservationValue;
+    ProjectedSelfContributionObservationValue.GameLoopValue = 6U;
+    ProjectedSelfContributionObservationValue.SetUnits(ProjectedSelfContributionUnitPointersValue);
+    FakeQuery ProjectedSelfContributionQueryValue;
+    const FFrameContext ProjectedSelfContributionFrameValue =
+        FFrameContext::Create(&ProjectedSelfContributionObservationValue, &ProjectedSelfContributionQueryValue, 6U);
+
+    FAgentState ProjectedSelfContributionAgentStateValue;
+    ProjectedSelfContributionAgentStateValue.Update(ProjectedSelfContributionFrameValue);
+
+    FGameStateDescriptor ProjectedSelfContributionGameStateDescriptorValue;
+    ProjectedSelfContributionGameStateDescriptorValue.CurrentStep = 6U;
+    ProjectedSelfContributionGameStateDescriptorValue.CurrentGameLoop = 6U;
+    ProjectedSelfContributionGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    ProjectedSelfContributionGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    ProjectedSelfContributionGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    ProjectedSelfContributionGameStateDescriptorValue.MainBaseLayoutDescriptor.bIsValid = true;
+    ProjectedSelfContributionGameStateDescriptorValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots.push_back(
+        ProductionRailBarracksSlotValue);
+    ProjectedSelfContributionGameStateDescriptorValue.ProductionState.ProjectedBuildingCounts[
+        GetTerranBuildingTypeIndex(UNIT_TYPEID::TERRAN_BARRACKS)] = 1U;
+
+    FCommandAuthoritySchedulingState& ProjectedSelfContributionSchedulingStateValue =
+        ProjectedSelfContributionGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord ProjectedSelfContributionEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_BARRACKS, 170,
+        EIntentDomain::StructureBuild, 6U);
+    ProjectedSelfContributionEconomyOrderValue.TargetCount = 1U;
+    ProjectedSelfContributionEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    ProjectedSelfContributionEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    ProjectedSelfContributionEconomyOrderValue.PreferredPlacementSlotType =
+        EBuildPlacementSlotType::MainProductionWithAddon;
+    ProjectedSelfContributionEconomyOrderValue.PreferredPlacementSlotId = ProductionRailBarracksSlotValue.SlotId;
+    const uint32_t ProjectedSelfContributionEconomyOrderIdValue =
+        ProjectedSelfContributionSchedulingStateValue.EnqueueOrder(ProjectedSelfContributionEconomyOrderValue);
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        ProjectedSelfContributionFrameValue, ProjectedSelfContributionAgentStateValue,
+        ProjectedSelfContributionGameStateDescriptorValue, IntentBufferValue, BuildPlacementServiceValue,
+        ProductionRailExpansionLocationsValue);
+
+    size_t ProjectedSelfContributionChildOrderIndexValue = 0U;
+    Check(ProjectedSelfContributionSchedulingStateValue.TryGetActiveChildOrderIndex(
+              ProjectedSelfContributionEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              ProjectedSelfContributionChildOrderIndexValue),
+          SuccessValue,
+          "A queued structure order should ignore its own projected contribution so it can recreate a missing child.");
+    if (ProjectedSelfContributionSchedulingStateValue.TryGetActiveChildOrderIndex(
+            ProjectedSelfContributionEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+            ProjectedSelfContributionChildOrderIndexValue))
+    {
+        const FCommandOrderRecord ProjectedSelfContributionChildOrderValue =
+            ProjectedSelfContributionSchedulingStateValue.GetOrderRecord(ProjectedSelfContributionChildOrderIndexValue);
+        Check(ProjectedSelfContributionChildOrderValue.TargetPoint == ProductionRailBarracksSlotValue.BuildPoint,
+              SuccessValue,
+              "The recreated barracks child order should still target the authored production rail slot.");
+    }
+
     std::vector<Unit> AddonBlockerUnitStorageValue;
     AddonBlockerUnitStorageValue.push_back(
         MakeUnit(901U, UNIT_TYPEID::TERRAN_BARRACKS, Unit::Alliance::Self, Point2D(20.0f, 20.0f), true));

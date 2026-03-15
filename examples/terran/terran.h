@@ -66,6 +66,7 @@ public:
     void InitializeMainBaseLayoutDescriptor(const FFrameContext& Frame);
     void RebuildObservedGameStateDescriptor(const FFrameContext& Frame);
     void RebuildForecastState();
+    void RebuildExecutionPressureDescriptor(const FFrameContext& Frame);
     void UpdateStrategicAndPlanningState();
     void UpdateRallyAnchor();
     void PrintAgentState();
@@ -94,6 +95,7 @@ public:
 
     Units NeutralUnits;
     Point2D ArmyAssemblyPoint;
+    Point2D ProductionRallyPoint;
     FAgentState AgentState;
     std::vector<FUnitIntent> ResolvedIntents;
 
@@ -170,6 +172,8 @@ private:
     uint64_t LastIntentExecutionMicroseconds{0U};
     uint64_t LastDispatchCaptureMicroseconds{0U};
     uint32_t LastProductionRallyApplyCount{0U};
+    uint64_t RecentProductionRallyCounterWindowStartStep{0U};
+    uint32_t RecentProductionRallyApplyCount{0U};
     uint32_t LastBlockerReliefMoveCount{0U};
     uint32_t LastRelocationTaskCount{0U};
     uint32_t LastUnitExecutionReplanCount{0U};

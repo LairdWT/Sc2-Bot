@@ -21,6 +21,8 @@ void FCommandOrderRecord::Reset()
     TaskNeedKind = ECommandTaskNeedKind::Unknown;
     TaskType = ECommandTaskType::Unknown;
     Origin = ECommandTaskOrigin::GoalMacro;
+    CommitmentClass = ECommandCommitmentClass::FlexibleMacro;
+    ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
     RetentionPolicy = ECommandTaskRetentionPolicy::BufferedRetry;
     BlockedTaskWakeKind = EBlockedTaskWakeKind::CooldownOnly;
     BasePriorityValue = 0;

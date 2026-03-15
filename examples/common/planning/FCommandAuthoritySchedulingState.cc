@@ -172,6 +172,8 @@ void FCommandAuthoritySchedulingState::Reset()
     TaskNeedKinds.clear();
     TaskTypes.clear();
     TaskOrigins.clear();
+    CommitmentClasses.clear();
+    ExecutionGuarantees.clear();
     RetentionPolicies.clear();
     BlockedTaskWakeKinds.clear();
     BasePriorityValues.clear();
@@ -297,6 +299,8 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     TaskNeedKinds.reserve(OrderCapacityValue);
     TaskTypes.reserve(OrderCapacityValue);
     TaskOrigins.reserve(OrderCapacityValue);
+    CommitmentClasses.reserve(OrderCapacityValue);
+    ExecutionGuarantees.reserve(OrderCapacityValue);
     RetentionPolicies.reserve(OrderCapacityValue);
     BlockedTaskWakeKinds.reserve(OrderCapacityValue);
     BasePriorityValues.reserve(OrderCapacityValue);
@@ -360,6 +364,8 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     TaskNeedKinds.push_back(StoredOrderValue.TaskNeedKind);
     TaskTypes.push_back(StoredOrderValue.TaskType);
     TaskOrigins.push_back(StoredOrderValue.Origin);
+    CommitmentClasses.push_back(StoredOrderValue.CommitmentClass);
+    ExecutionGuarantees.push_back(StoredOrderValue.ExecutionGuarantee);
     RetentionPolicies.push_back(StoredOrderValue.RetentionPolicy);
     BlockedTaskWakeKinds.push_back(StoredOrderValue.BlockedTaskWakeKind);
     BasePriorityValues.push_back(StoredOrderValue.BasePriorityValue);
@@ -524,6 +530,8 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.TaskNeedKind = TaskNeedKinds[OrderIndexValue];
     CommandOrderRecordValue.TaskType = TaskTypes[OrderIndexValue];
     CommandOrderRecordValue.Origin = TaskOrigins[OrderIndexValue];
+    CommandOrderRecordValue.CommitmentClass = CommitmentClasses[OrderIndexValue];
+    CommandOrderRecordValue.ExecutionGuarantee = ExecutionGuarantees[OrderIndexValue];
     CommandOrderRecordValue.RetentionPolicy = RetentionPolicies[OrderIndexValue];
     CommandOrderRecordValue.BlockedTaskWakeKind = BlockedTaskWakeKinds[OrderIndexValue];
     CommandOrderRecordValue.BasePriorityValue = BasePriorityValues[OrderIndexValue];
@@ -774,6 +782,8 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders(
     TaskNeedKinds = BuildCompactedVector(TaskNeedKinds, RetainedOrderIndicesValue);
     TaskTypes = BuildCompactedVector(TaskTypes, RetainedOrderIndicesValue);
     TaskOrigins = BuildCompactedVector(TaskOrigins, RetainedOrderIndicesValue);
+    CommitmentClasses = BuildCompactedVector(CommitmentClasses, RetainedOrderIndicesValue);
+    ExecutionGuarantees = BuildCompactedVector(ExecutionGuarantees, RetainedOrderIndicesValue);
     RetentionPolicies = BuildCompactedVector(RetentionPolicies, RetainedOrderIndicesValue);
     BlockedTaskWakeKinds = BuildCompactedVector(BlockedTaskWakeKinds, RetainedOrderIndicesValue);
     BasePriorityValues = BuildCompactedVector(BasePriorityValues, RetainedOrderIndicesValue);

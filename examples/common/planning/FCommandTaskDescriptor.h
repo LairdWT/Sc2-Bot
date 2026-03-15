@@ -5,7 +5,9 @@
 #include <vector>
 
 #include "common/planning/EBlockedTaskWakeKind.h"
+#include "common/planning/ECommandCommitmentClass.h"
 #include "common/planning/ECommandTaskOrigin.h"
+#include "common/planning/ECommandTaskExecutionGuarantee.h"
 #include "common/planning/ECommandTaskRetentionPolicy.h"
 #include "common/planning/ECommandTaskType.h"
 #include "common/services/FBuildPlacementSlotId.h"
@@ -71,6 +73,8 @@ public:
     ECommandTaskCompletionKind CompletionKind;
     ECommandTaskType TaskType;
     ECommandTaskOrigin Origin;
+    ECommandCommitmentClass CommitmentClass;
+    ECommandTaskExecutionGuarantee ExecutionGuarantee;
     ECommandTaskRetentionPolicy RetentionPolicy;
     EBlockedTaskWakeKind BlockedTaskWakeKind;
     int BasePriorityValue;

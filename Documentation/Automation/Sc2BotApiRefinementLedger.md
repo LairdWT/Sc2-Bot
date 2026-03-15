@@ -1,4 +1,4 @@
-﻿# Sc2 Bot API Refinement Ledger
+# Sc2 Bot API Refinement Ledger
 
 ## Purpose
 
@@ -49,7 +49,7 @@ If the same narrow topic family repeats enough times to justify reusable instruc
 
 
 
-| SC2-API-FEATURE-LAYER-SETUP-PROVENANCE-BOUNDARY | FeatureLayers | L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md | Completed | $RunTimeUtc | No open ledger topics were suitable, so one new feature-layer topic was discovered. Documented source-backed setup provenance from Coordinator::SetFeatureLayers(...) through RequestJoinGame(...), Convert(..., game_info.options), and FAgentSpatialChannels::Update(...); FL-001 and FL-003 remain open. Repetition penalty: 40 (TopicId +0, Domain +40, TargetPath +0). |
+| SC2-API-FEATURE-LAYER-SETUP-PROVENANCE-BOUNDARY | FeatureLayers | L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md | Completed | 2026-03-15T15:41:30Z | No open ledger topics were suitable, so one new feature-layer topic was discovered. Documented source-backed setup provenance from Coordinator::SetFeatureLayers(...) through RequestJoinGame(...), Convert(..., game_info.options), and FAgentSpatialChannels::Update(...); FL-001 and FL-003 remain open. Repetition penalty: 40 (TopicId +0, Domain +40, TargetPath +0). |
 | `SC2-API-FEATURE-LAYER-HEIGHTMAP-GATE-CONSUMER-BOUNDARY` | `FeatureLayers` | `L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md` | `Completed` | `2026-03-15T10:10:49Z` | No open ledger topics were suitable, so one new feature-layer topic was discovered. Documented source-backed validity gate on `minimap_renders().height_map()` in `FAgentSpatialChannels::Update(...)` versus current consumer boundary where `FAgentSpatialMetrics::Update(...)` and `TerranAgent` decision paths do not consume `MinimapHeightMap`; opened `FL-004`; `FL-001` and `FL-003` remain open. Repetition penalty: `0` (`TopicId +0`, `Domain +0`, `TargetPath +0`). |
 | `SC2-API-FRAME-CONTEXT-STEP-GAMELOOP-BOUNDARY` | `ApiFrameAcquisition` | `L:\Sc2_Bot\Documentation\Sc2Api\ObservationAndFrameContext.md` | `Completed` | `2026-03-15T11:10:56Z` | No open ledger topics were suitable, so one new coordinator-surface topic was discovered. Documented source-backed boundary between callback `CurrentStep` and observation-stamped `GameLoop` across `CoordinatorImp::StepAgents()`, `ControlImp::WaitStep()`, `FFrameContext::Create(...)`, and `TerranAgent::CaptureNewlyDispatchedSchedulerOrders(...)`. Repetition penalty: `0` (`TopicId +0`, `Domain +0`, `TargetPath +0`). |
 
@@ -57,3 +57,13 @@ If the same narrow topic family repeats enough times to justify reusable instruc
 
 | SC2-API-OBSERVATION-UNIT-SNAPSHOT-POINTER-LIFETIME-BOUNDARY | ApiFrameAcquisition | L:\Sc2_Bot\Documentation\Sc2Api\ObservationAndFrameContext.md | Completed | 2026-03-15T11:13:13Z | No open ledger topics were suitable, so one new coordinator-surface topic was discovered. Documented source-backed unit snapshot and pointer-liveness boundaries across ControlImp::GetObservation(), ObservationImp::UpdateObservation(), ObservationImp::GetUnits(...), ObservationImp::GetUnit(Tag), and UnitPool existing-versus-historical maps; no finding closed; FL-001, FL-003, and FL-004 remain open. Repetition penalty: 0 (TopicId +0, Domain +0, TargetPath +0). |
 
+
+| SC2-API-SCHEDULER-MUTATION-BATCH-DERIVED-QUEUE-VISIBILITY-BOUNDARY | ApiSchedulerLifecycle | L:\Sc2_Bot\Documentation\Sc2Api\SchedulerIntentLifecycleAndDispatchCapture.md | Completed | 2026-03-15T15:41:30Z | No open ledger topics were suitable, so one new scheduler topic was discovered. Documented source-backed mutation-batch boundary for deferred derived-queue rebuild visibility across FCommandAuthoritySchedulingState::BeginMutationBatch(), MarkDerivedQueuesDirty(), EndMutationBatch(), and TerranAgent::ProduceSchedulerIntents(...) phase wrappers before DrainReadyIntents(...); no finding closed; FL-001, FL-003, and FL-004 remain open. Repetition penalty: 0 (TopicId +0, Domain +0, TargetPath +0). |
+
+| SC2-API-FEATURE-LAYER-SETUP-CHANNEL-DIMENSION-PARITY-BOUNDARY | FeatureLayers | L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md | Completed | 2026-03-15T16:40:04Z | No open ledger topics were suitable, so one new feature-layer topic was discovered. Documented setup-versus-payload dimension parity boundary across ControlImp::RequestJoinGame(...), ObservationImp::GetGameInfo(), FAgentSpatialChannels::Update(...), and conversion helpers; opened FL-005; FL-001, FL-003, and FL-004 remain open. Repetition penalty: 0 (TopicId +0, Domain +0, TargetPath +0). |
+
+| `SC2-API-FEATURE-LAYER-CONVERSION-TEST-MATRIX-COVERAGE-BOUNDARY` | `FeatureLayers` | `L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md` | `Completed` | `2026-03-15T17:41:23Z` | No open ledger topics were suitable, so one new feature-layer topic was discovered. Documented source-backed conversion test-matrix coverage from `tests\test_feature_layer.cc` and `tests\feature_layers_shared.cc` and kept explicit mismatch-handling ambiguity open; `FL-001`, `FL-003`, `FL-004`, and `FL-005` remain open. Repetition penalty: `60` (`TopicId +0`, `Domain +40`, `TargetPath +20`). |
+
+
+
+| `SC2-API-SCHEDULER-CONSTRUCTION-CONFIRMATION-POLICY-BOUNDARY` | `ApiSchedulerLifecycle` | `L:\Sc2_Bot\Documentation\Sc2Api\SchedulerIntentLifecycleAndDispatchCapture.md` | `Completed` | `2026-03-15T17:42:29Z` | No open ledger topics were suitable, so one new scheduler topic was discovered. Documented source-backed confirmation policy split between producer-confirmed and observed-construction-confirmed dispatched orders, including timeout selection and actor-loss abort precedence. No finding closed; FL-001, FL-003, FL-004, and FL-005 remain open. Repetition penalty: `0` (`TopicId +0`, `Domain +0`, `TargetPath +0`). |

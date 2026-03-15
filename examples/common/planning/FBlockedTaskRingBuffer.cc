@@ -58,6 +58,16 @@ bool FBlockedTaskRingBuffer::HasEquivalentOrderSignature(const FCommandOrderReco
     return false;
 }
 
+const FBlockedTaskRecord* FBlockedTaskRingBuffer::GetRecordAtOrderedIndex(const size_t OrderedIndexValue) const
+{
+    if (OrderedIndexValue >= ActiveCount)
+    {
+        return nullptr;
+    }
+
+    return &BlockedTaskRecords[GetStorageIndex(OrderedIndexValue)];
+}
+
 bool FBlockedTaskRingBuffer::TryPushOrCoalesce(const FBlockedTaskRecord& BlockedTaskRecordValue,
                                                bool& bOutCoalescedValue, bool& bOutDroppedValue,
                                                bool& bOutRejectedMustRunValue)

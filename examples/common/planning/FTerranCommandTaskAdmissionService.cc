@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "common/descriptors/FGameStateDescriptor.h"
+#include "common/economic_models.h"
 #include "common/economy/EconomyForecastConstants.h"
 #include "common/planning/FBlockedTaskRecord.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
@@ -21,6 +22,13 @@ constexpr uint64_t NoProducerRetryDelayGameLoopsValue = 224U;
 constexpr uint64_t InsufficientResourcesRetryDelayGameLoopsValue = 16U;
 constexpr uint64_t PlacementRetryDelayGameLoopsValue = 32U;
 constexpr uint64_t ProducerBusyRetryDelayGameLoopsValue = 24U;
+
+struct FCommandResourceCost
+{
+    uint32_t Minerals;
+    uint32_t Vespene;
+    uint32_t Supply;
+};
 
 uint64_t CombineFingerprint(const uint64_t CurrentFingerprintValue, const uint64_t NextValue)
 {
@@ -104,6 +112,8 @@ uint64_t QuantizePositiveRate(const float RateValue)
 uint64_t BuildResourceFingerprint(const FGameStateDescriptor& GameStateDescriptorValue)
 {
     const FEconomyStateDescriptor& EconomyStateDescriptorValue = GameStateDescriptorValue.EconomyState;
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue =
+        GameStateDescriptorValue.CommitmentLedger;
     uint64_t ResourceFingerprintValue = 0U;
     ResourceFingerprintValue =
         CombineFingerprint(ResourceFingerprintValue, EconomyStateDescriptorValue.BudgetedMinerals);
@@ -126,6 +136,31 @@ uint64_t BuildResourceFingerprint(const FGameStateDescriptor& GameStateDescripto
     ResourceFingerprintValue = CombineFingerprint(
         ResourceFingerprintValue,
         EconomyStateDescriptorValue.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue]);
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomicCommitmentLedgerDescriptorValue.GetProjectedDiscretionaryMinerals(ShortForecastHorizonIndexValue));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomicCommitmentLedgerDescriptorValue.GetProjectedDiscretionaryVespene(ShortForecastHorizonIndexValue));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomicCommitmentLedgerDescriptorValue.GetProjectedDiscretionarySupply(ShortForecastHorizonIndexValue));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomicCommitmentLedgerDescriptorValue.GetReservedMinerals(ECommandCommitmentClass::MandatoryOpening) +
+            EconomicCommitmentLedgerDescriptorValue.GetReservedMinerals(ECommandCommitmentClass::MandatoryRecovery));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomicCommitmentLedgerDescriptorValue.GetReservedMinerals(ECommandCommitmentClass::FlexibleMacro) +
+            EconomicCommitmentLedgerDescriptorValue.GetReservedMinerals(ECommandCommitmentClass::Opportunistic));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomicCommitmentLedgerDescriptorValue.GetCommittedMinerals(ECommandCommitmentClass::MandatoryOpening) +
+            EconomicCommitmentLedgerDescriptorValue.GetCommittedMinerals(ECommandCommitmentClass::MandatoryRecovery));
+    ResourceFingerprintValue = CombineFingerprint(
+        ResourceFingerprintValue,
+        EconomicCommitmentLedgerDescriptorValue.GetCommittedMinerals(ECommandCommitmentClass::FlexibleMacro) +
+            EconomicCommitmentLedgerDescriptorValue.GetCommittedMinerals(ECommandCommitmentClass::Opportunistic));
     ResourceFingerprintValue =
         CombineFingerprint(ResourceFingerprintValue,
                            EconomyStateDescriptorValue.GrossMineralIncomeByHorizon[ShortForecastHorizonIndexValue]);
@@ -274,6 +309,76 @@ EIntentDomain DetermineIntentDomainFromAbility(const FCommandOrderRecord& Comman
     }
 }
 
+FCommandResourceCost GetCommandResourceCost(const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    switch (CommandOrderRecordValue.AbilityId.ToType())
+    {
+        case ABILITY_ID::MORPH_ORBITALCOMMAND:
+            return {150U, 0U, 0U};
+        default:
+            break;
+    }
+
+    if (CommandOrderRecordValue.UpgradeId.ToType() != UPGRADE_ID::INVALID)
+    {
+        const FUpgradeCostData& UpgradeCostDataValue =
+            TERRAN_ECONOMIC_DATA.GetUpgradeCostData(CommandOrderRecordValue.AbilityId);
+        return {UpgradeCostDataValue.CostData.Minerals, UpgradeCostDataValue.CostData.Vespine, 0U};
+    }
+
+    if (CommandOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::INVALID)
+    {
+        return {0U, 0U, 0U};
+    }
+
+    if (IsTerranBuilding(CommandOrderRecordValue.ResultUnitTypeId) ||
+        CommandOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::TERRAN_COMMANDCENTER)
+    {
+        const FBuildingCostData& BuildingCostDataValue =
+            TERRAN_ECONOMIC_DATA.GetBuildingCostData(CommandOrderRecordValue.ResultUnitTypeId);
+        return {BuildingCostDataValue.CostData.Minerals, BuildingCostDataValue.CostData.Vespine, 0U};
+    }
+
+    const FUnitCostData& UnitCostDataValue = TERRAN_ECONOMIC_DATA.GetUnitCostData(CommandOrderRecordValue.ResultUnitTypeId);
+    return {UnitCostDataValue.CostData.Minerals, UnitCostDataValue.CostData.Vespine, UnitCostDataValue.CostData.Supply};
+}
+
+bool ShouldBypassFlexibleBudgetGate(const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    switch (CommandOrderRecordValue.TaskType)
+    {
+        case ECommandTaskType::WorkerProduction:
+        case ECommandTaskType::Supply:
+        case ECommandTaskType::Expansion:
+        case ECommandTaskType::Recovery:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool RequiresFlexibleBudgetGate(const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    if (CommandOrderRecordValue.CommitmentClass != ECommandCommitmentClass::FlexibleMacro ||
+        ShouldBypassFlexibleBudgetGate(CommandOrderRecordValue))
+    {
+        return false;
+    }
+
+    switch (CommandOrderRecordValue.TaskType)
+    {
+        case ECommandTaskType::Refinery:
+        case ECommandTaskType::ProductionStructure:
+        case ECommandTaskType::TechStructure:
+        case ECommandTaskType::AddOn:
+        case ECommandTaskType::UnitProduction:
+        case ECommandTaskType::UpgradeResearch:
+            return true;
+        default:
+            return false;
+    }
+}
+
 size_t GetHotOrderLayerCap(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                            const ECommandAuthorityLayer SourceLayerValue)
 {
@@ -341,6 +446,8 @@ FBlockedTaskRecord CreateBlockedTaskRecord(const FCommandOrderRecord& CommandOrd
     BlockedTaskRecordValue.NeedKind = CommandOrderRecordValue.TaskNeedKind;
     BlockedTaskRecordValue.TaskType = CommandOrderRecordValue.TaskType;
     BlockedTaskRecordValue.Origin = CommandOrderRecordValue.Origin;
+    BlockedTaskRecordValue.CommitmentClass = CommandOrderRecordValue.CommitmentClass;
+    BlockedTaskRecordValue.ExecutionGuarantee = CommandOrderRecordValue.ExecutionGuarantee;
     BlockedTaskRecordValue.RetentionPolicy = CommandOrderRecordValue.RetentionPolicy;
     BlockedTaskRecordValue.BasePriorityValue = CommandOrderRecordValue.BasePriorityValue;
     BlockedTaskRecordValue.AbilityId = CommandOrderRecordValue.AbilityId;
@@ -430,6 +537,8 @@ FCommandOrderRecord CreateStrategicOrderFromTaskDescriptor(const FCommandTaskDes
     StrategicOrderValue.TaskNeedKind = CommandTaskDescriptorValue.NeedKind;
     StrategicOrderValue.TaskType = CommandTaskDescriptorValue.TaskType;
     StrategicOrderValue.Origin = CommandTaskDescriptorValue.Origin;
+    StrategicOrderValue.CommitmentClass = CommandTaskDescriptorValue.CommitmentClass;
+    StrategicOrderValue.ExecutionGuarantee = CommandTaskDescriptorValue.ExecutionGuarantee;
     StrategicOrderValue.RetentionPolicy = CommandTaskDescriptorValue.RetentionPolicy;
     StrategicOrderValue.BlockedTaskWakeKind = CommandTaskDescriptorValue.BlockedTaskWakeKind;
     StrategicOrderValue.SourceGoalId = CommandTaskDescriptorValue.SourceGoalId;
@@ -456,6 +565,8 @@ FCommandOrderRecord CreateOrderFromBlockedTaskRecord(const FBlockedTaskRecord& B
     CommandOrderRecordValue.TaskNeedKind = BlockedTaskRecordValue.NeedKind;
     CommandOrderRecordValue.TaskType = BlockedTaskRecordValue.TaskType;
     CommandOrderRecordValue.Origin = BlockedTaskRecordValue.Origin;
+    CommandOrderRecordValue.CommitmentClass = BlockedTaskRecordValue.CommitmentClass;
+    CommandOrderRecordValue.ExecutionGuarantee = BlockedTaskRecordValue.ExecutionGuarantee;
     CommandOrderRecordValue.RetentionPolicy = BlockedTaskRecordValue.RetentionPolicy;
     CommandOrderRecordValue.BlockedTaskWakeKind = BlockedTaskRecordValue.WakeKind;
     CommandOrderRecordValue.PlanStepId = BlockedTaskRecordValue.TaskId;
@@ -470,12 +581,27 @@ FCommandOrderRecord CreateOrderFromBlockedTaskRecord(const FBlockedTaskRecord& B
     return CommandOrderRecordValue;
 }
 
-bool CanAdmitOrder(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+bool CanAdmitOrder(const FGameStateDescriptor& GameStateDescriptorValue,
+                   const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                    const FCommandOrderRecord& CommandOrderRecordValue)
 {
     if (CommandOrderRecordValue.RetentionPolicy == ECommandTaskRetentionPolicy::HotMustRun)
     {
         return true;
+    }
+
+    if (RequiresFlexibleBudgetGate(CommandOrderRecordValue))
+    {
+        const FCommandResourceCost CommandResourceCostValue = GetCommandResourceCost(CommandOrderRecordValue);
+        if (GameStateDescriptorValue.CommitmentLedger.GetProjectedDiscretionaryMinerals(ShortForecastHorizonIndexValue) <
+                CommandResourceCostValue.Minerals ||
+            GameStateDescriptorValue.CommitmentLedger.GetProjectedDiscretionaryVespene(ShortForecastHorizonIndexValue) <
+                CommandResourceCostValue.Vespene ||
+            GameStateDescriptorValue.CommitmentLedger.GetProjectedDiscretionarySupply(ShortForecastHorizonIndexValue) <
+                CommandResourceCostValue.Supply)
+        {
+            return false;
+        }
     }
 
     const size_t ActiveOrderCountValue =
@@ -577,7 +703,7 @@ void FTerranCommandTaskAdmissionService::ReactivateBlockedTasks(FGameStateDescri
             continue;
         }
 
-        if (!CanAdmitOrder(CommandAuthoritySchedulingStateValue, ReactivatedOrderValue))
+        if (!CanAdmitOrder(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue, ReactivatedOrderValue))
         {
             FBlockedTaskRecord DeferredBlockedTaskRecordValue = BlockedTaskRecordValue;
             DeferredBlockedTaskRecordValue.LastSeenStimulusRevision = GetStimulusRevisionForWakeKind(
@@ -627,7 +753,7 @@ bool FTerranCommandTaskAdmissionService::TryAdmitOpeningTask(
 
     const FCommandOrderRecord StrategicOrderValue = CreateStrategicOrderFromTaskDescriptor(CommandTaskDescriptorValue);
     if (HasEquivalentBlockedTask(CommandAuthoritySchedulingStateValue, StrategicOrderValue) ||
-        !CanAdmitOrder(CommandAuthoritySchedulingStateValue, StrategicOrderValue))
+        !CanAdmitOrder(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue, StrategicOrderValue))
     {
         return false;
     }
@@ -646,7 +772,7 @@ bool FTerranCommandTaskAdmissionService::TryAdmitGoalDrivenOrder(
 
     if (DoesHotOrderMatchOrderSignature(CommandAuthoritySchedulingStateValue, CommandOrderRecordValue) ||
         HasEquivalentBlockedTask(CommandAuthoritySchedulingStateValue, CommandOrderRecordValue) ||
-        !CanAdmitOrder(CommandAuthoritySchedulingStateValue, CommandOrderRecordValue))
+        !CanAdmitOrder(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue, CommandOrderRecordValue))
     {
         return false;
     }

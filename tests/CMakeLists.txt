@@ -1,5 +1,6 @@
 set(sc2test_sources
     all_tests.cc
+    ${PROJECT_SOURCE_DIR}/examples/terran/terran.cc
     feature_layers_shared.cc
     test_agent_execution_telemetry.cc
     test_command_authority_scheduling.cc
@@ -39,6 +40,7 @@ set_target_properties(all_tests PROPERTIES FOLDER tests)
 if (BUILD_SC2_RENDERER)
     target_sources(all_tests PRIVATE test_rendered.cc)
     target_compile_definitions(all_tests PRIVATE -DBUILD_SC2_RENDERER)
+    target_link_libraries(all_tests PRIVATE sc2renderer)
 endif ()
 
 target_link_libraries(all_tests PRIVATE sc2_terran_bot_common)

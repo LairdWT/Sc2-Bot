@@ -139,6 +139,57 @@ Point2D GetClockwiseLateralDirection(const Point2D& ForwardDirectionValue)
     return Point2D(ForwardDirectionValue.y, -ForwardDirectionValue.x);
 }
 
+Point2D ClampPointToPlayableBounds(const FBuildPlacementContext& BuildPlacementContextValue,
+                                   const Point2D& CandidatePointValue)
+{
+    const float ClampedXValue =
+        std::max(BuildPlacementContextValue.PlayableMin.x,
+                 std::min(BuildPlacementContextValue.PlayableMax.x, CandidatePointValue.x));
+    const float ClampedYValue =
+        std::max(BuildPlacementContextValue.PlayableMin.y,
+                 std::min(BuildPlacementContextValue.PlayableMax.y, CandidatePointValue.y));
+    return Point2D(ClampedXValue, ClampedYValue);
+}
+
+void UpdateMaxForwardProjectionFromPlacementSlots(const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue,
+                                                  const Point2D& BaseLocationValue,
+                                                  const Point2D& ForwardDirectionValue,
+                                                  const float ExtraForwardClearanceValue,
+                                                  float& MaxForwardProjectionValue)
+{
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
+    {
+        const float ForwardProjectionValue =
+            Dot2D(BuildPlacementSlotValue.BuildPoint - BaseLocationValue, ForwardDirectionValue) +
+            ExtraForwardClearanceValue;
+        if (ForwardProjectionValue > MaxForwardProjectionValue)
+        {
+            MaxForwardProjectionValue = ForwardProjectionValue;
+        }
+    }
+}
+
+Point2D GetNaturalApproachMidpoint(const FMainBaseLayoutDescriptor& MainBaseLayoutDescriptorValue)
+{
+    if (MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty())
+    {
+        return Point2D();
+    }
+
+    float SumXValue = 0.0f;
+    float SumYValue = 0.0f;
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue :
+         MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots)
+    {
+        SumXValue += BuildPlacementSlotValue.BuildPoint.x;
+        SumYValue += BuildPlacementSlotValue.BuildPoint.y;
+    }
+
+    const float SlotCountValue =
+        static_cast<float>(MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.size());
+    return Point2D(SumXValue / SlotCountValue, SumYValue / SlotCountValue);
+}
+
 Point2D ProjectOffsetToWorld(const Point2D& AnchorValue, const Point2D& ForwardDirectionValue,
                              const Point2D& LateralDirectionValue,
                              const FPlacementOffsetDescriptor& PlacementOffsetDescriptorValue)
@@ -2642,18 +2693,7 @@ Point2D FTerranBuildPlacementService::GetArmyAssemblyPoint(
 
     if (!MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty())
     {
-        float SumXValue = 0.0f;
-        float SumYValue = 0.0f;
-        for (const FBuildPlacementSlot& BuildPlacementSlotValue :
-             MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots)
-        {
-            SumXValue += BuildPlacementSlotValue.BuildPoint.x;
-            SumYValue += BuildPlacementSlotValue.BuildPoint.y;
-        }
-
-        const float SlotCountValue =
-            static_cast<float>(MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.size());
-        return Point2D(SumXValue / SlotCountValue, SumYValue / SlotCountValue);
+        return GetNaturalApproachMidpoint(MainBaseLayoutDescriptorValue);
     }
 
     if (BuildPlacementContextValue.RampWallDescriptor.bIsValid)
@@ -2666,6 +2706,48 @@ Point2D FTerranBuildPlacementService::GetArmyAssemblyPoint(
     const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
     return Point2D(PrimaryAnchorValue.x + (ForwardDirectionValue.x * 8.0f),
                    PrimaryAnchorValue.y + (ForwardDirectionValue.y * 8.0f));
+}
+
+Point2D FTerranBuildPlacementService::GetProductionRallyPoint(
+    const FGameStateDescriptor& GameStateDescriptorValue, const FBuildPlacementContext& BuildPlacementContextValue) const
+{
+    (void)GameStateDescriptorValue;
+
+    if (BuildPlacementContextValue.RampWallDescriptor.bIsValid)
+    {
+        return ClampPointToPlayableBounds(BuildPlacementContextValue,
+                                          BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint);
+    }
+
+    const FMainBaseLayoutDescriptor MainBaseLayoutDescriptorValue =
+        BuildPlacementContextValue.MainBaseLayoutDescriptor.bIsValid
+            ? BuildPlacementContextValue.MainBaseLayoutDescriptor
+            : GetMainBaseLayoutDescriptor(FFrameContext(), BuildPlacementContextValue);
+    const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
+    float MaxForwardProjectionValue = 8.0f;
+    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 4.0f,
+                                                 MaxForwardProjectionValue);
+    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 2.0f,
+                                                 MaxForwardProjectionValue);
+    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
+                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 6.0f,
+                                                 MaxForwardProjectionValue);
+    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 6.0f,
+                                                 MaxForwardProjectionValue);
+    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 6.0f,
+                                                 MaxForwardProjectionValue);
+    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.StarportWithAddonSlots,
+                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 6.0f,
+                                                 MaxForwardProjectionValue);
+
+    const Point2D RallyPointValue(
+        BuildPlacementContextValue.BaseLocation.x + (ForwardDirectionValue.x * (MaxForwardProjectionValue + 4.0f)),
+        BuildPlacementContextValue.BaseLocation.y + (ForwardDirectionValue.y * (MaxForwardProjectionValue + 4.0f)));
+    return ClampPointToPlayableBounds(BuildPlacementContextValue, RallyPointValue);
 }
 
 std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlacementSlots(

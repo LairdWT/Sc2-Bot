@@ -13,7 +13,11 @@
 #include "common/economy/EconomyForecastConstants.h"
 #include "common/economy/FEconomyDomainState.h"
 #include "common/planning/ECommandAuthorityLayer.h"
+#include "common/planning/ECommandCommitmentClass.h"
 #include "common/planning/ECommandOrderDeferralReason.h"
+#include "common/planning/ECommandTaskExecutionGuarantee.h"
+#include "common/planning/ECommandTaskOrigin.h"
+#include "common/planning/ECommandTaskRetentionPolicy.h"
 #include "common/planning/EIntentPlaybackState.h"
 #include "common/planning/EOrderLifecycleState.h"
 #include "common/planning/EPlanningProcessorState.h"
@@ -21,6 +25,7 @@
 #include "common/planning/FBlockedTaskRingBuffer.h"
 #include "common/planning/FCommandAuthoritySchedulingState.h"
 #include "common/planning/FCommandOrderRecord.h"
+#include "common/planning/FCommandTaskDescriptor.h"
 #include "common/planning/FIntentSchedulingService.h"
 #include "common/planning/FTerranCommandTaskAdmissionService.h"
 
@@ -57,11 +62,40 @@ FCommandOrderRecord CreateStrategicBuildBarracksOrder(
     CommandOrderRecordValue.TaskPackageKind = ECommandTaskPackageKind::ProductionScale;
     CommandOrderRecordValue.TaskNeedKind = ECommandTaskNeedKind::Structure;
     CommandOrderRecordValue.TaskType = ECommandTaskType::ProductionStructure;
+    CommandOrderRecordValue.Origin = ECommandTaskOrigin::GoalMacro;
+    CommandOrderRecordValue.CommitmentClass = ECommandCommitmentClass::FlexibleMacro;
+    CommandOrderRecordValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
     CommandOrderRecordValue.RetentionPolicy = RetentionPolicyValue;
     CommandOrderRecordValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
     CommandOrderRecordValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
     CommandOrderRecordValue.TargetCount = 1U;
     return CommandOrderRecordValue;
+}
+
+FCommandTaskDescriptor CreateMandatoryOpeningBarracksTaskDescriptor()
+{
+    FCommandTaskDescriptor CommandTaskDescriptorValue;
+    CommandTaskDescriptorValue.TaskId = 2U;
+    CommandTaskDescriptorValue.PackageKind = ECommandTaskPackageKind::Opening;
+    CommandTaskDescriptorValue.NeedKind = ECommandTaskNeedKind::Structure;
+    CommandTaskDescriptorValue.ActionKind = ECommandTaskActionKind::BuildStructure;
+    CommandTaskDescriptorValue.CompletionKind = ECommandTaskCompletionKind::CountAtLeast;
+    CommandTaskDescriptorValue.TaskType = ECommandTaskType::ProductionStructure;
+    CommandTaskDescriptorValue.Origin = ECommandTaskOrigin::Opening;
+    CommandTaskDescriptorValue.CommitmentClass = ECommandCommitmentClass::MandatoryOpening;
+    CommandTaskDescriptorValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::MustExecute;
+    CommandTaskDescriptorValue.RetentionPolicy = ECommandTaskRetentionPolicy::HotMustRun;
+    CommandTaskDescriptorValue.ActionAbilityId = ABILITY_ID::BUILD_BARRACKS;
+    CommandTaskDescriptorValue.ActionProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    CommandTaskDescriptorValue.ActionResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    CommandTaskDescriptorValue.ActionTargetCount = 1U;
+    CommandTaskDescriptorValue.ActionRequestedQueueCount = 1U;
+    CommandTaskDescriptorValue.ActionPreferredPlacementSlotType = EBuildPlacementSlotType::MainRampBarracksWithAddon;
+    CommandTaskDescriptorValue.ActionPreferredPlacementSlotId.SlotType =
+        EBuildPlacementSlotType::MainRampBarracksWithAddon;
+    CommandTaskDescriptorValue.ActionPreferredPlacementSlotId.Ordinal = 0U;
+    CommandTaskDescriptorValue.CompletionObservedCountAtLeast = 1U;
+    return CommandTaskDescriptorValue;
 }
 
 FBlockedTaskRecord CreateBlockedTaskRecord(const uint32_t TaskIdValue,
@@ -104,6 +138,18 @@ void PopulateForecastStimulusState(FGameStateDescriptor& GameStateDescriptorValu
         ProjectedAvailableVespeneValue;
     GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] =
         ProjectedAvailableSupplyValue;
+    GameStateDescriptorValue.CommitmentLedger.ProjectedAvailableAfterMandatoryMineralsByHorizon[
+        ShortForecastHorizonIndexValue] = ProjectedAvailableMineralsValue;
+    GameStateDescriptorValue.CommitmentLedger.ProjectedAvailableAfterMandatoryVespeneByHorizon[
+        ShortForecastHorizonIndexValue] = ProjectedAvailableVespeneValue;
+    GameStateDescriptorValue.CommitmentLedger.ProjectedAvailableAfterMandatorySupplyByHorizon[
+        ShortForecastHorizonIndexValue] = ProjectedAvailableSupplyValue;
+    GameStateDescriptorValue.CommitmentLedger.ProjectedDiscretionaryMineralsByHorizon[
+        ShortForecastHorizonIndexValue] = ProjectedAvailableMineralsValue;
+    GameStateDescriptorValue.CommitmentLedger.ProjectedDiscretionaryVespeneByHorizon[
+        ShortForecastHorizonIndexValue] = ProjectedAvailableVespeneValue;
+    GameStateDescriptorValue.CommitmentLedger.ProjectedDiscretionarySupplyByHorizon[
+        ShortForecastHorizonIndexValue] = ProjectedAvailableSupplyValue;
 
     GameStateDescriptorValue.ProductionState.ProjectedUnitCounts[GetTerranUnitTypeIndex(UNIT_TYPEID::TERRAN_SCV)] =
         ProjectedWorkerCountValue;
@@ -211,6 +257,10 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
           "Existing orders without an authored target count should default that count to zero.");
     Check(FirstUnitOrderRecordValue.RequestedQueueCount == 1U, SuccessValue,
           "Existing orders without authored queue metadata should default requested queue count to one.");
+    Check(FirstUnitOrderRecordValue.CommitmentClass == ECommandCommitmentClass::FlexibleMacro, SuccessValue,
+          "Existing orders without commitment metadata should default to flexible macro commitment.");
+    Check(FirstUnitOrderRecordValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::Preferred, SuccessValue,
+          "Existing orders without guarantee metadata should default to preferred execution.");
     Check(FirstUnitOrderRecordValue.ProducerUnitTypeId == UNIT_TYPEID::INVALID, SuccessValue,
           "Existing orders without a producer type should default the producer type to invalid.");
     Check(FirstUnitOrderRecordValue.ResultUnitTypeId == UNIT_TYPEID::INVALID, SuccessValue,
@@ -679,10 +729,10 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         AdmissionGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
         AdmissionGameStateDescriptorValue.MacroState.BarracksCount = 1U;
         AdmissionGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
-        AdmissionGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 50U;
+        AdmissionGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
         AdmissionGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
         AdmissionGameStateDescriptorValue.BuildPlanning.AvailableSupply = 4U;
-        PopulateForecastStimulusState(AdmissionGameStateDescriptorValue, 50U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
+        PopulateForecastStimulusState(AdmissionGameStateDescriptorValue, 500U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(AdmissionGameStateDescriptorValue);
 
         uint32_t AdmittedStrategicOrderCountValue = 0U;
@@ -722,6 +772,33 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
                   MustRunOrderIdValue),
               SuccessValue, "Hot must-run strategic work should admit even when the normal strategic cap is full.");
 
+        FGameStateDescriptor ZeroDiscretionaryBudgetGameStateDescriptorValue;
+        ZeroDiscretionaryBudgetGameStateDescriptorValue.CurrentStep = 110U;
+        ZeroDiscretionaryBudgetGameStateDescriptorValue.CurrentGameLoop = 110U;
+        ZeroDiscretionaryBudgetGameStateDescriptorValue.MacroState.WorkerCount = 12U;
+        ZeroDiscretionaryBudgetGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
+        ZeroDiscretionaryBudgetGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+        ZeroDiscretionaryBudgetGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 150U;
+        ZeroDiscretionaryBudgetGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+        ZeroDiscretionaryBudgetGameStateDescriptorValue.BuildPlanning.AvailableSupply = 4U;
+        PopulateForecastStimulusState(ZeroDiscretionaryBudgetGameStateDescriptorValue, 0U, 0U, 4U, 12U, 1U, 1U, 0U,
+                                      0U);
+        CommandTaskAdmissionServiceValue.RefreshStimulusState(ZeroDiscretionaryBudgetGameStateDescriptorValue);
+
+        uint32_t RejectedFlexibleOrderIdValue = 0U;
+        Check(!CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                  ZeroDiscretionaryBudgetGameStateDescriptorValue, CreateStrategicBuildBarracksOrder(5000U),
+                  RejectedFlexibleOrderIdValue),
+              SuccessValue,
+              "Flexible macro production should not admit when projected discretionary budget is exhausted.");
+
+        uint32_t MandatoryOpeningOrderIdValue = 0U;
+        Check(CommandTaskAdmissionServiceValue.TryAdmitOpeningTask(
+                  ZeroDiscretionaryBudgetGameStateDescriptorValue, CreateMandatoryOpeningBarracksTaskDescriptor(),
+                  MandatoryOpeningOrderIdValue),
+              SuccessValue,
+              "Mandatory exact-slot opening work should still admit when discretionary budget is exhausted.");
+
         FGameStateDescriptor ParkingGameStateDescriptorValue;
         ParkingGameStateDescriptorValue.CurrentStep = 200U;
         ParkingGameStateDescriptorValue.CurrentGameLoop = 200U;
@@ -729,10 +806,10 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         ParkingGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
         ParkingGameStateDescriptorValue.MacroState.BarracksCount = 1U;
         ParkingGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
-        ParkingGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 50U;
+        ParkingGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
         ParkingGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
         ParkingGameStateDescriptorValue.BuildPlanning.AvailableSupply = 4U;
-        PopulateForecastStimulusState(ParkingGameStateDescriptorValue, 50U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
+        PopulateForecastStimulusState(ParkingGameStateDescriptorValue, 500U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(ParkingGameStateDescriptorValue);
 
         uint32_t ParkedOrderIdValue = 0U;
@@ -767,7 +844,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
               "Blocked producer-availability retries should remain parked when neither cooldown nor producer stimulus changes.");
 
         ParkingGameStateDescriptorValue.MacroState.WorkerCount = 13U;
-        PopulateForecastStimulusState(ParkingGameStateDescriptorValue, 50U, 0U, 4U, 13U, 1U, 1U, 0U, 0U);
+        PopulateForecastStimulusState(ParkingGameStateDescriptorValue, 500U, 0U, 4U, 13U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(ParkingGameStateDescriptorValue);
         CommandTaskAdmissionServiceValue.ReactivateBlockedTasks(ParkingGameStateDescriptorValue);
         Check(ParkingGameStateDescriptorValue.CommandAuthoritySchedulingState.BlockedStrategicTasks.GetCount() == 0U,
@@ -787,7 +864,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         ProducerBusyGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
         ProducerBusyGameStateDescriptorValue.MacroState.BarracksCount = 1U;
         ProducerBusyGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
-        PopulateForecastStimulusState(ProducerBusyGameStateDescriptorValue, 50U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
+        PopulateForecastStimulusState(ProducerBusyGameStateDescriptorValue, 500U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(ProducerBusyGameStateDescriptorValue);
 
         uint32_t ProducerBusyOrderIdValue = 0U;
@@ -821,7 +898,7 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         ResourceWakeGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
         ResourceWakeGameStateDescriptorValue.MacroState.BarracksCount = 1U;
         ResourceWakeGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
-        PopulateForecastStimulusState(ResourceWakeGameStateDescriptorValue, 50U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
+        PopulateForecastStimulusState(ResourceWakeGameStateDescriptorValue, 500U, 0U, 4U, 12U, 1U, 1U, 0U, 0U);
         CommandTaskAdmissionServiceValue.RefreshStimulusState(ResourceWakeGameStateDescriptorValue);
 
         uint32_t ResourceWakeOrderIdValue = 0U;
@@ -909,9 +986,19 @@ bool TestCommandAuthorityScheduling(int ArgC, char** ArgV)
         ForecastGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
             MarineOrderIdValue, EOrderLifecycleState::Ready);
 
+        FCommandOrderRecord ReadyScoutOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::UnitExecution, 900U, ABILITY_ID::MOVE_MOVE, Point2D(12.0f, 18.0f), 90,
+            EIntentDomain::ArmyCombat, 196U);
+        const uint32_t ReadyScoutOrderIdValue =
+            ForecastGameStateDescriptorValue.CommandAuthoritySchedulingState.EnqueueOrder(ReadyScoutOrderValue);
+        ForecastGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
+            ReadyScoutOrderIdValue, EOrderLifecycleState::Ready);
+
         ForecastStateBuilderValue.RebuildForecastState(ForecastAgentStateValue, EconomyDomainStateValue,
                                                        ForecastGameStateDescriptorValue);
 
+        Check(ForecastGameStateDescriptorValue.SchedulerOutlook.InFlightOrderCount == 1U, SuccessValue,
+              "Forecast projection should count only dispatched unit-execution rows as in-flight scheduler work.");
         Check(ForecastGameStateDescriptorValue.SchedulerOutlook.ActiveLeafOrderCount == 1U, SuccessValue,
               "Forecast projection should skip leaf orders that have already materialized into observation.");
         Check(ForecastGameStateDescriptorValue.SchedulerOutlook.GetScheduledBuildingCount(

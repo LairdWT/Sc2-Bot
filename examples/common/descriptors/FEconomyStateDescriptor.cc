@@ -2,6 +2,15 @@
 
 namespace sc2
 {
+namespace
+{
+
+uint32_t SubtractBudgetFloor(const uint32_t TotalValue, const uint32_t ConsumedValue)
+{
+    return TotalValue > ConsumedValue ? TotalValue - ConsumedValue : 0U;
+}
+
+}  // namespace
 
 FEconomyStateDescriptor::FEconomyStateDescriptor()
 {
@@ -71,6 +80,102 @@ uint32_t FEconomyStateDescriptor::GetProjectedAvailableVespeneAtHorizon(const si
 uint32_t FEconomyStateDescriptor::GetProjectedAvailableSupplyAtHorizon(const size_t HorizonIndexValue) const
 {
     return HorizonIndexValue < ForecastHorizonCountValue ? ProjectedAvailableSupplyByHorizon[HorizonIndexValue] : 0U;
+}
+
+uint32_t FEconomyStateDescriptor::GetCurrentSpendableMineralsAfterMandatory(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const
+{
+    return SubtractBudgetFloor(CurrentMinerals,
+                               EconomicCommitmentLedgerDescriptorValue.GetReservedMinerals(
+                                   ECommandCommitmentClass::MandatoryOpening) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetReservedMinerals(
+                                       ECommandCommitmentClass::MandatoryRecovery) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetCommittedMinerals(
+                                       ECommandCommitmentClass::MandatoryOpening) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetCommittedMinerals(
+                                       ECommandCommitmentClass::MandatoryRecovery));
+}
+
+uint32_t FEconomyStateDescriptor::GetCurrentSpendableVespeneAfterMandatory(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const
+{
+    return SubtractBudgetFloor(CurrentVespene,
+                               EconomicCommitmentLedgerDescriptorValue.GetReservedVespene(
+                                   ECommandCommitmentClass::MandatoryOpening) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetReservedVespene(
+                                       ECommandCommitmentClass::MandatoryRecovery) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetCommittedVespene(
+                                       ECommandCommitmentClass::MandatoryOpening) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetCommittedVespene(
+                                       ECommandCommitmentClass::MandatoryRecovery));
+}
+
+uint32_t FEconomyStateDescriptor::GetCurrentSpendableSupplyAfterMandatory(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const
+{
+    return SubtractBudgetFloor(CurrentSupplyAvailable,
+                               EconomicCommitmentLedgerDescriptorValue.GetReservedSupply(
+                                   ECommandCommitmentClass::MandatoryOpening) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetReservedSupply(
+                                       ECommandCommitmentClass::MandatoryRecovery) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetCommittedSupply(
+                                       ECommandCommitmentClass::MandatoryOpening) +
+                                   EconomicCommitmentLedgerDescriptorValue.GetCommittedSupply(
+                                       ECommandCommitmentClass::MandatoryRecovery));
+}
+
+uint32_t FEconomyStateDescriptor::GetCurrentDiscretionaryMinerals(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const
+{
+    return SubtractBudgetFloor(
+        GetCurrentSpendableMineralsAfterMandatory(EconomicCommitmentLedgerDescriptorValue),
+        EconomicCommitmentLedgerDescriptorValue.GetReservedMinerals(ECommandCommitmentClass::FlexibleMacro) +
+            EconomicCommitmentLedgerDescriptorValue.GetReservedMinerals(ECommandCommitmentClass::Opportunistic) +
+            EconomicCommitmentLedgerDescriptorValue.GetCommittedMinerals(ECommandCommitmentClass::FlexibleMacro) +
+            EconomicCommitmentLedgerDescriptorValue.GetCommittedMinerals(ECommandCommitmentClass::Opportunistic));
+}
+
+uint32_t FEconomyStateDescriptor::GetCurrentDiscretionaryVespene(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const
+{
+    return SubtractBudgetFloor(
+        GetCurrentSpendableVespeneAfterMandatory(EconomicCommitmentLedgerDescriptorValue),
+        EconomicCommitmentLedgerDescriptorValue.GetReservedVespene(ECommandCommitmentClass::FlexibleMacro) +
+            EconomicCommitmentLedgerDescriptorValue.GetReservedVespene(ECommandCommitmentClass::Opportunistic) +
+            EconomicCommitmentLedgerDescriptorValue.GetCommittedVespene(ECommandCommitmentClass::FlexibleMacro) +
+            EconomicCommitmentLedgerDescriptorValue.GetCommittedVespene(ECommandCommitmentClass::Opportunistic));
+}
+
+uint32_t FEconomyStateDescriptor::GetCurrentDiscretionarySupply(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue) const
+{
+    return SubtractBudgetFloor(
+        GetCurrentSpendableSupplyAfterMandatory(EconomicCommitmentLedgerDescriptorValue),
+        EconomicCommitmentLedgerDescriptorValue.GetReservedSupply(ECommandCommitmentClass::FlexibleMacro) +
+            EconomicCommitmentLedgerDescriptorValue.GetReservedSupply(ECommandCommitmentClass::Opportunistic) +
+            EconomicCommitmentLedgerDescriptorValue.GetCommittedSupply(ECommandCommitmentClass::FlexibleMacro) +
+            EconomicCommitmentLedgerDescriptorValue.GetCommittedSupply(ECommandCommitmentClass::Opportunistic));
+}
+
+uint32_t FEconomyStateDescriptor::GetProjectedDiscretionaryMineralsAtHorizon(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue,
+    const size_t HorizonIndexValue) const
+{
+    return EconomicCommitmentLedgerDescriptorValue.GetProjectedDiscretionaryMinerals(HorizonIndexValue);
+}
+
+uint32_t FEconomyStateDescriptor::GetProjectedDiscretionaryVespeneAtHorizon(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue,
+    const size_t HorizonIndexValue) const
+{
+    return EconomicCommitmentLedgerDescriptorValue.GetProjectedDiscretionaryVespene(HorizonIndexValue);
+}
+
+uint32_t FEconomyStateDescriptor::GetProjectedDiscretionarySupplyAtHorizon(
+    const FEconomicCommitmentLedgerDescriptor& EconomicCommitmentLedgerDescriptorValue,
+    const size_t HorizonIndexValue) const
+{
+    return EconomicCommitmentLedgerDescriptorValue.GetProjectedDiscretionarySupply(HorizonIndexValue);
 }
 
 }  // namespace sc2

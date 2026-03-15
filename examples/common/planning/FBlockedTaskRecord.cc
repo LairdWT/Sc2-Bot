@@ -42,6 +42,8 @@ void FBlockedTaskRecord::Reset()
     NeedKind = ECommandTaskNeedKind::Unknown;
     TaskType = ECommandTaskType::Unknown;
     Origin = ECommandTaskOrigin::GoalMacro;
+    CommitmentClass = ECommandCommitmentClass::FlexibleMacro;
+    ExecutionGuarantee = ECommandTaskExecutionGuarantee::Preferred;
     RetentionPolicy = ECommandTaskRetentionPolicy::BufferedRetry;
     BasePriorityValue = 0;
     AbilityId = ABILITY_ID::INVALID;

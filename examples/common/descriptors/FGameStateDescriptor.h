@@ -6,6 +6,8 @@
 #include "common/build_orders/FOpeningPlanExecutionState.h"
 #include "common/build_planning/FBuildPlanningState.h"
 #include "common/descriptors/FEconomyStateDescriptor.h"
+#include "common/descriptors/FEconomicCommitmentLedgerDescriptor.h"
+#include "common/descriptors/FExecutionPressureDescriptor.h"
 #include "common/descriptors/FObservedRampWallState.h"
 #include "common/descriptors/FProductionStateDescriptor.h"
 #include "common/descriptors/FSchedulerOutlookDescriptor.h"
@@ -27,8 +29,10 @@ struct FGameStateDescriptor
     FMacroStateDescriptor MacroState;
     FArmyDomainState ArmyState;
     FBuildPlanningState BuildPlanning;
+    FEconomicCommitmentLedgerDescriptor CommitmentLedger;
     FEconomyStateDescriptor EconomyState;
     FProductionStateDescriptor ProductionState;
+    FExecutionPressureDescriptor ExecutionPressure;
     FOpeningPlanExecutionState OpeningPlanExecutionState;
     FCommandAuthoritySchedulingState CommandAuthoritySchedulingState;
     FSchedulerOutlookDescriptor SchedulerOutlook;
