@@ -177,6 +177,96 @@ bool ShouldRefreshHoldPosition(const Unit& ActorUnitValue)
     return ActorUnitValue.orders.front().ability_id != ABILITY_ID::GENERAL_HOLDPOSITION;
 }
 
+bool IsActiveUnitExecutionOrder(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                const size_t OrderIndexValue)
+{
+    return CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] == ECommandAuthorityLayer::UnitExecution &&
+           !IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]);
+}
+
+bool DoesExecutionOrderMatchDesiredOrder(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                         const size_t OrderIndexValue,
+                                         const FCommandOrderRecord& DesiredExecutionOrderValue)
+{
+    if (!IsActiveUnitExecutionOrder(CommandAuthoritySchedulingStateValue, OrderIndexValue) ||
+        CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != DesiredExecutionOrderValue.ActorTag ||
+        CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue] != DesiredExecutionOrderValue.AbilityId ||
+        CommandAuthoritySchedulingStateValue.TargetKinds[OrderIndexValue] != DesiredExecutionOrderValue.TargetKind)
+    {
+        return false;
+    }
+
+    switch (DesiredExecutionOrderValue.TargetKind)
+    {
+        case EIntentTargetKind::None:
+            return true;
+        case EIntentTargetKind::Point:
+            return DistanceSquared2D(CommandAuthoritySchedulingStateValue.TargetPoints[OrderIndexValue],
+                                     DesiredExecutionOrderValue.TargetPoint) <= OrderRefreshDistanceSquaredValue;
+        case EIntentTargetKind::Unit:
+            return CommandAuthoritySchedulingStateValue.TargetUnitTags[OrderIndexValue] ==
+                   DesiredExecutionOrderValue.TargetUnitTag;
+        default:
+            return false;
+    }
+}
+
+bool HasMatchingActiveExecutionOrderForActor(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                             const FCommandOrderRecord& DesiredExecutionOrderValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (DoesExecutionOrderMatchDesiredOrder(CommandAuthoritySchedulingStateValue, OrderIndexValue,
+                                                DesiredExecutionOrderValue))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+uint32_t ExpireMismatchedExecutionOrdersForActor(FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                                 const FCommandOrderRecord& DesiredExecutionOrderValue)
+{
+    uint32_t ExpiredOrderCountValue = 0U;
+
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (!IsActiveUnitExecutionOrder(CommandAuthoritySchedulingStateValue, OrderIndexValue) ||
+            CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != DesiredExecutionOrderValue.ActorTag ||
+            DoesExecutionOrderMatchDesiredOrder(CommandAuthoritySchedulingStateValue, OrderIndexValue,
+                                                DesiredExecutionOrderValue))
+        {
+            continue;
+        }
+
+        CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(
+            CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue], EOrderLifecycleState::Expired);
+        ++ExpiredOrderCountValue;
+    }
+
+    return ExpiredOrderCountValue;
+}
+
+uint32_t CountActiveUnitExecutionOrders(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue)
+{
+    uint32_t ActiveOrderCountValue = 0U;
+
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (IsActiveUnitExecutionOrder(CommandAuthoritySchedulingStateValue, OrderIndexValue))
+        {
+            ++ActiveOrderCountValue;
+        }
+    }
+
+    return ActiveOrderCountValue;
+}
+
 FTacticalBehaviorScore BuildAdvanceScore(const Unit& ControlledUnitValue, const FArmyMissionDescriptor& MissionDescriptorValue,
                                          const Point2D& RallyPointValue)
 {
@@ -375,7 +465,7 @@ FCommandOrderRecord CreateBehaviorExecutionOrder(const Unit& ControlledUnitValue
                     ECommandAuthorityLayer::UnitExecution, ControlledUnitValue.tag, ABILITY_ID::ATTACK_ATTACK,
                     TacticalBehaviorScoreValue.TargetUnitTag, SquadOrderValue.BasePriorityValue,
                     EIntentDomain::ArmyCombat, CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
-                    SquadOrderValue.OwningArmyIndex, SquadOrderValue.OwningSquadIndex, true);
+                    SquadOrderValue.OwningArmyIndex, SquadOrderValue.OwningSquadIndex, false);
             }
             break;
         case EUnitTacticalBehavior::HoldPosition:
@@ -383,8 +473,8 @@ FCommandOrderRecord CreateBehaviorExecutionOrder(const Unit& ControlledUnitValue
                                                        ABILITY_ID::GENERAL_HOLDPOSITION,
                                                        SquadOrderValue.BasePriorityValue, EIntentDomain::ArmyCombat,
                                                        CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
-                                                       SquadOrderValue.OwningArmyIndex, SquadOrderValue.OwningSquadIndex,
-                                                       true);
+                                                       SquadOrderValue.OwningArmyIndex,
+                                                       SquadOrderValue.OwningSquadIndex, false);
         case EUnitTacticalBehavior::AdvanceToMissionAnchor:
         case EUnitTacticalBehavior::RegroupToSquadAnchor:
         case EUnitTacticalBehavior::RetreatToSafeAnchor:
@@ -398,7 +488,7 @@ FCommandOrderRecord CreateBehaviorExecutionOrder(const Unit& ControlledUnitValue
                                                   SquadOrderValue.BasePriorityValue, EIntentDomain::ArmyCombat,
                                                   CurrentGameLoopValue, 0U, SquadOrderValue.OrderId,
                                                   SquadOrderValue.OwningArmyIndex, SquadOrderValue.OwningSquadIndex,
-                                                  true, false, true);
+                                                  true, false, false);
 }
 
 bool ShouldCreateExecutionOrder(const Unit& ControlledUnitValue, const FTacticalBehaviorScore& TacticalBehaviorScoreValue)
@@ -441,6 +531,8 @@ uint32_t FTerranArmyUnitExecutionPlanner::ExpandUnitExecutionOrders(
     }
 
     uint32_t CreatedExecutionOrderCountValue = 0U;
+    uint32_t ActiveUnitExecutionOrderCountValue =
+        CountActiveUnitExecutionOrders(CommandAuthoritySchedulingStateValue);
     const Units EnemyUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Enemy);
     const std::vector<size_t> SquadOrderIndicesValue = CommandAuthoritySchedulingStateValue.SquadOrderIndices;
 
@@ -490,6 +582,29 @@ uint32_t FTerranArmyUnitExecutionPlanner::ExpandUnitExecutionOrders(
 
             FCommandOrderRecord UnitExecutionOrderValue = CreateBehaviorExecutionOrder(
                 *ControlledUnitPtrValue, TacticalBehaviorScoreValue, SquadOrderValue, FrameValue.GameLoop);
+            if (HasMatchingActiveExecutionOrderForActor(CommandAuthoritySchedulingStateValue, UnitExecutionOrderValue))
+            {
+                continue;
+            }
+
+            const uint32_t ExpiredOrderCountValue = ExpireMismatchedExecutionOrdersForActor(
+                CommandAuthoritySchedulingStateValue, UnitExecutionOrderValue);
+            if (ExpiredOrderCountValue > 0U)
+            {
+                CommandAuthoritySchedulingStateValue.SupersededUnitExecutionOrderCount += ExpiredOrderCountValue;
+                ActiveUnitExecutionOrderCountValue =
+                    ActiveUnitExecutionOrderCountValue > ExpiredOrderCountValue
+                        ? (ActiveUnitExecutionOrderCountValue - ExpiredOrderCountValue)
+                        : 0U;
+            }
+
+            if (ActiveUnitExecutionOrderCountValue >=
+                CommandAuthoritySchedulingStateValue.MaxActiveUnitExecutionOrders)
+            {
+                ++CommandAuthoritySchedulingStateValue.RejectedUnitExecutionAdmissionCount;
+                continue;
+            }
+
             UnitExecutionOrderValue.SourceGoalId = SquadOrderValue.SourceGoalId;
             UnitExecutionOrderValue.TaskPackageKind = SquadOrderValue.TaskPackageKind;
             UnitExecutionOrderValue.TaskNeedKind = SquadOrderValue.TaskNeedKind;
@@ -498,6 +613,7 @@ uint32_t FTerranArmyUnitExecutionPlanner::ExpandUnitExecutionOrders(
             UnitExecutionOrderValue.PriorityTier = SquadOrderValue.PriorityTier;
             UnitExecutionOrderValue.LifecycleState = EOrderLifecycleState::Ready;
             CommandAuthoritySchedulingStateValue.EnqueueOrder(UnitExecutionOrderValue);
+            ++ActiveUnitExecutionOrderCountValue;
             ++CreatedExecutionOrderCountValue;
         }
 

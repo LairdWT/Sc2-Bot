@@ -59,6 +59,19 @@ bool IsSupplyDepotResultUnitType(const UNIT_TYPEID ResultUnitTypeIdValue)
     return ResultUnitTypeIdValue == UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
 }
 
+bool IsRampWallSlotType(const EBuildPlacementSlotType BuildPlacementSlotTypeValue)
+{
+    switch (BuildPlacementSlotTypeValue)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampBarracksWithAddon:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool DoesPlacementSlotSatisfyFootprintPolicy(const FFrameContext& FrameValue,
                                              const FBuildPlacementSlot& BuildPlacementSlotValue,
                                              const ABILITY_ID StructureAbilityIdValue);
@@ -158,6 +171,32 @@ uint32_t GetObservedCountForOrder(const FBuildPlanningState& BuildPlanningStateV
     }
 
     return GetObservedUnitCount(BuildPlanningStateValue, CommandOrderRecordValue.ResultUnitTypeId);
+}
+
+bool DoesOrderTargetMatchObservedState(const FGameStateDescriptor& GameStateDescriptorValue,
+                                       const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    if (CommandOrderRecordValue.TargetCount == 0U)
+    {
+        return false;
+    }
+
+    if (CommandOrderRecordValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown &&
+        GameStateDescriptorValue.RampWallDescriptor.bIsValid &&
+        IsRampWallSlotType(CommandOrderRecordValue.PreferredPlacementSlotType))
+    {
+        return GameStateDescriptorValue.ObservedRampWallState.GetObservedWallSlotState(
+                   CommandOrderRecordValue.PreferredPlacementSlotType) == EObservedWallSlotState::Occupied;
+    }
+
+    return GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, CommandOrderRecordValue) >=
+           CommandOrderRecordValue.TargetCount;
+}
+
+bool ShouldUseReservedPlacementSlotAwaitingState(const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    return CommandOrderRecordValue.LastDeferralReason == ECommandOrderDeferralReason::AwaitingObservedCompletion &&
+           CommandOrderRecordValue.ReservedPlacementSlotId.IsValid();
 }
 
 uint32_t GetObservedInConstructionCountForOrder(const FBuildPlanningState& BuildPlanningStateValue,
@@ -1281,9 +1320,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             continue;
         }
 
-        const uint32_t ObservedCountValue =
-            GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue);
-        if (ObservedCountValue >= EconomyOrderValue.TargetCount)
+        if (DoesOrderTargetMatchObservedState(GameStateDescriptorValue, EconomyOrderValue))
         {
             CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
                 EconomyOrderValue.OrderId, ECommandOrderDeferralReason::TargetAlreadySatisfied, CurrentStepValue,
@@ -1307,8 +1344,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             continue;
         }
 
-        if (EconomyOrderValue.LastDeferralReason == ECommandOrderDeferralReason::AwaitingObservedCompletion &&
-            EconomyOrderValue.ReservedPlacementSlotId.IsValid())
+        if (ShouldUseReservedPlacementSlotAwaitingState(EconomyOrderValue))
         {
             FBuildPlacementSlot ReservedBuildPlacementSlotValue;
             const EReservedPlacementSlotState ReservedPlacementSlotStateValue =
@@ -1330,11 +1366,17 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         CurrentStepValue, CurrentGameLoopValue);
                     continue;
                 case EReservedPlacementSlotState::Active:
+                    CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
+                        EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion,
+                        CurrentStepValue, CurrentGameLoopValue);
+                    continue;
                 default:
                     break;
             }
         }
 
+        const uint32_t ObservedCountValue =
+            GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue);
         const uint32_t CurrentOrderCountValue = IsStructureBuildAbility(EconomyOrderValue.AbilityId)
                                                     ? 0U
                                                     : CountCurrentOrdersForAbility(AgentStateValue,

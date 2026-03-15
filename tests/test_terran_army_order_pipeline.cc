@@ -512,6 +512,9 @@ bool TestTerranArmyOrderPipeline(int ArgC, char** ArgV)
               "Pressure missions should use attack-move for marine execution orders.");
         Check(SchedulingStateValue.AbilityIds[MedivacOrderIndexValue] == ABILITY_ID::MOVE_MOVE, SuccessValue,
               "Support air units should use move orders when following the army mission.");
+        Check(!SchedulingStateValue.QueuedValues[MarineOrderIndexValue] &&
+                  !SchedulingStateValue.QueuedValues[MedivacOrderIndexValue],
+              SuccessValue, "Combat execution orders should replace prior commands instead of being queued behind them.");
     }
 
     {
@@ -550,6 +553,82 @@ bool TestTerranArmyOrderPipeline(int ArgC, char** ArgV)
               "Unit execution planner should not duplicate an already matching attack order.");
         Check(SchedulingStateValue.ReadyIntentIndices.empty(), SuccessValue,
               "No refreshed execution order should be queued when the actor already has the correct order.");
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(
+            MakeUnit(601U, UNIT_TYPEID::TERRAN_MARINE, Unit::Alliance::Self, Point2D(12.0f, 12.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::PressureKnownEnemyBase;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(40.0f, 40.0f);
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(40.0f, 40.0f), 100,
+            EIntentDomain::ArmyCombat, 20U, 0U, 98U, 0, 0);
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        FCommandOrderRecord ExistingExecutionOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::UnitExecution, 601U, ABILITY_ID::ATTACK_ATTACK, Point2D(40.0f, 40.0f), 100,
+            EIntentDomain::ArmyCombat, 20U, 0U, SquadOrderValue.OrderId, 0, 0, true, false, false);
+        ExistingExecutionOrderValue.LifecycleState = EOrderLifecycleState::Ready;
+        SchedulingStateValue.EnqueueOrder(ExistingExecutionOrderValue);
+
+        const size_t ReadyIntentCountBeforeValue = SchedulingStateValue.ReadyIntentIndices.size();
+        const uint32_t CreatedOrderCountValue = UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(16.0f, 16.0f), SchedulingStateValue);
+
+        Check(CreatedOrderCountValue == 0U, SuccessValue,
+              "Unit execution planner should not enqueue a duplicate order when a matching active execution order already exists.");
+        Check(SchedulingStateValue.ReadyIntentIndices.size() == ReadyIntentCountBeforeValue, SuccessValue,
+              "Matching active execution orders should keep the ready-intent backlog unchanged.");
+    }
+
+    {
+        FakeObservation ObservationValue;
+        std::vector<Unit> UnitStorageValue;
+        UnitStorageValue.push_back(
+            MakeUnit(701U, UNIT_TYPEID::TERRAN_MARINE, Unit::Alliance::Self, Point2D(12.0f, 12.0f), false));
+        UnitStorageValue.push_back(
+            MakeUnit(702U, UNIT_TYPEID::TERRAN_MARINE, Unit::Alliance::Self, Point2D(14.0f, 12.0f), false));
+        Units ObservationUnitsValue;
+        AppendUnitPointers(UnitStorageValue, ObservationUnitsValue);
+        ObservationValue.SetUnits(ObservationUnitsValue);
+
+        const FFrameContext FrameValue = FFrameContext::Create(&ObservationValue, nullptr, 1U);
+        FAgentState AgentStateValue;
+        AgentStateValue.Update(FrameValue);
+
+        FGameStateDescriptor GameStateDescriptorValue = CreateArmyTestDescriptor();
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().MissionType = EArmyMissionType::PressureKnownEnemyBase;
+        GameStateDescriptorValue.ArmyState.ArmyMissions.front().ObjectivePoint = Point2D(40.0f, 40.0f);
+
+        FCommandAuthoritySchedulingState SchedulingStateValue;
+        SchedulingStateValue.MaxActiveUnitExecutionOrders = 1U;
+        FCommandOrderRecord SquadOrderValue = FCommandOrderRecord::CreatePointTarget(
+            ECommandAuthorityLayer::Squad, NullTag, ABILITY_ID::INVALID, Point2D(40.0f, 40.0f), 100,
+            EIntentDomain::ArmyCombat, 20U, 0U, 108U, 0, 0);
+        SquadOrderValue.TaskType = ECommandTaskType::ArmyMission;
+        SchedulingStateValue.EnqueueOrder(SquadOrderValue);
+
+        const uint32_t CreatedOrderCountValue = UnitExecutionPlannerValue.ExpandUnitExecutionOrders(
+            FrameValue, AgentStateValue, GameStateDescriptorValue, Point2D(16.0f, 16.0f), SchedulingStateValue);
+
+        Check(CreatedOrderCountValue == 1U, SuccessValue,
+              "Unit execution planner should stop creating new execution orders once the active admission cap is reached.");
+        Check(SchedulingStateValue.RejectedUnitExecutionAdmissionCount == 1U, SuccessValue,
+              "Rejected unit-execution admissions should be counted when the active admission cap blocks new work.");
     }
 
     return SuccessValue;

@@ -712,6 +712,86 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
               SuccessValue, "The wall barracks child order should preserve the reserved ramp barracks slot.");
     }
 
+    std::vector<Unit> WallDepotUnitStorageValue;
+    WallDepotUnitStorageValue.push_back(
+        MakeUnit(311U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(57.0f, 52.0f), false));
+    WallDepotUnitStorageValue.push_back(MakeUnit(312U, UNIT_TYPEID::TERRAN_SUPPLYDEPOT, Unit::Alliance::Self,
+                                                 Point2D(68.0f, 60.0f), true));
+
+    Units WallDepotUnitPointersValue;
+    AppendUnitPointers(WallDepotUnitStorageValue, WallDepotUnitPointersValue);
+
+    FakeObservation WallDepotObservationValue;
+    WallDepotObservationValue.SetUnits(WallDepotUnitPointersValue);
+    FakeQuery WallDepotQueryValue;
+    const FFrameContext WallDepotFrameValue = FFrameContext::Create(&WallDepotObservationValue,
+                                                                    &WallDepotQueryValue, 3U);
+
+    FAgentState WallDepotAgentStateValue;
+    WallDepotAgentStateValue.Update(WallDepotFrameValue);
+
+    FGameStateDescriptor WallDepotGameStateDescriptorValue;
+    WallDepotGameStateDescriptorValue.CurrentStep = 3U;
+    WallDepotGameStateDescriptorValue.CurrentGameLoop = 3U;
+    WallDepotGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    WallDepotGameStateDescriptorValue.BuildPlanning.AvailableVespene = 0U;
+    WallDepotGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.bIsValid = true;
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.SlotId.SlotType =
+        EBuildPlacementSlotType::MainRampDepotLeft;
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.FootprintPolicy =
+        EBuildPlacementFootprintPolicy::StructureOnly;
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.BuildPoint = Point2D(61.0f, 54.0f);
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.SlotId.SlotType =
+        EBuildPlacementSlotType::MainRampBarracksWithAddon;
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.FootprintPolicy =
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.BuildPoint = Point2D(58.0f, 52.0f);
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.RightDepotSlot.SlotId.SlotType =
+        EBuildPlacementSlotType::MainRampDepotRight;
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.RightDepotSlot.FootprintPolicy =
+        EBuildPlacementFootprintPolicy::StructureOnly;
+    WallDepotGameStateDescriptorValue.RampWallDescriptor.RightDepotSlot.BuildPoint = Point2D(61.0f, 50.0f);
+
+    FCommandAuthoritySchedulingState& WallDepotSchedulingStateValue =
+        WallDepotGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord WallDepotEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_SUPPLYDEPOT, 160,
+        EIntentDomain::StructureBuild, 3U);
+    WallDepotEconomyOrderValue.TargetCount = 1U;
+    WallDepotEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    WallDepotEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
+    WallDepotEconomyOrderValue.PreferredPlacementSlotType = EBuildPlacementSlotType::MainRampDepotLeft;
+    const uint32_t WallDepotEconomyOrderIdValue =
+        WallDepotSchedulingStateValue.EnqueueOrder(WallDepotEconomyOrderValue);
+
+    const std::vector<Point2D> WallDepotExpansionLocationsValue =
+    {
+        Point2D(20.0f, 10.0f),
+    };
+
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        WallDepotFrameValue, WallDepotAgentStateValue, WallDepotGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, WallDepotExpansionLocationsValue);
+
+    size_t WallDepotChildOrderIndexValue = 0U;
+    Check(WallDepotSchedulingStateValue.TryGetActiveChildOrderIndex(
+              WallDepotEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              WallDepotChildOrderIndexValue),
+          SuccessValue,
+          "A wall depot order should remain placeable when another completed depot exists away from the ramp wall.");
+    if (WallDepotSchedulingStateValue.TryGetActiveChildOrderIndex(
+            WallDepotEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+            WallDepotChildOrderIndexValue))
+    {
+        const FCommandOrderRecord WallDepotChildOrderValue =
+            WallDepotSchedulingStateValue.GetOrderRecord(WallDepotChildOrderIndexValue);
+        Check(WallDepotChildOrderValue.TargetPoint ==
+                  WallDepotGameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.BuildPoint,
+              SuccessValue,
+              "The wall depot child order should target the exact ramp wall slot instead of treating aggregate depot count as satisfied.");
+    }
+
     std::vector<Unit> StaleWallDepotUnitStorageValue;
     StaleWallDepotUnitStorageValue.push_back(
         MakeUnit(601U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(57.0f, 52.0f), false));

@@ -58,7 +58,10 @@ public:
     uint32_t MaxArmyOrdersPerStep;
     uint32_t MaxSquadOrdersPerStep;
     uint32_t MaxUnitIntentsPerStep;
+    uint32_t MaxActiveUnitExecutionOrders;
     uint32_t MutationBatchDepth;
+    uint32_t RejectedUnitExecutionAdmissionCount;
+    uint32_t SupersededUnitExecutionOrderCount;
     bool bDerivedQueuesDirty;
 
     std::vector<uint32_t> OrderIds;
@@ -111,6 +114,7 @@ public:
     std::vector<size_t> ArmyOrderIndices;
     std::vector<size_t> SquadOrderIndices;
     std::vector<size_t> ReadyIntentIndices;
+    std::vector<size_t> DispatchedOrderIndices;
     std::vector<size_t> CompletedOrderIndices;
     std::array<std::vector<size_t>, CommandPriorityTierCountValue> StrategicQueues;
     std::array<std::vector<size_t>, CommandPriorityTierCountValue> PlanningQueues;

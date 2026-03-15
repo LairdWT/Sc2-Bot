@@ -943,6 +943,12 @@ void TerranAgent::PrintAgentState()
     std::cout << std::endl;
     PrintReadyIntentQueueSummary(GameStateDescriptor.CommandAuthoritySchedulingState.ReadyIntentQueues);
     std::cout << std::endl;
+    std::cout << "Unit Execution Admission: "
+              << "Dispatched " << GameStateDescriptor.CommandAuthoritySchedulingState.DispatchedOrderIndices.size()
+              << " | Cap " << GameStateDescriptor.CommandAuthoritySchedulingState.MaxActiveUnitExecutionOrders
+              << " | Rejected " << GameStateDescriptor.CommandAuthoritySchedulingState.RejectedUnitExecutionAdmissionCount
+              << " | Superseded "
+              << GameStateDescriptor.CommandAuthoritySchedulingState.SupersededUnitExecutionOrderCount << "\n";
     PrintWallState();
     const FMainBaseLayoutDescriptor& MainBaseLayoutDescriptorValue = GameStateDescriptor.MainBaseLayoutDescriptor;
     std::cout << "Main Layout: " << (MainBaseLayoutDescriptorValue.bIsValid ? "Valid" : "Invalid");
@@ -1507,10 +1513,11 @@ void TerranAgent::UpdateDispatchedSchedulerOrders(const FFrameContext& Frame)
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptor.CommandAuthoritySchedulingState;
     CommandAuthoritySchedulingStateValue.BeginMutationBatch();
-    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
-    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    const std::vector<size_t> DispatchedOrderIndicesValue = CommandAuthoritySchedulingStateValue.DispatchedOrderIndices;
+    for (const size_t OrderIndexValue : DispatchedOrderIndicesValue)
     {
-        if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution ||
+        if (!CommandAuthoritySchedulingStateValue.IsOrderIndexValid(OrderIndexValue) ||
+            CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] != ECommandAuthorityLayer::UnitExecution ||
             CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue] != EOrderLifecycleState::Dispatched)
         {
             continue;

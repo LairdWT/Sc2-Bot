@@ -46,7 +46,10 @@ void FCommandAuthoritySchedulingState::Reset()
     MaxArmyOrdersPerStep = 8U;
     MaxSquadOrdersPerStep = 16U;
     MaxUnitIntentsPerStep = 32U;
+    MaxActiveUnitExecutionOrders = 128U;
     MutationBatchDepth = 0U;
+    RejectedUnitExecutionAdmissionCount = 0U;
+    SupersededUnitExecutionOrderCount = 0U;
     bDerivedQueuesDirty = false;
 
     OrderIds.clear();
@@ -99,6 +102,7 @@ void FCommandAuthoritySchedulingState::Reset()
     ArmyOrderIndices.clear();
     SquadOrderIndices.clear();
     ReadyIntentIndices.clear();
+    DispatchedOrderIndices.clear();
     CompletedOrderIndices.clear();
     for (std::vector<size_t>& StrategicQueueValue : StrategicQueues)
     {
@@ -564,6 +568,7 @@ void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
     ArmyOrderIndices.clear();
     SquadOrderIndices.clear();
     ReadyIntentIndices.clear();
+    DispatchedOrderIndices.clear();
     CompletedOrderIndices.clear();
     for (std::vector<size_t>& StrategicQueueValue : StrategicQueues)
     {
@@ -605,12 +610,13 @@ void FCommandAuthoritySchedulingState::RebuildDerivedQueues()
                                  [GetIntentDomainIndex(IntentDomains[OrderIndexValue])]
                                      .push_back(OrderIndexValue);
                 break;
+            case EOrderLifecycleState::Dispatched:
+                DispatchedOrderIndices.push_back(OrderIndexValue);
+                break;
             case EOrderLifecycleState::Completed:
             case EOrderLifecycleState::Aborted:
             case EOrderLifecycleState::Expired:
                 CompletedOrderIndices.push_back(OrderIndexValue);
-                break;
-            case EOrderLifecycleState::Dispatched:
                 break;
             default:
                 break;
@@ -648,7 +654,7 @@ void FCommandAuthoritySchedulingState::RebuildPlaybackState()
         return;
     }
 
-    if (std::find(LifecycleStates.begin(), LifecycleStates.end(), EOrderLifecycleState::Dispatched) != LifecycleStates.end())
+    if (!DispatchedOrderIndices.empty())
     {
         PlaybackState = EIntentPlaybackState::Dispatching;
         return;
@@ -717,6 +723,7 @@ void FCommandAuthoritySchedulingState::SortDerivedQueues()
     ArmyOrderIndices.clear();
     SquadOrderIndices.clear();
     ReadyIntentIndices.clear();
+    DispatchedOrderIndices.clear();
 
     for (size_t PriorityTierIndexValue = 0U; PriorityTierIndexValue < CommandPriorityTierCountValue;
          ++PriorityTierIndexValue)

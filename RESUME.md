@@ -24,7 +24,7 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 
 ### Current Slice
 - The active slice is the scheduler performance pass that follows the goal-driven scheduler and army-control refactor.
-- The current work is focused on eliminating repeated full queue rebuilds, reducing hot-path order reconstruction, and bounding hot scheduling storage growth without breaking the opening, economy, or army layers.
+- The current work is focused on eliminating repeated full queue rebuilds, reducing hot-path order reconstruction, bounding hot scheduling storage growth, and stopping combat and wall-slot churn without breaking the opening, economy, or army layers.
 
 ### What Was Added In This Slice
 - `FCommandAuthoritySchedulingState` now supports mutation batching:
@@ -56,50 +56,69 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
   - resolved-intent execution
   - dispatch capture
 - `PrintAgentState()` now prints those timing metrics every 120 steps so live regressions can be tied to specific scheduler phases instead of guessed from match feel.
+- `FCommandAuthoritySchedulingState` now also tracks:
+  - `MaxActiveUnitExecutionOrders`
+  - `RejectedUnitExecutionAdmissionCount`
+  - `SupersededUnitExecutionOrderCount`
+  - `DispatchedOrderIndices`
+- `FTerranArmyUnitExecutionPlanner` now:
+  - creates army-combat execution orders with `Queued = false`
+  - deduplicates matching active execution orders per actor
+  - expires mismatched active execution orders for the same actor before creating a replacement
+  - enforces a bounded active unit-execution admission cap
+- `TerranAgent::UpdateDispatchedSchedulerOrders(...)` now iterates the derived `DispatchedOrderIndices` view instead of scanning the full order store every pass.
+- `PrintAgentState()` now also prints:
+  - dispatched unit-execution count
+  - active admission cap
+  - rejected unit-execution admissions
+  - superseded unit-execution orders
+- `FTerranEconomyProductionOrderExpander` now treats exact ramp-wall slot completion as slot-specific instead of generic aggregate building count:
+  - exact wall-slot completion uses `ObservedRampWallState`
+  - reserved exact wall-slot orders that are still actively occupied or have an observed build order targeting the slot remain in `AwaitingObservedCompletion`
+  - generic projected counts no longer short-circuit exact wall-slot work merely because the bot already has depots elsewhere
 - `test_command_authority_scheduling` now explicitly validates:
   - mutation-batch deferred queue rebuild semantics
   - safe compaction of terminal unit-execution orders
   - the existing per-tier queue routing and ready-intent drain ordering
+- `test_terran_army_order_pipeline` now validates:
+  - combat execution orders are not queued
+  - matching active execution orders suppress duplicates
+  - bounded unit-execution admission rejects excess work and records telemetry
+- `test_terran_economy_production_order_expander` now validates:
+  - a wall depot order still creates work when another completed depot exists away from the wall slot
+  - exact wall-slot orders do not drift to aggregate depot-count completion
 
 ### Current In-Progress Implementation State
-- `cmd /c Build.bat --target tutorial` passes with the batching and compaction changes.
-- `cmd /c BuildAllTests.bat` passes with the scheduler optimization changes.
+- `cmd /c Build.bat --target tutorial` passes with the latest combat-dedupe and wall-slot fixes.
 - The safe first compaction pass is limited to terminal unit-execution orders. This bounds the highest-volume hot store growth without breaking opening-plan or strategic-order recovery paths.
-- A visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` completed with the timing instrumentation enabled.
-- The late-game live timings show the biggest spike is still `UpdateDispatchedSchedulerOrders(...)` in `terran.cc`, which reached roughly `116-121 ms` by the later prints.
-- Combat also still spams unit orders:
-  - the user observed the on-screen `Cannot queue additional orders` warning almost constantly
-  - the likely direct cause is that `FTerranArmyUnitExecutionPlanner` currently creates combat orders with `Queued = true`
-  - the current unit-execution planner also lacks a strong "already have an active matching execution order" guard per actor
+- A visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` completed with the timing instrumentation enabled before the newest wall-slot fix.
+- The previous late-game `UpdateDispatchedSchedulerOrders(...)` spike was reduced from roughly `116-121 ms` to under `1 ms` after the dispatched-index path and combat-order dedupe changes.
+- The constant on-screen `Cannot queue additional orders` warning was traced to queued combat-order chaining and is expected to be resolved by the non-queued combat execution path.
+- The next visible hotspot from that live run shifted to economy scheduling, which reached roughly `42-43 ms` later in the game.
+- The remaining economy churn diagnosis from that live run was repeated wall-step deferrals and completions:
+  - repeated `TargetAlreadySatisfied` events for plan steps `1` and `8`
+  - exact ramp wall orders were still being treated like generic depot counts in the economy projected-count path
+  - the latest local fix addresses that by keeping exact wall-slot satisfaction and waiting logic slot-specific
 - Focused validation that currently passes for this slice:
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestCommandAuthorityScheduling' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranArmyOrderPipeline' --timeout 180`
   - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranEconomyProductionOrderExpander' --timeout 180`
-  - `& 'L:\\Sc2_Bot\\RunTests.bat' --filter 'sc2::TestTerranOpeningPlanScheduler' --timeout 180`
+  - `cmd /c Build.bat --target tutorial`
 - Remaining work in this slice:
-  - fix combat command spam by stopping queued combat-order chaining and deduplicating active unit-execution orders per actor
-  - bound scheduler admission so new work cannot flood the hot store indefinitely as the game progresses
+  - run another visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` to confirm the wall-slot churn fix reduced the economy spike
+  - extend bounded scheduler admission beyond the unit-execution layer so new work cannot flood the hot store indefinitely as the game progresses
   - consider ring-buffer-backed per-domain admission buffers with explicit overflow telemetry after the first admission cap is in place
   - consider a second compaction or archival pass for older non-opening terminal orders once the remaining recovery paths are audited
   - prune long-lived telemetry maps keyed by historical order ids so telemetry does not become the next unbounded retention surface
 
 ### Commit Scope For This Checkpoint
-- Commit the scheduler batching and safe unit-execution compaction files plus `RESUME.md`.
+- Commit the scheduler timing, combat-execution dedupe, bounded unit-execution admission, dispatched-order-index traversal, exact wall-slot economy fix, updated focused tests, and `RESUME.md`.
 - Continue to exclude `.codex/` and any other non-project local tooling artifacts from the checkpoint commit.
 
 ### Immediate Next Steps After This Commit
-1. Remove queued combat-order chaining and add per-actor execution-order dedupe in `FTerranArmyUnitExecutionPlanner`.
-2. Add bounded scheduler admission for unit-execution work so combat cannot flood the hot scheduling store.
-3. Re-run the visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` and compare combat responsiveness plus late-game dispatch-maintenance cost.
-
-## Current Worktree State Before The Next Commit
-Modified:
-- `examples/terran/terran.cc`
-- `examples/terran/terran.h`
-- `RESUME.md`
-
-Untracked:
-- `.codex/` (do not commit)
+1. Push the verified combat-dedupe and wall-slot-economy fix checkpoint.
+2. Re-run the visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat` and compare the remaining economy-phase spike against the previous `42-43 ms` late-game readings.
+3. If the economy spike remains high, add bounded per-domain admission buffers or ring-buffer-backed package feeders above the hot scheduler store.
 
 ## What Has Already Been Implemented
 
