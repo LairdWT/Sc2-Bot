@@ -775,6 +775,10 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     WorkerTownHallGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
     WorkerTownHallGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 2U;
     WorkerTownHallGameStateDescriptorValue.BuildPlanning.ObservedOrbitalCommandCount = 1U;
+    WorkerTownHallGameStateDescriptorValue.EconomyState.ProjectedAvailableMineralsByHorizon[
+        ShortForecastHorizonIndexValue] = 300U;
+    WorkerTownHallGameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[
+        ShortForecastHorizonIndexValue] = 20U;
 
     FCommandAuthoritySchedulingState& WorkerTownHallSchedulingStateValue =
         WorkerTownHallGameStateDescriptorValue.CommandAuthoritySchedulingState;
@@ -1291,6 +1295,85 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
         Check(PreferredRailOnlyFactoryChildOrderValue.ReservedPlacementSlotId == FallbackFactorySlotValue.SlotId,
               SuccessValue,
               "A relocated factory order should reserve the factory fallback slot instead of drifting without a slot id.");
+    }
+
+    std::vector<Unit> ProtectedAddonLaneUnitStorageValue;
+    ProtectedAddonLaneUnitStorageValue.push_back(
+        MakeUnit(711U, UNIT_TYPEID::TERRAN_FACTORY, Unit::Alliance::Self, Point2D(20.0f, 20.0f), true));
+    ProtectedAddonLaneUnitStorageValue.push_back(
+        MakeUnit(712U, UNIT_TYPEID::TERRAN_SCV, Unit::Alliance::Self, Point2D(14.0f, 10.0f), false));
+
+    Units ProtectedAddonLaneUnitPointersValue;
+    AppendUnitPointers(ProtectedAddonLaneUnitStorageValue, ProtectedAddonLaneUnitPointersValue);
+
+    FakeObservation ProtectedAddonLaneObservationValue;
+    ProtectedAddonLaneObservationValue.GameLoopValue = 7U;
+    ProtectedAddonLaneObservationValue.SetUnits(ProtectedAddonLaneUnitPointersValue);
+    FakeQuery ProtectedAddonLaneQueryValue;
+    const FFrameContext ProtectedAddonLaneFrameValue =
+        FFrameContext::Create(&ProtectedAddonLaneObservationValue, &ProtectedAddonLaneQueryValue, 7U);
+
+    FAgentState ProtectedAddonLaneAgentStateValue;
+    ProtectedAddonLaneAgentStateValue.Update(ProtectedAddonLaneFrameValue);
+
+    FGameStateDescriptor ProtectedAddonLaneGameStateDescriptorValue;
+    ProtectedAddonLaneGameStateDescriptorValue.CurrentStep = 7U;
+    ProtectedAddonLaneGameStateDescriptorValue.CurrentGameLoop = 7U;
+    ProtectedAddonLaneGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 500U;
+    ProtectedAddonLaneGameStateDescriptorValue.BuildPlanning.AvailableVespene = 100U;
+    ProtectedAddonLaneGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    ProtectedAddonLaneGameStateDescriptorValue.MainBaseLayoutDescriptor.bIsValid = true;
+
+    FBuildPlacementSlot BlockingStarportPlacementSlotValue;
+    BlockingStarportPlacementSlotValue.SlotId.SlotType = EBuildPlacementSlotType::MainStarportWithAddon;
+    BlockingStarportPlacementSlotValue.SlotId.Ordinal = 0U;
+    BlockingStarportPlacementSlotValue.FootprintPolicy = EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    BlockingStarportPlacementSlotValue.BuildPoint = Point2D(21.5f, 20.0f);
+    ProtectedAddonLaneGameStateDescriptorValue.MainBaseLayoutDescriptor.StarportWithAddonSlots.push_back(
+        BlockingStarportPlacementSlotValue);
+
+    FBuildPlacementSlot SafeStarportPlacementSlotValue;
+    SafeStarportPlacementSlotValue.SlotId.SlotType = EBuildPlacementSlotType::MainStarportWithAddon;
+    SafeStarportPlacementSlotValue.SlotId.Ordinal = 1U;
+    SafeStarportPlacementSlotValue.FootprintPolicy = EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    SafeStarportPlacementSlotValue.BuildPoint = Point2D(28.0f, 24.0f);
+    ProtectedAddonLaneGameStateDescriptorValue.MainBaseLayoutDescriptor.StarportWithAddonSlots.push_back(
+        SafeStarportPlacementSlotValue);
+
+    FCommandAuthoritySchedulingState& ProtectedAddonLaneSchedulingStateValue =
+        ProtectedAddonLaneGameStateDescriptorValue.CommandAuthoritySchedulingState;
+    FCommandOrderRecord ProtectedAddonLaneStarportEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::BUILD_STARPORT, 170,
+        EIntentDomain::StructureBuild, 7U);
+    ProtectedAddonLaneStarportEconomyOrderValue.TargetCount = 1U;
+    ProtectedAddonLaneStarportEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_SCV;
+    ProtectedAddonLaneStarportEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_STARPORT;
+    const uint32_t ProtectedAddonLaneStarportEconomyOrderIdValue =
+        ProtectedAddonLaneSchedulingStateValue.EnqueueOrder(ProtectedAddonLaneStarportEconomyOrderValue);
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        ProtectedAddonLaneFrameValue, ProtectedAddonLaneAgentStateValue, ProtectedAddonLaneGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ProductionRailExpansionLocationsValue);
+
+    size_t ProtectedAddonLaneChildOrderIndexValue = 0U;
+    Check(ProtectedAddonLaneSchedulingStateValue.TryGetActiveChildOrderIndex(
+              ProtectedAddonLaneStarportEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              ProtectedAddonLaneChildOrderIndexValue),
+          SuccessValue,
+          "A starport order should still create a child when a later safe slot exists outside an observed factory add-on lane.");
+    if (ProtectedAddonLaneSchedulingStateValue.TryGetActiveChildOrderIndex(
+            ProtectedAddonLaneStarportEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+            ProtectedAddonLaneChildOrderIndexValue))
+    {
+        const FCommandOrderRecord ProtectedAddonLaneChildOrderValue =
+            ProtectedAddonLaneSchedulingStateValue.GetOrderRecord(ProtectedAddonLaneChildOrderIndexValue);
+        Check(ProtectedAddonLaneChildOrderValue.TargetPoint == SafeStarportPlacementSlotValue.BuildPoint,
+              SuccessValue,
+              "A starport order should skip a candidate that overlaps an observed factory add-on lane.");
+        Check(ProtectedAddonLaneChildOrderValue.ReservedPlacementSlotId == SafeStarportPlacementSlotValue.SlotId,
+              SuccessValue,
+              "A starport order should reserve the safe authored starport slot after skipping the blocked add-on lane.");
     }
 
     std::vector<Unit> ProjectedSelfContributionUnitStorageValue;

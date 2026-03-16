@@ -246,6 +246,16 @@ Point2D GetAddonFootprintCenterForTest(const Point2D& StructureBuildPointValue)
     return Point2D(StructureBuildPointValue.x + 2.5f, StructureBuildPointValue.y - 0.5f);
 }
 
+bool DoAxisAlignedFootprintsOverlapForTest(const Point2D& CenterPointOneValue, const Point2D& HalfExtentsOneValue,
+                                           const Point2D& CenterPointTwoValue, const Point2D& HalfExtentsTwoValue)
+{
+    constexpr float FootprintTouchToleranceValue = 0.05f;
+    return std::fabs(CenterPointOneValue.x - CenterPointTwoValue.x) <
+               ((HalfExtentsOneValue.x + HalfExtentsTwoValue.x) - FootprintTouchToleranceValue) &&
+           std::fabs(CenterPointOneValue.y - CenterPointTwoValue.y) <
+               ((HalfExtentsOneValue.y + HalfExtentsTwoValue.y) - FootprintTouchToleranceValue);
+}
+
 bool ContainsSlot(const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue,
                   const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
                   const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
@@ -522,7 +532,7 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     Check(ArePointsEqual(ArmyAssemblyPointValue,
                          BuildPlacementContextValue.MainBaseLayoutDescriptor.ArmyAssemblyAnchorPoint),
           SuccessValue, "Army assembly should use the authored natural-side assembly anchor.");
-    Check(ArePointsEqual(ArmyAssemblyPointValue, Point2D(76.5f, 50.0f)), SuccessValue,
+    Check(ArePointsEqual(ArmyAssemblyPointValue, Point2D(70.5f, 50.0f)), SuccessValue,
           "Army assembly should project beyond the ramp choke to the natural entrance.");
     Check(ArmyAssemblyPointValue.x > BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint.x,
           SuccessValue, "Army assembly should stage beyond the ramp choke on the natural side.");
@@ -1067,8 +1077,8 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_BARRACKS,
                                                               BuildPlacementContextValue);
-    Check(BarracksSlotsValue.size() >= 4U, SuccessValue,
-          "The first barracks should expose the wall barracks plus the shared production rail.");
+    Check(BarracksSlotsValue.size() >= 5U, SuccessValue,
+          "The first barracks should expose the wall barracks, the exact first main barracks slot, and the shared production rail.");
     Check(!BarracksSlotsValue.empty() &&
               BarracksSlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainRampBarracksWithAddon,
           SuccessValue, "The first barracks should prefer the ramp-facing barracks slot.");
@@ -1079,12 +1089,20 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
     Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainRampBarracksWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(61.0f, 50.0f)),
           SuccessValue, "Barracks placement should expose the center wall slot.");
+    Check(BarracksSlotsValue.size() >= 2U &&
+              BarracksSlotsValue[1].SlotId.SlotType == EBuildPlacementSlotType::MainBarracksWithAddon,
+          SuccessValue, "Generic barracks placement should preserve the first exact main barracks slot after the wall slot.");
+    Check(BarracksSlotsValue.size() >= 2U &&
+              ArePointsEqual(BarracksSlotsValue[1].BuildPoint, Point2D(52.5f, 58.0f)),
+          SuccessValue, "Generic barracks placement should keep the first exact main barracks slot on the derived opening pad.");
     Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(52.5f, 58.0f)),
           SuccessValue, "Barracks placement should include the shared main-production rail barracks pad.");
-    Check(ContainsSlot(BarracksSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
-                       EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(52.5f, 58.0f)) &&
-              BarracksSlotsValue[1].BuildPoint.x <
+    size_t FirstGenericProductionRailBarracksIndexValue = 0U;
+    Check(TryFindFirstSlotTypeIndex(BarracksSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
+                                    FirstGenericProductionRailBarracksIndexValue) &&
+              FirstGenericProductionRailBarracksIndexValue > 1U &&
+              BarracksSlotsValue[FirstGenericProductionRailBarracksIndexValue].BuildPoint.x <
                   BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x,
           SuccessValue, "Barracks production-rail slots should stay inside the wall instead of drifting forward.");
 
@@ -1094,7 +1112,7 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_BARRACKS,
                                                               BuildPlacementContextValue);
-    Check(FollowUpBarracksSlotsValue.size() >= 4U, SuccessValue,
+    Check(FollowUpBarracksSlotsValue.size() >= 5U, SuccessValue,
           "Barracks placement should keep the descriptor-backed wall slot in the ordered placement list.");
     Check(!FollowUpBarracksSlotsValue.empty() &&
               FollowUpBarracksSlotsValue.front().SlotId.SlotType ==
@@ -1106,14 +1124,14 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
                                                               ABILITY_ID::BUILD_FACTORY,
                                                               BuildPlacementContextValue);
     Check(FactorySlotsValue.size() >= 4U, SuccessValue,
-          "Factory placement should expose the shared production rail before dedicated factory fallback slots.");
+          "Factory placement should expose the dedicated factory slot ahead of the shared production rail.");
     Check(!FactorySlotsValue.empty() &&
               FactorySlotsValue.front().FootprintPolicy ==
                   EBuildPlacementFootprintPolicy::RequiresAddonClearance,
           SuccessValue, "Factory slots should require addon clearance.");
     Check(!FactorySlotsValue.empty() &&
-              FactorySlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainProductionWithAddon,
-          SuccessValue, "Factory placement should expose the shared main-production rail first.");
+              FactorySlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainFactoryWithAddon,
+          SuccessValue, "Factory placement should expose the dedicated factory slot first.");
     Check(!ContainsSlot(FactorySlotsValue, EBuildPlacementSlotType::MainRampBarracksWithAddon,
                         EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(61.0f, 50.0f)),
           SuccessValue, "Factory placement should exclude the dedicated wall barracks slot.");
@@ -1121,28 +1139,48 @@ bool TestTerranBuildPlacementService(int ArgC, char** ArgV)
               FactorySlotsValue.front().BuildPoint.x <
                   BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint.x,
           SuccessValue, "Factory placement should prefer main-base addon slots behind the wall.");
+    size_t FirstGenericFactoryRailIndexValue = 0U;
+    Check(TryFindFirstSlotTypeIndex(FactorySlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
+                                    FirstGenericFactoryRailIndexValue) &&
+              FirstGenericFactoryRailIndexValue > 0U,
+          SuccessValue, "Factory placement should keep the shared production rail behind the dedicated factory slot.");
     Check(ContainsSlot(FactorySlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(44.0f, 66.0f)),
           SuccessValue, "Factory placement should include the shared production-rail factory slot.");
     Check(ContainsSlot(FactorySlotsValue, EBuildPlacementSlotType::MainFactoryWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(44.5f, 54.0f)),
           SuccessValue, "Factory placement should include the deterministic forward factory slot.");
+    Check(DoAxisAlignedFootprintsOverlapForTest(GetAddonFootprintCenterForTest(Point2D(52.5f, 58.0f)),
+                                                Point2D(1.0f, 1.0f),
+                                                FactorySlotsValue.front().BuildPoint,
+                                                Point2D(1.5f, 1.5f)) == false,
+          SuccessValue, "Factory placement should not overlap the first main barracks add-on footprint.");
 
     const std::vector<FBuildPlacementSlot> StarportSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,
                                                               ABILITY_ID::BUILD_STARPORT,
                                                               BuildPlacementContextValue);
     Check(StarportSlotsValue.size() >= 4U, SuccessValue,
-          "Starport placement should expose the shared production rail before dedicated starport fallback slots.");
+          "Starport placement should expose the dedicated starport slot ahead of the shared production rail.");
     Check(!StarportSlotsValue.empty() &&
-              StarportSlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainProductionWithAddon,
-          SuccessValue, "Starport placement should expose the shared main-production rail first.");
+              StarportSlotsValue.front().SlotId.SlotType == EBuildPlacementSlotType::MainStarportWithAddon,
+          SuccessValue, "Starport placement should expose the dedicated starport slot first.");
+    size_t FirstGenericStarportRailIndexValue = 0U;
+    Check(TryFindFirstSlotTypeIndex(StarportSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
+                                    FirstGenericStarportRailIndexValue) &&
+              FirstGenericStarportRailIndexValue > 0U,
+          SuccessValue, "Starport placement should keep the shared production rail behind the dedicated starport slot.");
     Check(ContainsSlot(StarportSlotsValue, EBuildPlacementSlotType::MainProductionWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(35.5f, 74.0f)),
           SuccessValue, "Starport placement should include the shared production-rail starport slot.");
     Check(ContainsSlot(StarportSlotsValue, EBuildPlacementSlotType::MainStarportWithAddon,
                        EBuildPlacementFootprintPolicy::RequiresAddonClearance, Point2D(36.5f, 50.0f)),
           SuccessValue, "Starport placement should include the deterministic forward starport slot.");
+    Check(DoAxisAlignedFootprintsOverlapForTest(GetAddonFootprintCenterForTest(Point2D(44.5f, 54.0f)),
+                                                Point2D(1.0f, 1.0f),
+                                                StarportSlotsValue.front().BuildPoint,
+                                                Point2D(1.5f, 1.5f)) == false,
+          SuccessValue, "Starport placement should not overlap the deterministic factory add-on footprint.");
 
     const std::vector<FBuildPlacementSlot> FallbackSlotsValue =
         BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue,

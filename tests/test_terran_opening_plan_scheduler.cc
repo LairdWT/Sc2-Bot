@@ -184,6 +184,30 @@ bool TryFindStrategicOrderByGoalId(const FCommandAuthoritySchedulingState& Comma
     return false;
 }
 
+uint32_t CountActiveStrategicOpeningSupplyOrders(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue)
+{
+    uint32_t ActiveStrategicOpeningSupplyOrderCountValue = 0U;
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] !=
+                ECommandAuthorityLayer::StrategicDirector ||
+            CommandAuthoritySchedulingStateValue.TaskOrigins[OrderIndexValue] != ECommandTaskOrigin::Opening ||
+            CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue] != ABILITY_ID::BUILD_SUPPLYDEPOT ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]) ||
+            CommandAuthoritySchedulingStateValue.ExecutionGuarantees[OrderIndexValue] ==
+                ECommandTaskExecutionGuarantee::MustExecute)
+        {
+            continue;
+        }
+
+        ++ActiveStrategicOpeningSupplyOrderCountValue;
+    }
+
+    return ActiveStrategicOpeningSupplyOrderCountValue;
+}
+
 void SetObservedWorkerCount(FGameStateDescriptor& GameStateDescriptorValue, const uint32_t WorkerCountValue)
 {
     GameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[GetUnitIndex(UNIT_TYPEID::TERRAN_SCV)] =
@@ -646,6 +670,107 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
           SuccessValue,
           "Flexible opening depot steps should stay deferred when current buffered supply demand is already satisfied.");
 
+    FGameStateDescriptor FactoryFamilyOpeningGameStateDescriptorValue;
+    FactoryFamilyOpeningGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 2U;
+    FactoryFamilyOpeningGameStateDescriptorValue.MacroState.ActiveBaseCount = 2U;
+    FactoryFamilyOpeningGameStateDescriptorValue.MacroState.WorkerCount = 28U;
+    SetObservedWorkerCount(FactoryFamilyOpeningGameStateDescriptorValue, 28U);
+    SetProjectedDiscretionaryBudget(FactoryFamilyOpeningGameStateDescriptorValue, 600U, 200U, 16U);
+    FactoryFamilyOpeningGameStateDescriptorValue.CurrentGameLoop = 4390U;
+    FactoryFamilyOpeningGameStateDescriptorValue.OpeningPlanExecutionState.SetActivePlan(
+        EOpeningPlanId::TerranTwoBaseMMMFrameOpening);
+    FactoryFamilyOpeningGameStateDescriptorValue.OpeningPlanExecutionState.WallChainState =
+        EOpeningWallChainState::Completed;
+    for (uint32_t CompletedStepIdValue = 1U; CompletedStepIdValue <= 14U; ++CompletedStepIdValue)
+    {
+        FactoryFamilyOpeningGameStateDescriptorValue.OpeningPlanExecutionState.MarkStepCompleted(CompletedStepIdValue);
+    }
+
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(FactoryFamilyOpeningGameStateDescriptorValue);
+
+    size_t HellionStrategicOrderIndexValue = 0U;
+    Check(TryFindOrderIndexByPlanStepId(FactoryFamilyOpeningGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        15U, ECommandAuthorityLayer::StrategicDirector,
+                                        HellionStrategicOrderIndexValue),
+          SuccessValue,
+          "The first factory hellion step should seed once the earlier opening prerequisites are complete.");
+
+    size_t FactoryTechLabStrategicOrderIndexValue = 0U;
+    Check(!TryFindOrderIndexByPlanStepId(FactoryFamilyOpeningGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                         19U, ECommandAuthorityLayer::StrategicDirector,
+                                         FactoryTechLabStrategicOrderIndexValue),
+          SuccessValue,
+          "The factory tech-lab step should stay deferred while the earlier opening hellion step is still incomplete.");
+
+    FactoryFamilyOpeningGameStateDescriptorValue.OpeningPlanExecutionState.MarkStepCompleted(15U);
+    FactoryFamilyOpeningGameStateDescriptorValue.CurrentGameLoop = 4391U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(FactoryFamilyOpeningGameStateDescriptorValue);
+    Check(TryFindOrderIndexByPlanStepId(FactoryFamilyOpeningGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        19U, ECommandAuthorityLayer::StrategicDirector,
+                                        FactoryTechLabStrategicOrderIndexValue),
+          SuccessValue,
+          "The factory tech-lab step should seed once the earlier opening hellion step completes.");
+
+    FGameStateDescriptor SerializedOpeningDepotGameStateDescriptorValue;
+    SerializedOpeningDepotGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 2U;
+    SerializedOpeningDepotGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 3U;
+    SerializedOpeningDepotGameStateDescriptorValue.MacroState.ActiveBaseCount = 2U;
+    SerializedOpeningDepotGameStateDescriptorValue.MacroState.WorkerCount = 32U;
+    SerializedOpeningDepotGameStateDescriptorValue.MacroState.SupplyUsed = 40U;
+    SerializedOpeningDepotGameStateDescriptorValue.MacroState.SupplyCap = 47U;
+    SetObservedWorkerCount(SerializedOpeningDepotGameStateDescriptorValue, 32U);
+    SetProjectedDiscretionaryBudget(SerializedOpeningDepotGameStateDescriptorValue, 700U, 150U, 2U);
+    SerializedOpeningDepotGameStateDescriptorValue.CurrentGameLoop = 6070U;
+    SerializedOpeningDepotGameStateDescriptorValue.OpeningPlanExecutionState.SetActivePlan(
+        EOpeningPlanId::TerranTwoBaseMMMFrameOpening);
+    SerializedOpeningDepotGameStateDescriptorValue.OpeningPlanExecutionState.WallChainState =
+        EOpeningWallChainState::Completed;
+    for (uint32_t CompletedStepIdValue = 1U; CompletedStepIdValue <= 24U; ++CompletedStepIdValue)
+    {
+        SerializedOpeningDepotGameStateDescriptorValue.OpeningPlanExecutionState.MarkStepCompleted(
+            CompletedStepIdValue);
+    }
+
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(SerializedOpeningDepotGameStateDescriptorValue);
+    Check(CountActiveStrategicOpeningSupplyOrders(
+              SerializedOpeningDepotGameStateDescriptorValue.CommandAuthoritySchedulingState) == 1U,
+          SuccessValue,
+          "Only one flexible opening depot step should stay active at a time when later depot steps are also eligible.");
+    size_t FirstFlexibleDepotStrategicOrderIndexValue = 0U;
+    Check(TryFindOrderIndexByPlanStepId(SerializedOpeningDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        25U, ECommandAuthorityLayer::StrategicDirector,
+                                        FirstFlexibleDepotStrategicOrderIndexValue),
+          SuccessValue, "The first eligible flexible opening depot step should seed first.");
+    size_t SecondFlexibleDepotStrategicOrderIndexValue = 0U;
+    Check(!TryFindOrderIndexByPlanStepId(SerializedOpeningDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                         30U, ECommandAuthorityLayer::StrategicDirector,
+                                         SecondFlexibleDepotStrategicOrderIndexValue),
+          SuccessValue,
+          "Later flexible opening depot steps should wait while an earlier flexible depot step is still outstanding.");
+    size_t ThirdFlexibleDepotStrategicOrderIndexValue = 0U;
+    Check(!TryFindOrderIndexByPlanStepId(SerializedOpeningDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                         33U, ECommandAuthorityLayer::StrategicDirector,
+                                         ThirdFlexibleDepotStrategicOrderIndexValue),
+          SuccessValue,
+          "The scheduler should not seed a second later flexible depot while the first one remains active.");
+
+    const uint32_t FirstFlexibleDepotOrderIdValue =
+        SerializedOpeningDepotGameStateDescriptorValue.CommandAuthoritySchedulingState
+            .OrderIds[FirstFlexibleDepotStrategicOrderIndexValue];
+    SerializedOpeningDepotGameStateDescriptorValue.OpeningPlanExecutionState.MarkStepCompleted(25U);
+    SerializedOpeningDepotGameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(
+        FirstFlexibleDepotOrderIdValue, EOrderLifecycleState::Completed);
+    SerializedOpeningDepotGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 4U;
+    SerializedOpeningDepotGameStateDescriptorValue.CurrentGameLoop = 6071U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(SerializedOpeningDepotGameStateDescriptorValue);
+    Check(TryFindOrderIndexByPlanStepId(SerializedOpeningDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        30U, ECommandAuthorityLayer::StrategicDirector,
+                                        SecondFlexibleDepotStrategicOrderIndexValue),
+          SuccessValue,
+          "Once the earlier flexible depot step completes, the next eligible flexible depot step should seed.");
+
     FGameStateDescriptor OpeningOnlyGameStateDescriptorValue;
     OpeningOnlyGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
     OpeningOnlyGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
@@ -690,11 +815,11 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     CommandAuthorityProcessorValue.ProcessSchedulerStep(ReactorPendingWallDepotGameStateDescriptorValue);
 
     size_t BarracksReactorStrategicOrderIndexValue = 0U;
-    Check(TryFindOrderIndexByPlanStepId(ReactorPendingWallDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                        7U, ECommandAuthorityLayer::StrategicDirector,
-                                        BarracksReactorStrategicOrderIndexValue),
+    Check(!TryFindOrderIndexByPlanStepId(ReactorPendingWallDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                         7U, ECommandAuthorityLayer::StrategicDirector,
+                                         BarracksReactorStrategicOrderIndexValue),
           SuccessValue,
-          "The mandatory barracks reactor step should seed once the wall barracks is observed complete.");
+          "The mandatory barracks reactor step should stay deferred until the earlier opening marine completes on the same barracks family.");
 
     size_t ReactorPendingWallDepotStrategicOrderIndexValue = 0U;
     Check(TryFindOrderIndexByPlanStepId(ReactorPendingWallDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
@@ -702,6 +827,16 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
                                         ReactorPendingWallDepotStrategicOrderIndexValue),
           SuccessValue,
           "The second wall depot should still seed while the mandatory barracks reactor is pending.");
+
+    ReactorPendingWallDepotGameStateDescriptorValue.BuildPlanning.ObservedUnitCounts[GetUnitIndex(
+        UNIT_TYPEID::TERRAN_MARINE)] = 1U;
+    ReactorPendingWallDepotGameStateDescriptorValue.CurrentGameLoop = 2465U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(ReactorPendingWallDepotGameStateDescriptorValue);
+    Check(TryFindOrderIndexByPlanStepId(ReactorPendingWallDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        7U, ECommandAuthorityLayer::StrategicDirector,
+                                        BarracksReactorStrategicOrderIndexValue),
+          SuccessValue,
+          "The mandatory barracks reactor step should seed once the earlier opening marine step is observed complete.");
 
     FGameStateDescriptor WallSlotGameStateDescriptorValue;
     WallSlotGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
@@ -793,22 +928,65 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     CommandAuthorityProcessorValue.ProcessSchedulerStep(GoalDrivenFamilyFreedomGameStateDescriptorValue);
 
     size_t StarportReactorStrategicOrderIndexValue = 0U;
-    Check(!TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                         901U, StarportReactorStrategicOrderIndexValue),
+    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        901U, StarportReactorStrategicOrderIndexValue),
           SuccessValue,
-          "Goal-driven starport add-on work should stay blocked while mandatory opening structure work is unresolved.");
+          "Goal-driven starport add-on work should be allowed when no seeded or presently admissible opening starport-family task owns the producer family.");
 
     size_t StimpackStrategicOrderIndexValue = 0U;
-    Check(!TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                         902U, StimpackStrategicOrderIndexValue),
+    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        902U, StimpackStrategicOrderIndexValue),
           SuccessValue,
-          "Goal-driven upgrade work should stay blocked while mandatory opening structure work is unresolved.");
+          "Goal-driven upgrade work should be allowed when no seeded or presently admissible opening barracks-family task owns the producer family.");
 
     size_t MedivacStrategicOrderIndexValue = 0U;
-    Check(!TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                         903U, MedivacStrategicOrderIndexValue),
+    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        903U, MedivacStrategicOrderIndexValue),
           SuccessValue,
-          "Goal-driven unit production should stay blocked while mandatory opening structure work is unresolved.");
+          "Goal-driven unit production should be allowed when no seeded or presently admissible opening producer-family task owns that family.");
+
+    FGameStateDescriptor DelayedBarracksFamilyReleaseGameStateDescriptorValue;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 2U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 3U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_BARRACKS)] = 2U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_STARPORT)] = 1U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.MacroState.ActiveBaseCount = 2U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.MacroState.WorkerCount = 32U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.MacroState.BarracksCount = 2U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.MacroState.SupplyUsed = 36U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.MacroState.SupplyCap = 47U;
+    SetObservedWorkerCount(DelayedBarracksFamilyReleaseGameStateDescriptorValue, 32U);
+    SetProjectedDiscretionaryBudget(DelayedBarracksFamilyReleaseGameStateDescriptorValue, 1000U, 300U, 11U);
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.CurrentGameLoop = 4505U;
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.OpeningPlanExecutionState.SetActivePlan(
+        EOpeningPlanId::TerranTwoBaseMMMFrameOpening);
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.OpeningPlanExecutionState.WallChainState =
+        EOpeningWallChainState::Completed;
+    for (uint32_t CompletedStepIdValue = 1U; CompletedStepIdValue <= 8U; ++CompletedStepIdValue)
+    {
+        DelayedBarracksFamilyReleaseGameStateDescriptorValue.OpeningPlanExecutionState.MarkStepCompleted(
+            CompletedStepIdValue);
+    }
+    for (uint32_t CompletedStepIdValue = 10U; CompletedStepIdValue <= 17U; ++CompletedStepIdValue)
+    {
+        DelayedBarracksFamilyReleaseGameStateDescriptorValue.OpeningPlanExecutionState.MarkStepCompleted(
+            CompletedStepIdValue);
+    }
+    DelayedBarracksFamilyReleaseGameStateDescriptorValue.GoalSet.StrategicGoals.push_back(CreateGoalDescriptor(
+        904U, EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ProduceArmy, EGoalStatus::Active, 150, 20U,
+        UNIT_TYPEID::TERRAN_MARINE));
+
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(DelayedBarracksFamilyReleaseGameStateDescriptorValue);
+
+    size_t ReleasedMarineStrategicOrderIndexValue = 0U;
+    Check(TryFindStrategicOrderByGoalId(DelayedBarracksFamilyReleaseGameStateDescriptorValue
+                                            .CommandAuthoritySchedulingState,
+                                        904U, ReleasedMarineStrategicOrderIndexValue),
+          SuccessValue,
+          "Goal-driven marine production should seed when the next opening barracks task is stalled by an unrelated mandatory structure step.");
 
     return SuccessValue;
 }

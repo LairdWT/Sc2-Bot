@@ -9,7 +9,7 @@
 namespace sc2
 {
 
-constexpr size_t TerranTaskTemplateDefinitionCountValue = 28U;
+constexpr size_t TerranTaskTemplateDefinitionCountValue = 29U;
 
 extern const std::array<FTerranTaskTemplateDefinition, TerranTaskTemplateDefinitionCountValue> GTerranTaskTemplateDefinitions;
 

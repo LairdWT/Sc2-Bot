@@ -163,8 +163,6 @@ FBuildPlacementSlot CreatePlacementSlot(const EBuildPlacementSlotType BuildPlace
 
 Point2D ComputeNaturalEntranceAssemblyAnchorPoint(const FBuildPlacementContext& BuildPlacementContextValue)
 {
-    constexpr float NaturalEntranceProjectionDistanceValue = 12.0f;
-
     if (!BuildPlacementContextValue.RampWallDescriptor.bIsValid)
     {
         return Point2D();
@@ -181,6 +179,20 @@ Point2D ComputeNaturalEntranceAssemblyAnchorPoint(const FBuildPlacementContext& 
         NaturalEntranceDirectionValue = GetNormalizedDirection(
             BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint -
             BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint);
+    }
+
+    float NaturalEntranceProjectionDistanceValue = 18.0f;
+    if (BuildPlacementContextValue.HasNaturalLocation())
+    {
+        const Point2D OutsideToNaturalVectorValue =
+            BuildPlacementContextValue.NaturalLocation - BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint;
+        const float OutsideToNaturalDistanceSquaredValue =
+            (OutsideToNaturalVectorValue.x * OutsideToNaturalVectorValue.x) +
+            (OutsideToNaturalVectorValue.y * OutsideToNaturalVectorValue.y);
+        const float OutsideToNaturalDistanceValue =
+            OutsideToNaturalDistanceSquaredValue > 0.0f ? std::sqrt(OutsideToNaturalDistanceSquaredValue) : 0.0f;
+        NaturalEntranceProjectionDistanceValue =
+            std::max(6.0f, std::min(18.0f, OutsideToNaturalDistanceValue * 0.6f));
     }
 
     return ClampPointToPlayableBounds(
@@ -363,6 +375,49 @@ bool DoAxisAlignedFootprintsOverlap(const Point2D& CenterPointOneValue, const Po
                ((HalfExtentsOneValue.x + HalfExtentsTwoValue.x) - FootprintTouchToleranceValue) &&
            std::fabs(CenterPointOneValue.y - CenterPointTwoValue.y) <
                ((HalfExtentsOneValue.y + HalfExtentsTwoValue.y) - FootprintTouchToleranceValue);
+}
+
+bool DoesPlacementSlotOverlapProtectedAddonFootprints(
+    const FBuildPlacementSlot& CandidateBuildPlacementSlotValue, const ABILITY_ID StructureAbilityIdValue,
+    const std::vector<FBuildPlacementSlot>& ProtectedProducerBuildPlacementSlotsValue)
+{
+    const Point2D CandidateFootprintHalfExtentsValue =
+        GetStructureFootprintHalfExtentsForAbility(StructureAbilityIdValue);
+    static const Point2D AddonFootprintHalfExtentsValue(1.0f, 1.0f);
+
+    for (const FBuildPlacementSlot& ProtectedProducerBuildPlacementSlotValue :
+         ProtectedProducerBuildPlacementSlotsValue)
+    {
+        const Point2D ProtectedAddonCenterPointValue =
+            GetAddonFootprintCenter(ProtectedProducerBuildPlacementSlotValue.BuildPoint);
+        if (DoAxisAlignedFootprintsOverlap(CandidateBuildPlacementSlotValue.BuildPoint,
+                                           CandidateFootprintHalfExtentsValue,
+                                           ProtectedAddonCenterPointValue,
+                                           AddonFootprintHalfExtentsValue))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void AppendPlacementSlotsAvoidingProtectedAddonFootprints(
+    const std::vector<FBuildPlacementSlot>& SourceBuildPlacementSlotsValue, const ABILITY_ID StructureAbilityIdValue,
+    const std::vector<FBuildPlacementSlot>& ProtectedProducerBuildPlacementSlotsValue,
+    std::vector<FBuildPlacementSlot>& OutPlacementSlotsValue)
+{
+    for (const FBuildPlacementSlot& SourceBuildPlacementSlotValue : SourceBuildPlacementSlotsValue)
+    {
+        if (DoesPlacementSlotOverlapProtectedAddonFootprints(SourceBuildPlacementSlotValue,
+                                                             StructureAbilityIdValue,
+                                                             ProtectedProducerBuildPlacementSlotsValue))
+        {
+            continue;
+        }
+
+        OutPlacementSlotsValue.push_back(SourceBuildPlacementSlotValue);
+    }
 }
 
 bool IsPointOnMainBaseSideOfWall(const FRampWallDescriptor& RampWallDescriptorValue, const Point2D& CandidatePointValue)
@@ -2803,8 +2858,7 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
         {
             MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots = DerivedProductionRailSlotsValue;
             ResolvedLayoutPlacementSlotsValue = DerivedResolvedLayoutPlacementSlotsValue;
-            RemovePlacementSlotById(MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
-                                    SourceBarracksSlotIdValue);
+            (void)SourceBarracksSlotIdValue;
         }
     }
     AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
@@ -2941,59 +2995,57 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
         }
         case ABILITY_ID::BUILD_BARRACKS:
         {
+            std::vector<FBuildPlacementSlot> ProtectedBarracksBuildPlacementSlotsValue;
             if (RampWallDescriptorValue.bIsValid)
             {
                 PlacementSlotsValue.push_back(RampWallDescriptorValue.BarracksSlot);
+                ProtectedBarracksBuildPlacementSlotsValue.push_back(RampWallDescriptorValue.BarracksSlot);
             }
 
-            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                       MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.begin(),
-                                       MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.end());
-            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
-                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+            AppendPlacementSlotsAvoidingProtectedAddonFootprints(
+                MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                StructureAbilityId,
+                ProtectedBarracksBuildPlacementSlotsValue,
+                PlacementSlotsValue);
+
+            ProtectedBarracksBuildPlacementSlotsValue.insert(ProtectedBarracksBuildPlacementSlotsValue.end(),
+                                                             MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.begin(),
+                                                             MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.end());
+            AppendPlacementSlotsAvoidingProtectedAddonFootprints(
+                MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
+                StructureAbilityId,
+                ProtectedBarracksBuildPlacementSlotsValue,
+                PlacementSlotsValue);
             break;
         }
         case ABILITY_ID::BUILD_FACTORY:
-            if (MainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout)
-            {
-                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                           MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.begin(),
-                                           MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.end());
-                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
-                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
-            }
-            else
-            {
-                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
-                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
-                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                           MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.begin(),
-                                           MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.end());
-            }
+        {
+            AppendPlacementSlotsAvoidingProtectedAddonFootprints(
+                MainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                StructureAbilityId,
+                MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                PlacementSlotsValue);
+            AppendPlacementSlotsAvoidingProtectedAddonFootprints(
+                MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
+                StructureAbilityId,
+                MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                PlacementSlotsValue);
             break;
+        }
         case ABILITY_ID::BUILD_STARPORT:
-            if (MainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout)
-            {
-                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                           MainBaseLayoutDescriptorValue.StarportWithAddonSlots.begin(),
-                                           MainBaseLayoutDescriptorValue.StarportWithAddonSlots.end());
-                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
-                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
-            }
-            else
-            {
-                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
-                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
-                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                           MainBaseLayoutDescriptorValue.StarportWithAddonSlots.begin(),
-                                           MainBaseLayoutDescriptorValue.StarportWithAddonSlots.end());
-            }
+        {
+            AppendPlacementSlotsAvoidingProtectedAddonFootprints(
+                MainBaseLayoutDescriptorValue.StarportWithAddonSlots,
+                StructureAbilityId,
+                MainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                PlacementSlotsValue);
+            AppendPlacementSlotsAvoidingProtectedAddonFootprints(
+                MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
+                StructureAbilityId,
+                MainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                PlacementSlotsValue);
             break;
+        }
         default:
         {
             const uint8_t SlotOrdinalValue =

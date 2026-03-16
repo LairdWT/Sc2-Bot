@@ -14,6 +14,7 @@ namespace
 constexpr float WallStructureMatchRadiusSquaredValue = 6.25f;
 constexpr int GasHarvestIntentPriorityValue = 320;
 constexpr int GasReliefIntentPriorityValue = 321;
+constexpr int MineralRebalanceIntentPriorityValue = 322;
 constexpr uint64_t TerminalOrderCompactionIntervalStepCountValue = 120U;
 constexpr size_t TerminalOrderCompactionTriggerCountValue = 512U;
 constexpr uint64_t RecentProductionRallyCounterWindowStepCountValue = 120U;
@@ -744,6 +745,136 @@ int GetPlannedHarvesterDeltaForRefinery(const std::unordered_map<Tag, int>& Plan
     }
 
     return PlannedHarvesterDeltaValue;
+}
+
+const Unit* FindNearestReadyTownHallUnit(const Units& ReadyTownHallUnitsValue, const Point2D& OriginPointValue)
+{
+    const Unit* BestTownHallUnitValue = nullptr;
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+
+    for (const Unit* TownHallUnitValue : ReadyTownHallUnitsValue)
+    {
+        if (TownHallUnitValue == nullptr || TownHallUnitValue->build_progress < 1.0f)
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue =
+            DistanceSquared2D(Point2D(TownHallUnitValue->pos), OriginPointValue);
+        if (BestTownHallUnitValue != nullptr && DistanceSquaredValue >= BestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        BestTownHallUnitValue = TownHallUnitValue;
+        BestDistanceSquaredValue = DistanceSquaredValue;
+    }
+
+    return BestTownHallUnitValue;
+}
+
+int GetPlannedHarvesterDeltaForTownHall(const std::unordered_map<Tag, int>& PlannedInboundCountsByTownHallTagValue,
+                                        const std::unordered_map<Tag, int>& PlannedOutboundCountsByTownHallTagValue,
+                                        const Tag TownHallTagValue)
+{
+    int PlannedHarvesterDeltaValue = 0;
+
+    const std::unordered_map<Tag, int>::const_iterator PlannedInboundIteratorValue =
+        PlannedInboundCountsByTownHallTagValue.find(TownHallTagValue);
+    if (PlannedInboundIteratorValue != PlannedInboundCountsByTownHallTagValue.end())
+    {
+        PlannedHarvesterDeltaValue += PlannedInboundIteratorValue->second;
+    }
+
+    const std::unordered_map<Tag, int>::const_iterator PlannedOutboundIteratorValue =
+        PlannedOutboundCountsByTownHallTagValue.find(TownHallTagValue);
+    if (PlannedOutboundIteratorValue != PlannedOutboundCountsByTownHallTagValue.end())
+    {
+        PlannedHarvesterDeltaValue -= PlannedOutboundIteratorValue->second;
+    }
+
+    return PlannedHarvesterDeltaValue;
+}
+
+const Unit* FindMineralTownHallForWorker(const ObservationInterface& ObservationValue, const Unit& WorkerUnitValue,
+                                         const Units& ReadyTownHallUnitsValue)
+{
+    if (!IsWorkerCommittedToMinerals(ObservationValue, WorkerUnitValue))
+    {
+        return nullptr;
+    }
+
+    return FindNearestReadyTownHallUnit(ReadyTownHallUnitsValue, Point2D(WorkerUnitValue.pos));
+}
+
+const Unit* SelectWorkerForMineralRebalance(
+    const ObservationInterface& ObservationValue, const FAgentState& AgentStateValue,
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+    const FIntentBuffer& IntentBufferValue, const Unit& ReceiverTownHallUnitValue,
+    const Units& ReadyTownHallUnitsValue, const std::unordered_set<Tag>& ReservedWorkerTagsValue,
+    const std::unordered_map<Tag, int>& PlannedInboundCountsByTownHallTagValue,
+    const std::unordered_map<Tag, int>& PlannedOutboundCountsByTownHallTagValue)
+{
+    const Unit* BestWorkerUnitValue = nullptr;
+    float BestDistanceSquaredValue = std::numeric_limits<float>::max();
+    bool BestWorkerIsCarryingMineralsValue = true;
+    int BestSourceHarvesterSurplusValue = 0;
+
+    for (const Unit* WorkerUnitValue : AgentStateValue.UnitContainer.ControlledUnits)
+    {
+        if (WorkerUnitValue == nullptr || WorkerUnitValue->unit_type.ToType() != UNIT_TYPEID::TERRAN_SCV ||
+            WorkerUnitValue->build_progress < 1.0f ||
+            ReservedWorkerTagsValue.find(WorkerUnitValue->tag) != ReservedWorkerTagsValue.end() ||
+            IntentBufferValue.HasIntentForActor(WorkerUnitValue->tag) ||
+            HasActiveSchedulerOrderForActorTag(CommandAuthoritySchedulingStateValue, WorkerUnitValue->tag) ||
+            IsWorkerCommittedToConstruction(*WorkerUnitValue) ||
+            IsWorkerCommittedToRefinery(ObservationValue, *WorkerUnitValue) ||
+            !IsWorkerCommittedToMinerals(ObservationValue, *WorkerUnitValue))
+        {
+            continue;
+        }
+
+        const Unit* SourceTownHallUnitValue =
+            FindMineralTownHallForWorker(ObservationValue, *WorkerUnitValue, ReadyTownHallUnitsValue);
+        if (SourceTownHallUnitValue == nullptr || SourceTownHallUnitValue->tag == ReceiverTownHallUnitValue.tag)
+        {
+            continue;
+        }
+
+        const int EffectiveAssignedHarvesterCountValue =
+            std::max(SourceTownHallUnitValue->assigned_harvesters, 0) +
+            GetPlannedHarvesterDeltaForTownHall(PlannedInboundCountsByTownHallTagValue,
+                                                PlannedOutboundCountsByTownHallTagValue,
+                                                SourceTownHallUnitValue->tag);
+        const int SourceHarvesterSurplusValue =
+            EffectiveAssignedHarvesterCountValue - SourceTownHallUnitValue->ideal_harvesters;
+        if (SourceHarvesterSurplusValue <= 0)
+        {
+            continue;
+        }
+
+        const bool WorkerIsCarryingMineralsValue = IsCarryingMinerals(*WorkerUnitValue);
+        const float DistanceSquaredValue =
+            DistanceSquared2D(Point2D(WorkerUnitValue->pos), Point2D(ReceiverTownHallUnitValue.pos));
+        const bool ShouldReplaceBestWorkerValue =
+            BestWorkerUnitValue == nullptr ||
+            SourceHarvesterSurplusValue > BestSourceHarvesterSurplusValue ||
+            (SourceHarvesterSurplusValue == BestSourceHarvesterSurplusValue &&
+             ((BestWorkerIsCarryingMineralsValue && !WorkerIsCarryingMineralsValue) ||
+              (BestWorkerIsCarryingMineralsValue == WorkerIsCarryingMineralsValue &&
+               DistanceSquaredValue < BestDistanceSquaredValue)));
+        if (!ShouldReplaceBestWorkerValue)
+        {
+            continue;
+        }
+
+        BestWorkerUnitValue = WorkerUnitValue;
+        BestDistanceSquaredValue = DistanceSquaredValue;
+        BestWorkerIsCarryingMineralsValue = WorkerIsCarryingMineralsValue;
+        BestSourceHarvesterSurplusValue = SourceHarvesterSurplusValue;
+    }
+
+    return BestWorkerUnitValue;
 }
 
 }  // namespace
@@ -1955,6 +2086,93 @@ void TerranAgent::ProduceWorkerHarvestIntents(const FFrameContext& Frame)
                                                            EIntentDomain::Recovery));
             ReservedWorkerTagsValue.insert(WorkerUnitValue->tag);
             ++PlannedReliefCountsByRefineryTagValue[RefineryUnitValue->tag];
+        }
+    }
+
+    ProduceWorkerMineralRebalanceIntents(Frame, ReservedWorkerTagsValue);
+}
+
+void TerranAgent::ProduceWorkerMineralRebalanceIntents(const FFrameContext& Frame,
+                                                       std::unordered_set<Tag>& ReservedWorkerTagsValue)
+{
+    if (Frame.Observation == nullptr)
+    {
+        return;
+    }
+
+    constexpr uint32_t MaxMineralRebalanceIntentCountPerStepValue = 8U;
+
+    const Units TownHallUnitsValue = Frame.Observation->GetUnits(Unit::Alliance::Self, IsTownHall());
+    Units ReadyTownHallUnitsValue;
+    ReadyTownHallUnitsValue.reserve(TownHallUnitsValue.size());
+    for (const Unit* TownHallUnitValue : TownHallUnitsValue)
+    {
+        if (TownHallUnitValue == nullptr || TownHallUnitValue->build_progress < 1.0f ||
+            TownHallUnitValue->ideal_harvesters <= 0)
+        {
+            continue;
+        }
+
+        ReadyTownHallUnitsValue.push_back(TownHallUnitValue);
+    }
+
+    if (ReadyTownHallUnitsValue.size() < 2U)
+    {
+        return;
+    }
+
+    std::unordered_map<Tag, int> PlannedInboundCountsByTownHallTagValue;
+    std::unordered_map<Tag, int> PlannedOutboundCountsByTownHallTagValue;
+    uint32_t AddedRebalanceIntentCountValue = 0U;
+
+    for (const Unit* ReceiverTownHallUnitValue : ReadyTownHallUnitsValue)
+    {
+        if (ReceiverTownHallUnitValue == nullptr)
+        {
+            continue;
+        }
+
+        const int EffectiveAssignedHarvesterCountValue =
+            std::max(ReceiverTownHallUnitValue->assigned_harvesters, 0) +
+            GetPlannedHarvesterDeltaForTownHall(PlannedInboundCountsByTownHallTagValue,
+                                                PlannedOutboundCountsByTownHallTagValue,
+                                                ReceiverTownHallUnitValue->tag);
+        const int MissingHarvesterCountValue =
+            std::max(0, ReceiverTownHallUnitValue->ideal_harvesters - EffectiveAssignedHarvesterCountValue);
+        for (int MissingHarvesterIndexValue = 0; MissingHarvesterIndexValue < MissingHarvesterCountValue;
+             ++MissingHarvesterIndexValue)
+        {
+            if (AddedRebalanceIntentCountValue >= MaxMineralRebalanceIntentCountPerStepValue)
+            {
+                return;
+            }
+
+            const Unit* WorkerUnitValue = SelectWorkerForMineralRebalance(
+                *Frame.Observation, AgentState, GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,
+                *ReceiverTownHallUnitValue, ReadyTownHallUnitsValue, ReservedWorkerTagsValue,
+                PlannedInboundCountsByTownHallTagValue, PlannedOutboundCountsByTownHallTagValue);
+            if (WorkerUnitValue == nullptr)
+            {
+                break;
+            }
+
+            const Unit* SourceTownHallUnitValue =
+                FindMineralTownHallForWorker(*Frame.Observation, *WorkerUnitValue, ReadyTownHallUnitsValue);
+            const Unit* MineralPatchValue =
+                FindNearestMineralPatchForTownHall(Point2D(ReceiverTownHallUnitValue->pos));
+            if (SourceTownHallUnitValue == nullptr || MineralPatchValue == nullptr)
+            {
+                break;
+            }
+
+            IntentBuffer.Add(FUnitIntent::CreateUnitTarget(WorkerUnitValue->tag, ABILITY_ID::SMART,
+                                                           MineralPatchValue->tag,
+                                                           MineralRebalanceIntentPriorityValue,
+                                                           EIntentDomain::Recovery));
+            ReservedWorkerTagsValue.insert(WorkerUnitValue->tag);
+            ++PlannedInboundCountsByTownHallTagValue[ReceiverTownHallUnitValue->tag];
+            ++PlannedOutboundCountsByTownHallTagValue[SourceTownHallUnitValue->tag];
+            ++AddedRebalanceIntentCountValue;
         }
     }
 }

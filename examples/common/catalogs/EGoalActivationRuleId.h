@@ -17,12 +17,15 @@ enum class EGoalActivationRuleId : uint8_t
     ProjectedFactoryBelowTarget,
     ProjectedStarportBelowTarget,
     MissingBarracksReactor,
+    MissingBarracksTechLab,
     MissingFactoryTechLab,
     MissingEngineeringBayForUpgrades,
+    MissingSecondEngineeringBayForUpgrades,
     MissingStarportReactor,
     MissingStimpack,
     MissingCombatShield,
     MissingInfantryWeaponsLevel1,
+    MissingInfantryArmorLevel1,
     MissingConcussiveShells,
     ProjectedMarinesBelowTarget,
     ProjectedMaraudersBelowTarget,
@@ -33,4 +36,3 @@ enum class EGoalActivationRuleId : uint8_t
 };
 
 }  // namespace sc2
-

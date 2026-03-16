@@ -41,10 +41,10 @@ bool TestTerranGoalTaskDictionary(int ArgC, char** ArgV)
 
     bool SuccessValue = true;
 
-    Check(FTerranGoalDictionary::GetDefinitionCount() == 25U, SuccessValue,
-          "Terran goal dictionary should expose the authored twenty-five goal definitions.");
-    Check(FTerranTaskTemplateDictionary::GetDefinitionCount() == 28U, SuccessValue,
-          "Terran task-template dictionary should expose the authored twenty-eight task templates.");
+    Check(FTerranGoalDictionary::GetDefinitionCount() == 28U, SuccessValue,
+          "Terran goal dictionary should expose the authored twenty-eight goal definitions.");
+    Check(FTerranTaskTemplateDictionary::GetDefinitionCount() == 29U, SuccessValue,
+          "Terran task-template dictionary should expose the authored twenty-nine task templates.");
 
     const FTerranGoalDefinition* SaturateWorkersDefinitionValue = FTerranGoalDictionary::TryGetByGoalId(110U);
     Check(SaturateWorkersDefinitionValue != nullptr, SuccessValue,
@@ -71,6 +71,28 @@ bool TestTerranGoalTaskDictionary(int ArgC, char** ArgV)
               SuccessValue, "UnlockFactoryTechLab should preserve the authored factory-tech-lab target type.");
     }
 
+    const FTerranGoalDefinition* BarracksTechLabDefinitionValue =
+        FTerranGoalDictionary::TryGetByDefinitionId(ETerranGoalDefinitionId::UnlockBarracksTechLab);
+    Check(BarracksTechLabDefinitionValue != nullptr, SuccessValue,
+          "Terran goal dictionary should resolve UnlockBarracksTechLab by generated definition id.");
+    if (BarracksTechLabDefinitionValue != nullptr)
+    {
+        Check(BarracksTechLabDefinitionValue->GoalId == 234U, SuccessValue,
+              "UnlockBarracksTechLab should preserve the authored numeric goal id.");
+        Check(BarracksTechLabDefinitionValue->DefaultTargetUnitTypeId == UNIT_TYPEID::TERRAN_BARRACKSTECHLAB,
+              SuccessValue, "UnlockBarracksTechLab should preserve the authored barracks-tech-lab target type.");
+    }
+
+    const FTerranGoalDefinition* SecondEngineeringBayDefinitionValue =
+        FTerranGoalDictionary::TryGetByDefinitionId(ETerranGoalDefinitionId::UnlockSecondEngineeringBay);
+    Check(SecondEngineeringBayDefinitionValue != nullptr, SuccessValue,
+          "Terran goal dictionary should resolve UnlockSecondEngineeringBay by generated definition id.");
+    if (SecondEngineeringBayDefinitionValue != nullptr)
+    {
+        Check(SecondEngineeringBayDefinitionValue->DefaultTargetCount == 2U, SuccessValue,
+              "UnlockSecondEngineeringBay should preserve the authored second-bay target count.");
+    }
+
     const FTerranTaskTemplateDefinition* SupplyDepotTemplateValue =
         FTerranTaskTemplateDictionary::TryGetByTemplateId(ETerranTaskTemplateId::BuildSupplyDepot);
     Check(SupplyDepotTemplateValue != nullptr, SuccessValue,
@@ -94,6 +116,18 @@ bool TestTerranGoalTaskDictionary(int ArgC, char** ArgV)
     {
         Check(StimpackTemplateValue->TemplateId == ETerranTaskTemplateId::ResearchStimpack, SuccessValue,
               "ResearchStimpack action lookup should resolve the generated task-template id.");
+    }
+
+    const FTerranTaskTemplateDefinition* InfantryArmorTemplateValue =
+        FTerranTaskTemplateDictionary::TryGetByTemplateId(ETerranTaskTemplateId::ResearchTerranInfantryArmorLevel1);
+    Check(InfantryArmorTemplateValue != nullptr, SuccessValue,
+          "Terran task-template dictionary should resolve ResearchTerranInfantryArmorLevel1 by template id.");
+    if (InfantryArmorTemplateValue != nullptr)
+    {
+        Check(InfantryArmorTemplateValue->ActionAbilityId == ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL1,
+              SuccessValue, "ResearchTerranInfantryArmorLevel1 should preserve the authored armor-research ability.");
+        Check(InfantryArmorTemplateValue->ActionUpgradeId == UpgradeID(UPGRADE_ID::TERRANINFANTRYARMORSLEVEL1),
+              SuccessValue, "ResearchTerranInfantryArmorLevel1 should preserve the authored upgrade id.");
     }
 
     FCommandTaskDescriptor FactoryTechLabTaskDescriptorValue;

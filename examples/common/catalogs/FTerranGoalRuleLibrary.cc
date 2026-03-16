@@ -64,20 +64,62 @@ bool HasIdleCombatProductionPressure(const FExecutionPressureDescriptor& Executi
            ExecutionPressureDescriptorValue.RecentIdleProductionConflictCount > 0U;
 }
 
+bool HasNearTermSupplyPressure(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return GameStateDescriptorValue.ExecutionPressure.SupplyBlockState == EExecutionConditionState::Active ||
+           GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <=
+               2U ||
+           GameStateDescriptorValue.EconomyState.GetProjectedDiscretionarySupplyAtHorizon(
+               GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) <= 2U;
+}
+
+uint32_t GetShortHorizonDiscretionaryMinerals(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return GameStateDescriptorValue.EconomyState.GetProjectedDiscretionaryMineralsAtHorizon(
+        GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue);
+}
+
+uint32_t GetCappedScheduledSupplyUsageDelta(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    uint32_t MaximumScheduledSupplyUsageDeltaValue = 4U;
+
+    switch (GameStateDescriptorValue.MacroState.ActiveMacroPhase)
+    {
+        case EMacroPhase::Opening:
+        case EMacroPhase::Recovery:
+            MaximumScheduledSupplyUsageDeltaValue = 1U;
+            break;
+        case EMacroPhase::EarlyGame:
+            MaximumScheduledSupplyUsageDeltaValue = 2U;
+            break;
+        case EMacroPhase::MidGame:
+            MaximumScheduledSupplyUsageDeltaValue = 4U;
+            break;
+        case EMacroPhase::LateGame:
+            MaximumScheduledSupplyUsageDeltaValue = 6U;
+            break;
+        default:
+            break;
+    }
+
+    return std::min<uint32_t>(GameStateDescriptorValue.SchedulerOutlook.ExpectedSupplyUsedDelta,
+                              MaximumScheduledSupplyUsageDeltaValue);
+}
+
 uint32_t GetSupplyBufferForMacroPhase(const EMacroPhase MacroPhaseValue)
 {
     switch (MacroPhaseValue)
     {
         case EMacroPhase::Opening:
         case EMacroPhase::Recovery:
-            return 4U;
+            return 2U;
         case EMacroPhase::EarlyGame:
-            return 8U;
+            return 4U;
         case EMacroPhase::MidGame:
         case EMacroPhase::LateGame:
-            return 12U;
-        default:
             return 8U;
+        default:
+            return 4U;
     }
 }
 
@@ -111,8 +153,7 @@ EGoalStatus FTerranGoalRuleLibrary::EvaluateGoalStatus(const FTerranGoalDefiniti
                        ? EGoalStatus::Active
                        : EGoalStatus::Satisfied;
         case EGoalActivationRuleId::SupplyPressureOrProjectedDepotsBelowTarget:
-            return (GameStateDescriptorValue.EconomyState.GetProjectedDiscretionarySupplyAtHorizon(
-                        GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) <= 4U ||
+            return (HasNearTermSupplyPressure(GameStateDescriptorValue) &&
                     GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
                         DetermineDesiredSupplyDepotCount(GameStateDescriptorValue))
                        ? EGoalStatus::Active
@@ -147,6 +188,11 @@ EGoalStatus FTerranGoalRuleLibrary::EvaluateGoalStatus(const FTerranGoalDefiniti
                     GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKSREACTOR) < 1U)
                        ? EGoalStatus::Active
                        : EGoalStatus::Satisfied;
+        case EGoalActivationRuleId::MissingBarracksTechLab:
+            return (GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U &&
+                    GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKSTECHLAB) < 1U)
+                       ? EGoalStatus::Active
+                       : EGoalStatus::Satisfied;
         case EGoalActivationRuleId::MissingFactoryTechLab:
             return (GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_FACTORY) >= 1U &&
                     GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_FACTORYTECHLAB) < 1U)
@@ -155,6 +201,16 @@ EGoalStatus FTerranGoalRuleLibrary::EvaluateGoalStatus(const FTerranGoalDefiniti
         case EGoalActivationRuleId::MissingEngineeringBayForUpgrades:
             return (ShouldPrioritizeUpgrades(GameStateDescriptorValue) &&
                     GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_ENGINEERINGBAY) < 1U)
+                       ? EGoalStatus::Active
+                       : EGoalStatus::Satisfied;
+        case EGoalActivationRuleId::MissingSecondEngineeringBayForUpgrades:
+            return (ShouldPrioritizeUpgrades(GameStateDescriptorValue) &&
+                    (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 3U ||
+                     GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 3U ||
+                     HasSustainedMineralFloat(GameStateDescriptorValue.ExecutionPressure) ||
+                     (GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U &&
+                      GetShortHorizonDiscretionaryMinerals(GameStateDescriptorValue) >= 250U)) &&
+                    GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_ENGINEERINGBAY) < 2U)
                        ? EGoalStatus::Active
                        : EGoalStatus::Satisfied;
         case EGoalActivationRuleId::MissingStarportReactor:
@@ -176,6 +232,13 @@ EGoalStatus FTerranGoalRuleLibrary::EvaluateGoalStatus(const FTerranGoalDefiniti
             return (ShouldPrioritizeUpgrades(GameStateDescriptorValue) &&
                     GetProjectedUpgradeCount(GameStateDescriptorValue,
                                              UpgradeID(UPGRADE_ID::TERRANINFANTRYWEAPONSLEVEL1)) == 0U)
+                       ? EGoalStatus::Active
+                       : EGoalStatus::Satisfied;
+        case EGoalActivationRuleId::MissingInfantryArmorLevel1:
+            return (ShouldPrioritizeUpgrades(GameStateDescriptorValue) &&
+                    GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_ENGINEERINGBAY) >= 2U &&
+                    GetProjectedUpgradeCount(GameStateDescriptorValue,
+                                             UpgradeID(UPGRADE_ID::TERRANINFANTRYARMORSLEVEL1)) == 0U)
                        ? EGoalStatus::Active
                        : EGoalStatus::Satisfied;
         case EGoalActivationRuleId::MissingConcussiveShells:
@@ -273,14 +336,27 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredArmyCount(const FGameStateDescr
 
 uint32_t FTerranGoalRuleLibrary::DetermineDesiredBaseCount(const FGameStateDescriptor& GameStateDescriptorValue)
 {
+    const uint32_t ShortHorizonDiscretionaryMineralsValue =
+        GetShortHorizonDiscretionaryMinerals(GameStateDescriptorValue);
+
     switch (GameStateDescriptorValue.MacroState.ActiveMacroPhase)
     {
         case EMacroPhase::Opening:
+            return 2U;
         case EMacroPhase::EarlyGame:
+            if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 2U &&
+                GameStateDescriptorValue.MacroState.WorkerCount >= 24U &&
+                (ShortHorizonDiscretionaryMineralsValue >= 350U ||
+                 HasSustainedMineralFloat(GameStateDescriptorValue.ExecutionPressure)))
+            {
+                return 3U;
+            }
             return 2U;
         case EMacroPhase::MidGame:
             if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 3U &&
-                GameStateDescriptorValue.MacroState.ArmySupply >= 80U)
+                (GameStateDescriptorValue.MacroState.ArmySupply >= 60U ||
+                 ShortHorizonDiscretionaryMineralsValue >= 550U ||
+                 HasSustainedMineralFloat(GameStateDescriptorValue.ExecutionPressure)))
             {
                 return 4U;
             }
@@ -333,7 +409,7 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredSupplyDepotCount(
     const uint32_t ProjectedSupplyUsedValue =
         std::min<uint32_t>(MaximumSupplyCapValue,
                            GameStateDescriptorValue.MacroState.SupplyUsed +
-                               GameStateDescriptorValue.SchedulerOutlook.ExpectedSupplyUsedDelta);
+                               GetCappedScheduledSupplyUsageDelta(GameStateDescriptorValue));
     const uint32_t BufferedSupplyCapTargetValue =
         std::min<uint32_t>(MaximumSupplyCapValue, ProjectedSupplyUsedValue + SupplyBufferValue);
     const uint32_t RequiredSupplyDepotCountValue =
@@ -345,16 +421,41 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredSupplyDepotCount(
 
 uint32_t FTerranGoalRuleLibrary::DetermineDesiredBarracksCount(const FGameStateDescriptor& GameStateDescriptorValue)
 {
+    const uint32_t ShortHorizonDiscretionaryMineralsValue =
+        GetShortHorizonDiscretionaryMinerals(GameStateDescriptorValue);
+    const bool HasSustainedMineralFloatValue = HasSustainedMineralFloat(GameStateDescriptorValue.ExecutionPressure);
+
     switch (GameStateDescriptorValue.MacroState.ActiveMacroPhase)
     {
         case EMacroPhase::Opening:
             return 1U;
         case EMacroPhase::EarlyGame:
+            if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 3U ||
+                ShortHorizonDiscretionaryMineralsValue >= 650U)
+            {
+                return 4U;
+            }
+            if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 2U &&
+                (ShortHorizonDiscretionaryMineralsValue >= 300U || HasSustainedMineralFloatValue))
+            {
+                return 3U;
+            }
             return 2U;
         case EMacroPhase::MidGame:
-            return 3U;
+            if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 4U ||
+                ShortHorizonDiscretionaryMineralsValue >= 900U)
+            {
+                return 6U;
+            }
+            if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 3U ||
+                ShortHorizonDiscretionaryMineralsValue >= 500U ||
+                HasSustainedMineralFloatValue)
+            {
+                return 5U;
+            }
+            return 4U;
         case EMacroPhase::LateGame:
-            return 5U;
+            return 6U;
         case EMacroPhase::Recovery:
             return std::max<uint32_t>(1U, GetProjectedBuildingCount(GameStateDescriptorValue,
                                                                     UNIT_TYPEID::TERRAN_BARRACKS));
@@ -403,20 +504,22 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredStarportCount(const FGameStateD
 
 uint32_t FTerranGoalRuleLibrary::DetermineDesiredMarineCount(const FGameStateDescriptor& GameStateDescriptorValue)
 {
+    const uint32_t DesiredBarracksCountValue = DetermineDesiredBarracksCount(GameStateDescriptorValue);
+
     switch (GameStateDescriptorValue.MacroState.ActiveMacroPhase)
     {
         case EMacroPhase::Opening:
-            return 6U;
+            return 8U;
         case EMacroPhase::EarlyGame:
-            return 16U;
+            return std::max<uint32_t>(20U, DesiredBarracksCountValue * 10U);
         case EMacroPhase::MidGame:
-            return 32U;
+            return std::max<uint32_t>(36U, DesiredBarracksCountValue * 12U);
         case EMacroPhase::LateGame:
-            return 60U;
+            return std::max<uint32_t>(72U, DesiredBarracksCountValue * 14U);
         case EMacroPhase::Recovery:
             return std::max<uint32_t>(4U, GameStateDescriptorValue.MacroState.ArmyUnitCount);
         default:
-            return 16U;
+            return 20U;
     }
 }
 
@@ -514,8 +617,10 @@ bool FTerranGoalRuleLibrary::ShouldPrioritizeUpgrades(const FGameStateDescriptor
 {
     return GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_COMMANDCENTER) >= 2U &&
            GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_BARRACKS) >= 2U &&
-           GameStateDescriptorValue.EconomyState.GetProjectedDiscretionaryMineralsAtHorizon(
-               GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) >= 100U;
+           (GameStateDescriptorValue.EconomyState.GetProjectedDiscretionaryMineralsAtHorizon(
+                GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) >= 75U ||
+            HasSustainedMineralFloat(GameStateDescriptorValue.ExecutionPressure) ||
+            HasIdleCombatProductionPressure(GameStateDescriptorValue.ExecutionPressure));
 }
 
 EProductionFocus FTerranGoalRuleLibrary::DeterminePrimaryProductionFocus(
@@ -577,8 +682,7 @@ EProductionFocus FTerranGoalRuleLibrary::DeterminePrimaryProductionFocus(
 
     if (HasIdleCombatProductionPressureValue)
     {
-        if (ShouldPrioritizeUpgrades(GameStateDescriptorValue) &&
-            GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_ENGINEERINGBAY) > 0U)
+        if (ShouldPrioritizeUpgrades(GameStateDescriptorValue))
         {
             return EProductionFocus::Upgrades;
         }

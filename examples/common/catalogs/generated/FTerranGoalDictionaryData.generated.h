@@ -9,7 +9,7 @@
 namespace sc2
 {
 
-constexpr size_t TerranGoalDefinitionCountValue = 25U;
+constexpr size_t TerranGoalDefinitionCountValue = 28U;
 
 extern const std::array<FTerranGoalDefinition, TerranGoalDefinitionCountValue> GTerranGoalDefinitions;
 

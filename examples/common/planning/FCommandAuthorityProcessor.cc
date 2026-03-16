@@ -1,6 +1,7 @@
 #include "common/planning/FCommandAuthorityProcessor.h"
 
 #include <algorithm>
+#include <cstdint>
 
 #include "common/build_orders/FOpeningPlanRegistry.h"
 #include "common/catalogs/FTerranGoalDefinition.h"
@@ -40,6 +41,7 @@ EIntentDomain DetermineIntentDomain(const AbilityID AbilityIdValue, const EComma
         case ABILITY_ID::RESEARCH_COMBATSHIELD:
         case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
         case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL1:
             return EIntentDomain::UnitProduction;
         default:
             return EIntentDomain::StructureBuild;
@@ -380,6 +382,8 @@ ETerranTaskTemplateId ResolveFallbackTaskTemplateIdForGoalDescriptor(const FGoal
             {
                 case UNIT_TYPEID::TERRAN_BARRACKSREACTOR:
                     return ETerranTaskTemplateId::BuildBarracksReactor;
+                case UNIT_TYPEID::TERRAN_BARRACKSTECHLAB:
+                    return ETerranTaskTemplateId::BuildBarracksTechLab;
                 case UNIT_TYPEID::TERRAN_FACTORYTECHLAB:
                     return ETerranTaskTemplateId::BuildFactoryTechLab;
                 case UNIT_TYPEID::TERRAN_ENGINEERINGBAY:
@@ -398,6 +402,8 @@ ETerranTaskTemplateId ResolveFallbackTaskTemplateIdForGoalDescriptor(const FGoal
                     return ETerranTaskTemplateId::ResearchCombatShield;
                 case UPGRADE_ID::TERRANINFANTRYWEAPONSLEVEL1:
                     return ETerranTaskTemplateId::ResearchTerranInfantryWeaponsLevel1;
+                case UPGRADE_ID::TERRANINFANTRYARMORSLEVEL1:
+                    return ETerranTaskTemplateId::ResearchTerranInfantryArmorLevel1;
                 case UPGRADE_ID::PUNISHERGRENADES:
                     return ETerranTaskTemplateId::ResearchConcussiveShells;
                 default:
@@ -430,6 +436,43 @@ ETerranTaskTemplateId ResolveFallbackTaskTemplateIdForGoalDescriptor(const FGoal
         default:
             return ETerranTaskTemplateId::Invalid;
     }
+}
+
+FBuildPlacementSlotId ResolvePreferredProducerPlacementSlotIdForGoalDescriptor(
+    const FGoalDescriptor& GoalDescriptorValue)
+{
+    FBuildPlacementSlotId PreferredProducerPlacementSlotIdValue;
+
+    switch (GoalDescriptorValue.GoalType)
+    {
+        case EGoalType::UnlockTechnology:
+            switch (GoalDescriptorValue.TargetUnitTypeId)
+            {
+                case UNIT_TYPEID::TERRAN_BARRACKSREACTOR:
+                    PreferredProducerPlacementSlotIdValue.SlotType = EBuildPlacementSlotType::MainRampBarracksWithAddon;
+                    PreferredProducerPlacementSlotIdValue.Ordinal = 0U;
+                    return PreferredProducerPlacementSlotIdValue;
+                case UNIT_TYPEID::TERRAN_BARRACKSTECHLAB:
+                    PreferredProducerPlacementSlotIdValue.SlotType = EBuildPlacementSlotType::MainBarracksWithAddon;
+                    PreferredProducerPlacementSlotIdValue.Ordinal = 0U;
+                    return PreferredProducerPlacementSlotIdValue;
+                case UNIT_TYPEID::TERRAN_FACTORYTECHLAB:
+                    PreferredProducerPlacementSlotIdValue.SlotType = EBuildPlacementSlotType::MainFactoryWithAddon;
+                    PreferredProducerPlacementSlotIdValue.Ordinal = 0U;
+                    return PreferredProducerPlacementSlotIdValue;
+                case UNIT_TYPEID::TERRAN_STARPORTREACTOR:
+                    PreferredProducerPlacementSlotIdValue.SlotType = EBuildPlacementSlotType::MainStarportWithAddon;
+                    PreferredProducerPlacementSlotIdValue.Ordinal = 0U;
+                    return PreferredProducerPlacementSlotIdValue;
+                default:
+                    break;
+            }
+            break;
+        default:
+            break;
+    }
+
+    return PreferredProducerPlacementSlotIdValue;
 }
 
 bool TryPopulateGoalOrderFromTaskTemplate(const FGameStateDescriptor& GameStateDescriptorValue,
@@ -476,6 +519,8 @@ bool TryPopulateGoalOrderFromTaskTemplate(const FGameStateDescriptor& GameStateD
     CommandOrderRecordValue.UpgradeId = TerranTaskTemplateDefinitionValue->ActionUpgradeId;
     CommandOrderRecordValue.PreferredPlacementSlotType =
         TerranTaskTemplateDefinitionValue->DefaultPreferredPlacementSlotType;
+    CommandOrderRecordValue.PreferredProducerPlacementSlotId =
+        ResolvePreferredProducerPlacementSlotIdForGoalDescriptor(GoalDescriptorValue);
     CommandOrderRecordValue.TargetCount =
         std::max<uint32_t>(TerranTaskTemplateDefinitionValue->DefaultTargetCount, GoalDescriptorValue.TargetCount);
     CommandOrderRecordValue.RequestedQueueCount =
@@ -613,12 +658,151 @@ bool IsFlexibleOpeningSupplyTask(const FCommandTaskDescriptor& CommandTaskDescri
             CommandTaskDescriptorValue.ExecutionGuarantee != ECommandTaskExecutionGuarantee::MustExecute);
 }
 
+enum class EOpeningProducerFamily : uint8_t
+{
+    Unknown,
+    Barracks,
+    Factory,
+    Starport,
+};
+
+EOpeningProducerFamily GetOpeningProducerFamily(const UNIT_TYPEID ProducerUnitTypeIdValue)
+{
+    switch (ProducerUnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+            return EOpeningProducerFamily::Barracks;
+        case UNIT_TYPEID::TERRAN_FACTORY:
+            return EOpeningProducerFamily::Factory;
+        case UNIT_TYPEID::TERRAN_STARPORT:
+            return EOpeningProducerFamily::Starport;
+        default:
+            return EOpeningProducerFamily::Unknown;
+    }
+}
+
+EOpeningProducerFamily GetOpeningProducerFamily(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return GetOpeningProducerFamily(CommandTaskDescriptorValue.ActionProducerUnitTypeId);
+}
+
+EOpeningProducerFamily GetOpeningProducerFamily(const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    return GetOpeningProducerFamily(CommandOrderRecordValue.ProducerUnitTypeId);
+}
+
+bool DoesOpeningTaskParticipateInProducerFamilyGuard(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    if (GetOpeningProducerFamily(CommandTaskDescriptorValue) == EOpeningProducerFamily::Unknown)
+    {
+        return false;
+    }
+
+    switch (CommandTaskDescriptorValue.TaskType)
+    {
+        case ECommandTaskType::AddOn:
+        case ECommandTaskType::UnitProduction:
+        case ECommandTaskType::UpgradeResearch:
+            return true;
+        case ECommandTaskType::Unknown:
+        case ECommandTaskType::Recovery:
+        case ECommandTaskType::WorkerProduction:
+        case ECommandTaskType::Supply:
+        case ECommandTaskType::Expansion:
+        case ECommandTaskType::Refinery:
+        case ECommandTaskType::ProductionStructure:
+        case ECommandTaskType::TechStructure:
+        case ECommandTaskType::StaticDefense:
+        case ECommandTaskType::ArmyMission:
+        default:
+            return false;
+    }
+}
+
+bool DoesGoalDrivenOrderParticipateInProducerFamilyGuard(const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    if (GetOpeningProducerFamily(CommandOrderRecordValue) == EOpeningProducerFamily::Unknown)
+    {
+        return false;
+    }
+
+    switch (CommandOrderRecordValue.TaskType)
+    {
+        case ECommandTaskType::AddOn:
+        case ECommandTaskType::UnitProduction:
+        case ECommandTaskType::UpgradeResearch:
+            return true;
+        case ECommandTaskType::Unknown:
+        case ECommandTaskType::Recovery:
+        case ECommandTaskType::WorkerProduction:
+        case ECommandTaskType::Supply:
+        case ECommandTaskType::Expansion:
+        case ECommandTaskType::Refinery:
+        case ECommandTaskType::ProductionStructure:
+        case ECommandTaskType::TechStructure:
+        case ECommandTaskType::StaticDefense:
+        case ECommandTaskType::ArmyMission:
+        default:
+            return false;
+    }
+}
+
+bool HasNearTermSupplyPressure(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return GameStateDescriptorValue.ExecutionPressure.SupplyBlockState == EExecutionConditionState::Active ||
+           GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <=
+               2U ||
+           GameStateDescriptorValue.EconomyState.GetProjectedDiscretionarySupplyAtHorizon(
+               GameStateDescriptorValue.CommitmentLedger, ShortForecastHorizonIndexValue) <= 2U;
+}
+
 bool HasOutstandingFlexibleSupplyDepotDemand(const FGameStateDescriptor& GameStateDescriptorValue)
 {
     const uint32_t DesiredSupplyDepotCountValue =
         FTerranGoalRuleLibrary::DetermineDesiredSupplyDepotCount(GameStateDescriptorValue);
     return GameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
-           DesiredSupplyDepotCountValue;
+               DesiredSupplyDepotCountValue &&
+           HasNearTermSupplyPressure(GameStateDescriptorValue);
+}
+
+bool HasOutstandingFlexibleOpeningSupplyTask(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue)
+{
+    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] !=
+                ECommandAuthorityLayer::StrategicDirector ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]) ||
+            CommandAuthoritySchedulingStateValue.TaskOrigins[OrderIndexValue] != ECommandTaskOrigin::Opening ||
+            CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue] != ABILITY_ID::BUILD_SUPPLYDEPOT ||
+            CommandAuthoritySchedulingStateValue.ExecutionGuarantees[OrderIndexValue] ==
+                ECommandTaskExecutionGuarantee::MustExecute)
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    const FBlockedTaskRingBuffer& BlockedStrategicTasksValue =
+        CommandAuthoritySchedulingStateValue.BlockedStrategicTasks;
+    const size_t BlockedTaskCountValue = BlockedStrategicTasksValue.GetCount();
+    for (size_t OrderedIndexValue = 0U; OrderedIndexValue < BlockedTaskCountValue; ++OrderedIndexValue)
+    {
+        const FBlockedTaskRecord* BlockedTaskRecordPtrValue =
+            BlockedStrategicTasksValue.GetRecordAtOrderedIndex(OrderedIndexValue);
+        if (BlockedTaskRecordPtrValue == nullptr ||
+            BlockedTaskRecordPtrValue->Origin != ECommandTaskOrigin::Opening ||
+            BlockedTaskRecordPtrValue->AbilityId != ABILITY_ID::BUILD_SUPPLYDEPOT ||
+            BlockedTaskRecordPtrValue->ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute)
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 bool IsHotMustRunOpeningTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
@@ -655,6 +839,11 @@ bool DoesOpeningTaskRequireMandatorySequenceGuard(const FCommandTaskDescriptor& 
             return false;
     }
 }
+
+bool ShouldDelayOpeningTaskUntilMandatorySequenceAdvances(
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue,
+    const FCommandTaskDescriptor& CommandTaskDescriptorValue);
 
 bool HasIncompleteEarlierMandatoryExactOpeningStructureTask(
     const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
@@ -706,6 +895,96 @@ bool HasIncompleteEarlierMandatoryOpeningWallStructureTask(
     return false;
 }
 
+bool HasIncompleteEarlierOpeningProducerFamilyTask(
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue, const uint32_t TaskIdValue,
+    const EOpeningProducerFamily OpeningProducerFamilyValue)
+{
+    if (OpeningProducerFamilyValue == EOpeningProducerFamily::Unknown)
+    {
+        return false;
+    }
+
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        const FCommandTaskDescriptor OpeningTaskDescriptorValue = ResolveEffectiveOpeningTaskDescriptor(
+            OpeningPlanExecutionStateValue, OpeningPlanStepValue.TaskDescriptor);
+        if (OpeningTaskDescriptorValue.TaskId >= TaskIdValue)
+        {
+            break;
+        }
+
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId) ||
+            !DoesOpeningTaskParticipateInProducerFamilyGuard(OpeningTaskDescriptorValue) ||
+            GetOpeningProducerFamily(OpeningTaskDescriptorValue) != OpeningProducerFamilyValue)
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool HasAnyActiveOrReadyOpeningProducerFamilyTask(
+    const FGameStateDescriptor& GameStateDescriptorValue,
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue,
+    const EOpeningProducerFamily OpeningProducerFamilyValue)
+{
+    if (OpeningProducerFamilyValue == EOpeningProducerFamily::Unknown)
+    {
+        return false;
+    }
+
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        const FCommandTaskDescriptor OpeningTaskDescriptorValue = ResolveEffectiveOpeningTaskDescriptor(
+            OpeningPlanExecutionStateValue, OpeningPlanStepValue.TaskDescriptor);
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId) ||
+            !DoesOpeningTaskParticipateInProducerFamilyGuard(OpeningTaskDescriptorValue) ||
+            GetOpeningProducerFamily(OpeningTaskDescriptorValue) != OpeningProducerFamilyValue)
+        {
+            continue;
+        }
+
+        if (OpeningPlanExecutionStateValue.HasSeededStep(OpeningTaskDescriptorValue.TaskId))
+        {
+            return true;
+        }
+
+        bool AreOpeningTaskPrerequisitesCompletedValue = true;
+        for (const uint32_t RequiredStepIdValue : OpeningTaskDescriptorValue.TriggerRequiredCompletedTaskIds)
+        {
+            if (OpeningPlanExecutionStateValue.IsStepCompleted(RequiredStepIdValue))
+            {
+                continue;
+            }
+
+            AreOpeningTaskPrerequisitesCompletedValue = false;
+            break;
+        }
+
+        if (GameStateDescriptorValue.CurrentGameLoop < OpeningTaskDescriptorValue.TriggerMinGameLoop ||
+            !AreOpeningTaskPrerequisitesCompletedValue)
+        {
+            continue;
+        }
+
+        if (ShouldDelayOpeningTaskUntilMandatorySequenceAdvances(OpeningPlanExecutionStateValue,
+                                                                 OpeningPlanDescriptorValue,
+                                                                 OpeningTaskDescriptorValue))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 bool ShouldDelayOpeningTaskUntilMandatorySequenceAdvances(
     const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
     const FOpeningPlanDescriptor& OpeningPlanDescriptorValue,
@@ -723,10 +1002,21 @@ bool ShouldDelayOpeningTaskUntilMandatorySequenceAdvances(
             OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue, CommandTaskDescriptorValue.TaskId);
     }
 
-    if (IsMandatoryProducerBoundOpeningAddonTask(CommandTaskDescriptorValue))
+    if (IsMandatoryProducerBoundOpeningAddonTask(CommandTaskDescriptorValue) &&
+        HasIncompleteEarlierMandatoryExactOpeningStructureTask(
+            OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue, CommandTaskDescriptorValue.TaskId))
     {
-        return HasIncompleteEarlierMandatoryExactOpeningStructureTask(
-            OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue, CommandTaskDescriptorValue.TaskId);
+        return true;
+    }
+
+    const EOpeningProducerFamily OpeningProducerFamilyValue =
+        GetOpeningProducerFamily(CommandTaskDescriptorValue);
+    if (DoesOpeningTaskParticipateInProducerFamilyGuard(CommandTaskDescriptorValue) &&
+        HasIncompleteEarlierOpeningProducerFamilyTask(OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue,
+                                                      CommandTaskDescriptorValue.TaskId,
+                                                      OpeningProducerFamilyValue))
+    {
+        return true;
     }
 
     if (!DoesOpeningTaskRequireMandatorySequenceGuard(CommandTaskDescriptorValue))
@@ -769,19 +1059,7 @@ bool DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(const FGameStateDesc
     switch (CommandOrderRecordValue.TaskType)
     {
         case ECommandTaskType::Supply:
-        case ECommandTaskType::ProductionStructure:
-        case ECommandTaskType::TechStructure:
-        case ECommandTaskType::AddOn:
-        case ECommandTaskType::UnitProduction:
-        case ECommandTaskType::UpgradeResearch:
-        case ECommandTaskType::StaticDefense:
             break;
-        case ECommandTaskType::WorkerProduction:
-        case ECommandTaskType::Expansion:
-        case ECommandTaskType::Refinery:
-        case ECommandTaskType::Recovery:
-        case ECommandTaskType::ArmyMission:
-        case ECommandTaskType::Unknown:
         default:
             return false;
     }
@@ -800,7 +1078,26 @@ bool DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(const FGameStateDesc
                !AreAllMandatoryOpeningDepotTasksComplete(OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue);
     }
 
-    return true;
+    return false;
+}
+
+bool DoesIncompleteOpeningProducerFamilyGuardBlockOrder(const FGameStateDescriptor& GameStateDescriptorValue,
+                                                        const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    if (!IsOpeningIncomplete(GameStateDescriptorValue) ||
+        CommandOrderRecordValue.Origin != ECommandTaskOrigin::GoalMacro ||
+        !DoesGoalDrivenOrderParticipateInProducerFamilyGuard(CommandOrderRecordValue))
+    {
+        return false;
+    }
+
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
+        FOpeningPlanRegistry::GetOpeningPlanDescriptor(OpeningPlanExecutionStateValue.ActivePlanId);
+    return HasAnyActiveOrReadyOpeningProducerFamilyTask(GameStateDescriptorValue,
+                                                        OpeningPlanExecutionStateValue,
+                                                        OpeningPlanDescriptorValue,
+                                                        GetOpeningProducerFamily(CommandOrderRecordValue));
 }
 
 }  // namespace
@@ -1007,6 +1304,11 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(
         {
             continue;
         }
+        if (IsFlexibleOpeningSupplyTask(EffectiveTaskDescriptorValue) &&
+            HasOutstandingFlexibleOpeningSupplyTask(CommandAuthoritySchedulingStateValue))
+        {
+            continue;
+        }
         if (ShouldDelayOpeningTaskUntilMandatorySequenceAdvances(OpeningPlanExecutionStateValue,
                                                                  OpeningPlanDescriptorValue,
                                                                  EffectiveTaskDescriptorValue))
@@ -1119,6 +1421,10 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(
                 continue;
             }
             if (DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(GameStateDescriptorValue, GoalOrderValue))
+            {
+                continue;
+            }
+            if (DoesIncompleteOpeningProducerFamilyGuardBlockOrder(GameStateDescriptorValue, GoalOrderValue))
             {
                 continue;
             }

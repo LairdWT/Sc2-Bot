@@ -151,6 +151,21 @@
       "TaskTemplateId": "BuildFactoryTechLab"
     },
     {
+      "DefinitionId": "UnlockBarracksTechLab",
+      "GoalId": 234,
+      "DisplayName": "Unlock Barracks Tech Lab",
+      "GoalDomain": "Technology",
+      "GoalHorizon": "NearTerm",
+      "GoalType": "UnlockTechnology",
+      "BasePriorityValue": 168,
+      "ActivationRuleId": "MissingBarracksTechLab",
+      "TargetRuleId": "DefaultTargetCount",
+      "DefaultTargetCount": 1,
+      "DefaultTargetUnitTypeId": "TERRAN_BARRACKSTECHLAB",
+      "DefaultTargetUpgradeId": "INVALID",
+      "TaskTemplateId": "BuildBarracksTechLab"
+    },
+    {
       "DefinitionId": "UnlockEngineeringBay",
       "GoalId": 232,
       "DisplayName": "Unlock Engineering Bay",
@@ -161,6 +176,21 @@
       "ActivationRuleId": "MissingEngineeringBayForUpgrades",
       "TargetRuleId": "DefaultTargetCount",
       "DefaultTargetCount": 1,
+      "DefaultTargetUnitTypeId": "TERRAN_ENGINEERINGBAY",
+      "DefaultTargetUpgradeId": "INVALID",
+      "TaskTemplateId": "BuildEngineeringBay"
+    },
+    {
+      "DefinitionId": "UnlockSecondEngineeringBay",
+      "GoalId": 235,
+      "DisplayName": "Unlock Second Engineering Bay",
+      "GoalDomain": "Technology",
+      "GoalHorizon": "NearTerm",
+      "GoalType": "UnlockTechnology",
+      "BasePriorityValue": 142,
+      "ActivationRuleId": "MissingSecondEngineeringBayForUpgrades",
+      "TargetRuleId": "DefaultTargetCount",
+      "DefaultTargetCount": 2,
       "DefaultTargetUnitTypeId": "TERRAN_ENGINEERINGBAY",
       "DefaultTargetUpgradeId": "INVALID",
       "TaskTemplateId": "BuildEngineeringBay"
@@ -224,6 +254,21 @@
       "DefaultTargetUnitTypeId": "INVALID",
       "DefaultTargetUpgradeId": "TERRANINFANTRYWEAPONSLEVEL1",
       "TaskTemplateId": "ResearchTerranInfantryWeaponsLevel1"
+    },
+    {
+      "DefinitionId": "ResearchInfantryArmorLevel1",
+      "GoalId": 244,
+      "DisplayName": "Research Terran Infantry Armor Level 1",
+      "GoalDomain": "Technology",
+      "GoalHorizon": "NearTerm",
+      "GoalType": "ResearchUpgrade",
+      "BasePriorityValue": 132,
+      "ActivationRuleId": "MissingInfantryArmorLevel1",
+      "TargetRuleId": "DefaultTargetCount",
+      "DefaultTargetCount": 1,
+      "DefaultTargetUnitTypeId": "INVALID",
+      "DefaultTargetUpgradeId": "TERRANINFANTRYARMORSLEVEL1",
+      "TaskTemplateId": "ResearchTerranInfantryArmorLevel1"
     },
     {
       "DefinitionId": "ResearchConcussiveShells",
@@ -835,6 +880,27 @@
       "ActionProducerUnitTypeId": "TERRAN_ENGINEERINGBAY",
       "ActionResultUnitTypeId": "INVALID",
       "ActionUpgradeId": "TERRANINFANTRYWEAPONSLEVEL1",
+      "DefaultTargetCount": 1,
+      "DefaultRequestedQueueCount": 1,
+      "DefaultPreferredPlacementSlotType": "Unknown"
+    },
+    {
+      "TemplateId": "ResearchTerranInfantryArmorLevel1",
+      "DisplayName": "Research Terran Infantry Armor Level 1",
+      "PackageKind": "TechTransition",
+      "NeedKind": "Upgrade",
+      "ActionKind": "ResearchUpgrade",
+      "CompletionKind": "CountAtLeast",
+      "TaskType": "UpgradeResearch",
+      "Origin": "GoalMacro",
+      "CommitmentClass": "FlexibleMacro",
+      "ExecutionGuarantee": "Preferred",
+      "RetentionPolicy": "BufferedRetry",
+      "BlockedTaskWakeKind": "ProducerAvailability",
+      "ActionAbilityId": "RESEARCH_TERRANINFANTRYARMORLEVEL1",
+      "ActionProducerUnitTypeId": "TERRAN_ENGINEERINGBAY",
+      "ActionResultUnitTypeId": "INVALID",
+      "ActionUpgradeId": "TERRANINFANTRYARMORSLEVEL1",
       "DefaultTargetCount": 1,
       "DefaultRequestedQueueCount": 1,
       "DefaultPreferredPlacementSlotType": "Unknown"

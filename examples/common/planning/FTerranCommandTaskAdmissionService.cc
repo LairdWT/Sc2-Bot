@@ -346,6 +346,7 @@ EIntentDomain DetermineIntentDomainFromAbility(const FCommandOrderRecord& Comman
         case ABILITY_ID::RESEARCH_COMBATSHIELD:
         case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
         case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL1:
             return EIntentDomain::UnitProduction;
         case ABILITY_ID::INVALID:
             return EIntentDomain::Recovery;

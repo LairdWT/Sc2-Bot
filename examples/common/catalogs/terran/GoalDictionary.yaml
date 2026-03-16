@@ -129,6 +129,19 @@ Goals:
     DefaultTargetUnitTypeId: TERRAN_FACTORYTECHLAB
     DefaultTargetUpgradeId: INVALID
     TaskTemplateId: BuildFactoryTechLab
+  - DefinitionId: UnlockBarracksTechLab
+    GoalId: 234
+    DisplayName: Unlock Barracks Tech Lab
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: UnlockTechnology
+    BasePriorityValue: 168
+    ActivationRuleId: MissingBarracksTechLab
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: TERRAN_BARRACKSTECHLAB
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildBarracksTechLab
   - DefinitionId: UnlockEngineeringBay
     GoalId: 232
     DisplayName: Unlock Engineering Bay
@@ -139,6 +152,19 @@ Goals:
     ActivationRuleId: MissingEngineeringBayForUpgrades
     TargetRuleId: DefaultTargetCount
     DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: TERRAN_ENGINEERINGBAY
+    DefaultTargetUpgradeId: INVALID
+    TaskTemplateId: BuildEngineeringBay
+  - DefinitionId: UnlockSecondEngineeringBay
+    GoalId: 235
+    DisplayName: Unlock Second Engineering Bay
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: UnlockTechnology
+    BasePriorityValue: 142
+    ActivationRuleId: MissingSecondEngineeringBayForUpgrades
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 2
     DefaultTargetUnitTypeId: TERRAN_ENGINEERINGBAY
     DefaultTargetUpgradeId: INVALID
     TaskTemplateId: BuildEngineeringBay
@@ -194,6 +220,19 @@ Goals:
     DefaultTargetUnitTypeId: INVALID
     DefaultTargetUpgradeId: TERRANINFANTRYWEAPONSLEVEL1
     TaskTemplateId: ResearchTerranInfantryWeaponsLevel1
+  - DefinitionId: ResearchInfantryArmorLevel1
+    GoalId: 244
+    DisplayName: Research Terran Infantry Armor Level 1
+    GoalDomain: Technology
+    GoalHorizon: NearTerm
+    GoalType: ResearchUpgrade
+    BasePriorityValue: 132
+    ActivationRuleId: MissingInfantryArmorLevel1
+    TargetRuleId: DefaultTargetCount
+    DefaultTargetCount: 1
+    DefaultTargetUnitTypeId: INVALID
+    DefaultTargetUpgradeId: TERRANINFANTRYARMORSLEVEL1
+    TaskTemplateId: ResearchTerranInfantryArmorLevel1
   - DefinitionId: ResearchConcussiveShells
     GoalId: 243
     DisplayName: Research Concussive Shells

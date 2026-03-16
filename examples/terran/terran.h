@@ -103,6 +103,9 @@ public:
     std::vector<FUnitIntent> ResolvedIntents;
 
 private:
+    void ProduceWorkerMineralRebalanceIntents(const FFrameContext& Frame,
+                                              std::unordered_set<Tag>& ReservedWorkerTagsValue);
+
     inline void DrawFeatureLayer1BPP(const SC2APIProtocol::ImageData& ImageData, int OffsetX, int OffsetY)
     {
         renderer::Matrix1BPP(ImageData.data().c_str(), ImageData.size().x(), ImageData.size().y(), OffsetX, OffsetY,

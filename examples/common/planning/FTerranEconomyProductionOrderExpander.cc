@@ -51,6 +51,10 @@ bool TryResolvePreferredProducerUnit(
     const IBuildPlacementService& BuildPlacementServiceValue, const std::vector<Point2D>& ExpansionLocationsValue,
     const UNIT_TYPEID ProducerUnitTypeIdValue, const FBuildPlacementSlotId& PreferredProducerPlacementSlotIdValue,
     FBuildPlacementSlot& OutProducerPlacementSlotValue, const Unit*& OutProducerUnitValue);
+UNIT_TYPEID GetProtectedAddonProducerUnitTypeForStructureAbility(const ABILITY_ID StructureAbilityIdValue);
+bool DoesStructurePlacementOverlapObservedProtectedAddonLane(const FFrameContext& FrameValue,
+                                                             const FCommandOrderRecord& EconomyOrderValue,
+                                                             const FBuildPlacementSlot& BuildPlacementSlotValue);
 
 bool IsReactorUnitType(const UNIT_TYPEID UnitTypeValue)
 {
@@ -1319,6 +1323,7 @@ bool IsUnitProductionAbility(const ABILITY_ID AbilityIdValue)
         case ABILITY_ID::RESEARCH_COMBATSHIELD:
         case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
         case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
+        case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL1:
             return true;
         default:
             return false;
@@ -1588,22 +1593,106 @@ bool TryResolvePreferredProducerUnit(
     return true;
 }
 
+UNIT_TYPEID GetProtectedAddonProducerUnitTypeForStructureAbility(const ABILITY_ID StructureAbilityIdValue)
+{
+    switch (StructureAbilityIdValue)
+    {
+        case ABILITY_ID::BUILD_FACTORY:
+            return UNIT_TYPEID::TERRAN_BARRACKS;
+        case ABILITY_ID::BUILD_STARPORT:
+            return UNIT_TYPEID::TERRAN_FACTORY;
+        default:
+            return UNIT_TYPEID::INVALID;
+    }
+}
+
+bool DoesStructurePlacementOverlapObservedProtectedAddonLane(const FFrameContext& FrameValue,
+                                                             const FCommandOrderRecord& EconomyOrderValue,
+                                                             const FBuildPlacementSlot& BuildPlacementSlotValue)
+{
+    if (FrameValue.Observation == nullptr)
+    {
+        return false;
+    }
+
+    const UNIT_TYPEID ProtectedProducerUnitTypeIdValue =
+        GetProtectedAddonProducerUnitTypeForStructureAbility(EconomyOrderValue.AbilityId);
+    if (ProtectedProducerUnitTypeIdValue == UNIT_TYPEID::INVALID)
+    {
+        return false;
+    }
+
+    const Point2D CandidateFootprintHalfExtentsValue =
+        GetStructureFootprintHalfExtentsForAbility(EconomyOrderValue.AbilityId);
+    static const Point2D AddonFootprintHalfExtentsValue(1.0f, 1.0f);
+    const Units ProtectedProducerUnitsValue =
+        FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(ProtectedProducerUnitTypeIdValue));
+    for (const Unit* ProtectedProducerUnitValue : ProtectedProducerUnitsValue)
+    {
+        if (ProtectedProducerUnitValue == nullptr || !ProtectedProducerUnitValue->is_building ||
+            ProtectedProducerUnitValue->is_flying)
+        {
+            continue;
+        }
+
+        if (!DoAxisAlignedFootprintsOverlap(BuildPlacementSlotValue.BuildPoint,
+                                            CandidateFootprintHalfExtentsValue,
+                                            GetAddonFootprintCenter(Point2D(ProtectedProducerUnitValue->pos)),
+                                            AddonFootprintHalfExtentsValue))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 bool DoesMandatoryOpeningAddonReserveProducer(
     const FFrameContext& FrameValue, const FGameStateDescriptor& GameStateDescriptorValue,
     const IBuildPlacementService& BuildPlacementServiceValue, const std::vector<Point2D>& ExpansionLocationsValue,
     const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const Unit& ProducerUnitValue,
     const uint32_t IgnoredOrderIdValue)
 {
+    const auto DoesAddonTaskRequireExclusiveProducerReservationValue =
+        [](const ECommandTaskOrigin TaskOriginValue, const ECommandCommitmentClass CommitmentClassValue,
+           const ECommandTaskExecutionGuarantee ExecutionGuaranteeValue) -> bool
+    {
+        if (ExecutionGuaranteeValue == ECommandTaskExecutionGuarantee::MustExecute ||
+            TaskOriginValue == ECommandTaskOrigin::Opening)
+        {
+            return true;
+        }
+
+        switch (CommitmentClassValue)
+        {
+            case ECommandCommitmentClass::MandatoryOpening:
+            case ECommandCommitmentClass::MandatoryRecovery:
+                return true;
+            case ECommandCommitmentClass::FlexibleMacro:
+            case ECommandCommitmentClass::Opportunistic:
+            default:
+                return false;
+        }
+    };
+
     for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
          ++OrderIndexValue)
     {
         if (CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue] == IgnoredOrderIdValue ||
             IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]) ||
             CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue] != ECommandTaskType::AddOn ||
-            CommandAuthoritySchedulingStateValue.CommitmentClasses[OrderIndexValue] !=
-                ECommandCommitmentClass::MandatoryOpening ||
-            CommandAuthoritySchedulingStateValue.ExecutionGuarantees[OrderIndexValue] !=
-                ECommandTaskExecutionGuarantee::MustExecute)
+            CommandAuthoritySchedulingStateValue.PreferredProducerPlacementSlotIdTypes[OrderIndexValue] ==
+                EBuildPlacementSlotType::Unknown)
+        {
+            continue;
+        }
+
+        if (!DoesAddonTaskRequireExclusiveProducerReservationValue(
+                CommandAuthoritySchedulingStateValue.TaskOrigins[OrderIndexValue],
+                CommandAuthoritySchedulingStateValue.CommitmentClasses[OrderIndexValue],
+                CommandAuthoritySchedulingStateValue.ExecutionGuarantees[OrderIndexValue]))
         {
             continue;
         }
@@ -1653,9 +1742,14 @@ bool DoesMandatoryOpeningAddonReserveProducer(
             const FBlockedTaskRecord* BlockedTaskRecordPtrValue =
                 BlockedTaskRingBufferPtrValue->GetRecordAtOrderedIndex(OrderedIndexValue);
             if (BlockedTaskRecordPtrValue == nullptr || BlockedTaskRecordPtrValue->TaskType != ECommandTaskType::AddOn ||
-                BlockedTaskRecordPtrValue->CommitmentClass != ECommandCommitmentClass::MandatoryOpening ||
-                BlockedTaskRecordPtrValue->ExecutionGuarantee != ECommandTaskExecutionGuarantee::MustExecute ||
                 !BlockedTaskRecordPtrValue->PreferredProducerPlacementSlotId.IsValid())
+            {
+                continue;
+            }
+
+            if (!DoesAddonTaskRequireExclusiveProducerReservationValue(BlockedTaskRecordPtrValue->Origin,
+                                                                       BlockedTaskRecordPtrValue->CommitmentClass,
+                                                                       BlockedTaskRecordPtrValue->ExecutionGuarantee))
             {
                 continue;
             }
@@ -1901,6 +1995,12 @@ bool TrySelectPlacementSlotCandidate(const FFrameContext& FrameValue,
 
     if (!DoesPlacementSlotSatisfyFootprintPolicy(FrameValue, NormalizedBuildPlacementSlotValue,
                                                  EconomyOrderValue.AbilityId))
+    {
+        return false;
+    }
+
+    if (DoesStructurePlacementOverlapObservedProtectedAddonLane(FrameValue, EconomyOrderValue,
+                                                                NormalizedBuildPlacementSlotValue))
     {
         return false;
     }
@@ -3049,6 +3149,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             case ABILITY_ID::RESEARCH_COMBATSHIELD:
             case ABILITY_ID::RESEARCH_CONCUSSIVESHELLS:
             case ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1:
+            case ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL1:
             {
                 const bool IsResearchUpgradeValue = EconomyOrderValue.UpgradeId.ToType() != UPGRADE_ID::INVALID;
                 if (EconomyOrderValue.AbilityId == ABILITY_ID::TRAIN_SCV &&

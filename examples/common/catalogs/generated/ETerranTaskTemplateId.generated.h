@@ -30,6 +30,7 @@ enum class ETerranTaskTemplateId : uint16_t
     BuildFactoryReactor,
     ResearchCombatShield,
     ResearchTerranInfantryWeaponsLevel1,
+    ResearchTerranInfantryArmorLevel1,
     TrainWidowMine,
     ResearchConcussiveShells,
     BuildBunker,

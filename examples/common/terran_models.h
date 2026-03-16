@@ -456,6 +456,8 @@ inline ABILITY_ID TerranUpgradeIdToResearchAbilityId(const UpgradeID UpgradeType
             return ABILITY_ID::RESEARCH_CONCUSSIVESHELLS;
         case UPGRADE_ID::TERRANINFANTRYWEAPONSLEVEL1:
             return ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1;
+        case UPGRADE_ID::TERRANINFANTRYARMORSLEVEL1:
+            return ABILITY_ID::RESEARCH_TERRANINFANTRYARMORLEVEL1;
         default:
             return ABILITY_ID::INVALID;
     }

@@ -5,66 +5,56 @@ You are resuming work in `L:\Sc2_Bot` on the Terran deterministic building place
 ## Latest Resume Update
 
 ### Current Slice
-- The active slice is the generated Terran goal and task dictionary refactor.
-- The focus is to move Terran goal definitions and reusable task-template defaults out of hardcoded C++ lists and into generated read-only runtime tables sourced from human-authored YAML.
+- The active slice is the Terran production-regression correction pass after the generated goal/task dictionary refactor.
+- The focus is to stop macro starvation and placement regressions in the live Terran bot:
+  - release producer-family macro work when only future opening steps exist
+  - prevent structures from physically blocking observed add-on lanes
+  - reduce premature depot seeding
+  - scale barracks, bases, and upgrade pressure earlier under real mineral float
+  - rebalance oversaturated mineral lines more aggressively
 
 ### Implemented In This Slice
-- Added Terran YAML authoring sources:
-  - `examples/common/catalogs/terran/GoalDictionary.yaml`
-  - `examples/common/catalogs/terran/TaskTemplateDictionary.yaml`
-- Added the checked-in generator:
-  - `scripts/generate_sc2bot_dictionaries.py`
-- Added generated runtime outputs and generated review JSON under:
-  - `examples/common/catalogs/generated/`
-- Added runtime dictionary types and APIs:
-  - `ETerranGoalDefinitionId`
-  - `ETerranTaskTemplateId`
-  - `EGoalActivationRuleId`
-  - `EGoalTargetRuleId`
-  - `FTerranGoalDefinition`
-  - `FTerranTaskTemplateDefinition`
-  - `FTerranGoalDictionary`
-  - `FTerranTaskTemplateDictionary`
-  - `FTerranGoalRuleLibrary`
-- `FDefaultStrategicDirector` now builds Terran goals by iterating generated goal definitions and evaluating them through the Terran goal rule library instead of hardcoding the full goal list inline.
-- `FOpeningPlanRegistry` now creates opening task descriptors from generated task-template defaults first, then applies step-specific overrides such as trigger loop, priority, target count, prerequisites, and exact placement metadata.
-- `FCommandAuthorityProcessor` now seeds goal-driven strategic work from generated task templates, with a fallback template resolver for existing synthetic-goal test coverage.
-- Exact-slot opening structure steps remain mandatory after the template refactor:
-  - `CommitmentClass = MandatoryOpening`
-  - `ExecutionGuarantee = MustExecute`
-  - `RetentionPolicy = HotMustRun`
-- The generator now uses repo-relative default paths instead of hardcoded drive paths, and supports `--check` for deterministic validation.
+- `FCommandAuthorityProcessor` now treats opening producer-family ownership as `seeded or presently admissible`, not `any future same-family step`.
+  - This releases goal-driven barracks, factory, and starport family work when the remaining opening step is only future-timed or blocked on unrelated prerequisites.
+  - Flexible depot seeding now also requires tighter near-term pressure at `<= 2` projected discretionary supply instead of `<= 4`.
+- `FTerranEconomyProductionOrderExpander` now rejects structure candidates that overlap the real observed add-on lane of protected producers:
+  - `BUILD_FACTORY` protects observed barracks add-on lanes
+  - `BUILD_STARPORT` protects observed factory add-on lanes
+  - this supplements static authored-slot filtering with runtime physical occupancy protection
+- `FTerranGoalRuleLibrary` now:
+  - narrows flexible supply pressure thresholds
+  - reduces early supply-buffer and scheduled-supply forecasting so depot tasks do not front-run too aggressively
+  - expands earlier to a third and fourth base under real mineral float sooner
+  - increases desired barracks count sooner under sustained minerals
+  - prioritizes upgrades earlier when there are idle combat structures or sustained float
+  - allows the second engineering bay earlier when the economy is already floating and infantry production is established
+- `TerranAgent::ProduceWorkerMineralRebalanceIntents(...)` now:
+  - raises the per-step rebalance cap from `4` to `8`
+  - prefers workers from the most oversaturated source town hall before using distance tie-breakers
 
 ### Test Coverage Added Or Extended
-- Added `test_terran_goal_task_dictionary` to validate:
-  - generated goal-dictionary count and lookup
-  - generated task-template count and lookup
-  - action-to-template resolution
-  - task-descriptor materialization from templates
-  - opening-step parity and mandatory exact-slot metadata retention
-- `tests/all_tests.cc` and `tests/CMakeLists.txt` now include the new dictionary test.
+- `test_terran_economy_production_order_expander` now covers a runtime regression where a starport candidate overlaps an observed factory add-on lane and must skip to a later safe authored slot.
+- `test_terran_opening_plan_scheduler` now reflects the corrected producer-family behavior:
+  - goal-driven same-family work is allowed when no seeded or presently admissible opening task owns that family
+  - delayed barracks-family release coverage remains in place
 
 ### Current Validation State
 - Passed:
-  - `python L:\Sc2_Bot\scripts\generate_sc2bot_dictionaries.py --check`
-  - `cmd /c Build.bat --target tutorial`
   - `cmd /c BuildAllTests.bat`
-  - `sc2::TestTerranGoalTaskDictionary`
+  - `cmd /c Build.bat --target tutorial`
+  - `& 'L:\Sc2_Bot\RunTests.bat' --filter 'sc2::TestTerranBuildPlacementService' --timeout 120`
   - `sc2::TestTerranOpeningPlanScheduler`
+  - `sc2::TestTerranEconomyProductionOrderExpander`
   - `sc2::TestCommandAuthorityScheduling`
-  - `sc2::TestTerranPlanners`
-  - `sc2::TestTerranDescriptorPipeline`
-  - `sc2::TestTerranEconomicModels`
 - Not run in this slice:
   - visible live match through `cmd /c LaunchTerranEasyComputerMatch.bat`
 - Important current scope note:
-  - this slice is a definition-source refactor. It does not resolve the still-open live gameplay issues around rally behavior, macro spending, expansion cadence, upgrade progression, or unit tactical control.
+  - this slice improves scheduler gating and runtime placement safety, but it does not yet include a new live visual validation pass for the reported barracks idle time, starport/factory add-on interaction, depot pacing, or upgrade cadence.
 
 ## Immediate User Requests
-- Push the generated Terran goal/task dictionary refactor to git after updating `RESUME.md`.
-- Preserve the generated YAML plus generated C++ plus generated JSON review flow. Do not add runtime YAML parsing.
-- Keep Terran runtime consumers reading only generated static dictionary data.
-- The next likely follow-on requested by the user is a skill for authoring Sc2Bot goals and task templates against this new schema.
+- Pause the current feature work.
+- Commit and push the current regression-fix slice after updating `RESUME.md`.
+- Await further instruction after the push.
 
 ## Mandatory Local Standards
 - Read `L:\Sc2_Bot\CodingStandards.md` before making code changes.
