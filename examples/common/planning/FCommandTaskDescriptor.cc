@@ -38,6 +38,7 @@ void FCommandTaskDescriptor::Reset()
     ParallelGroupId = 0U;
     ActionPreferredPlacementSlotType = EBuildPlacementSlotType::Unknown;
     ActionPreferredPlacementSlotId.Reset();
+    ActionPreferredProducerPlacementSlotId.Reset();
     CompletionObservedCountAtLeast = 0U;
     CompletionExpectedCompleteByGameLoop = 0U;
 }

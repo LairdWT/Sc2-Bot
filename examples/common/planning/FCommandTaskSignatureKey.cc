@@ -28,6 +28,7 @@ void FCommandTaskSignatureKey::Reset()
     ResultUnitTypeId = UNIT_TYPEID::INVALID;
     UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
     PreferredPlacementSlotId.Reset();
+    PreferredProducerPlacementSlotId.Reset();
 }
 
 FCommandTaskSignatureKey FCommandTaskSignatureKey::FromOrderRecord(const FCommandOrderRecord& CommandOrderRecordValue)
@@ -39,6 +40,8 @@ FCommandTaskSignatureKey FCommandTaskSignatureKey::FromOrderRecord(const FComman
     CommandTaskSignatureKeyValue.ResultUnitTypeId = CommandOrderRecordValue.ResultUnitTypeId;
     CommandTaskSignatureKeyValue.UpgradeId = CommandOrderRecordValue.UpgradeId;
     CommandTaskSignatureKeyValue.PreferredPlacementSlotId = CommandOrderRecordValue.PreferredPlacementSlotId;
+    CommandTaskSignatureKeyValue.PreferredProducerPlacementSlotId =
+        CommandOrderRecordValue.PreferredProducerPlacementSlotId;
     return CommandTaskSignatureKeyValue;
 }
 
@@ -53,6 +56,8 @@ FCommandTaskSignatureKey FCommandTaskSignatureKey::FromTaskDescriptor(
     CommandTaskSignatureKeyValue.UpgradeId = CommandTaskDescriptorValue.ActionUpgradeId;
     CommandTaskSignatureKeyValue.PreferredPlacementSlotId =
         CommandTaskDescriptorValue.ActionPreferredPlacementSlotId;
+    CommandTaskSignatureKeyValue.PreferredProducerPlacementSlotId =
+        CommandTaskDescriptorValue.ActionPreferredProducerPlacementSlotId;
     return CommandTaskSignatureKeyValue;
 }
 
@@ -67,7 +72,8 @@ bool FCommandTaskSignatureKey::operator==(const FCommandTaskSignatureKey& Comman
            AbilityId == CommandTaskSignatureKeyValue.AbilityId &&
            ResultUnitTypeId == CommandTaskSignatureKeyValue.ResultUnitTypeId &&
            UpgradeId == CommandTaskSignatureKeyValue.UpgradeId &&
-           PreferredPlacementSlotId == CommandTaskSignatureKeyValue.PreferredPlacementSlotId;
+           PreferredPlacementSlotId == CommandTaskSignatureKeyValue.PreferredPlacementSlotId &&
+           PreferredProducerPlacementSlotId == CommandTaskSignatureKeyValue.PreferredProducerPlacementSlotId;
 }
 
 size_t FCommandTaskSignatureKeyHash::operator()(
@@ -85,6 +91,11 @@ size_t FCommandTaskSignatureKeyHash::operator()(
         HashValue, std::hash<int>{}(static_cast<int>(CommandTaskSignatureKeyValue.PreferredPlacementSlotId.SlotType)));
     HashValue = CombineHash(
         HashValue, std::hash<uint8_t>{}(CommandTaskSignatureKeyValue.PreferredPlacementSlotId.Ordinal));
+    HashValue = CombineHash(HashValue, std::hash<int>{}(
+                                           static_cast<int>(
+                                               CommandTaskSignatureKeyValue.PreferredProducerPlacementSlotId.SlotType)));
+    HashValue = CombineHash(
+        HashValue, std::hash<uint8_t>{}(CommandTaskSignatureKeyValue.PreferredProducerPlacementSlotId.Ordinal));
     return HashValue;
 }
 

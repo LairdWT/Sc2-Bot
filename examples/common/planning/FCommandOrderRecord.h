@@ -93,6 +93,7 @@ public:
     UpgradeID UpgradeId;
     EBuildPlacementSlotType PreferredPlacementSlotType;
     FBuildPlacementSlotId PreferredPlacementSlotId;
+    FBuildPlacementSlotId PreferredProducerPlacementSlotId;
     FBuildPlacementSlotId ReservedPlacementSlotId;
     ECommandOrderDeferralReason LastDeferralReason;
     uint64_t LastDeferralStep;

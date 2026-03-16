@@ -13,6 +13,7 @@ set(sc2_terran_bot_common_sources
     catalogs/generated/FTerranTaskTemplateDictionaryData.generated.cc
     build_orders/EOpeningPlanId.cc
     build_orders/EOpeningPlanLifecycleState.cc
+    build_orders/EOpeningWallChainState.cc
     build_orders/FOpeningPlanDescriptor.cc
     build_orders/FOpeningPlanExecutionState.cc
     build_orders/FOpeningPlanGoals.cc
@@ -26,6 +27,7 @@ set(sc2_terran_bot_common_sources
     descriptors/FEconomicCommitmentLedgerDescriptor.cc
     descriptors/FEconomyStateDescriptor.cc
     descriptors/FExecutionPressureDescriptor.cc
+    descriptors/FObservedPlacementSlotState.cc
     descriptors/FObservedRampWallState.cc
     descriptors/FProductionStateDescriptor.cc
     descriptors/FSchedulerOutlookDescriptor.cc
@@ -56,6 +58,7 @@ set(sc2_terran_bot_common_sources
     planning/EUnitTacticalBehavior.cc
     planning/EOrderLifecycleState.cc
     planning/EPlanningProcessorState.cc
+    planning/EProductionRallyApplyState.cc
     planning/EWallGateState.cc
     planning/FCommandTaskDescriptor.cc
     planning/FCommandTaskSignatureKey.cc

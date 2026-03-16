@@ -39,6 +39,26 @@ bool Check(const bool ConditionValue, bool& SuccessValue, const std::string& Mes
     return ConditionValue;
 }
 
+FBuildPlacementSlotId CreatePlacementSlotIdValue(const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
+                                                 const uint8_t OrdinalValue)
+{
+    FBuildPlacementSlotId BuildPlacementSlotIdValue;
+    BuildPlacementSlotIdValue.SlotType = BuildPlacementSlotTypeValue;
+    BuildPlacementSlotIdValue.Ordinal = OrdinalValue;
+    return BuildPlacementSlotIdValue;
+}
+
+void SetObservedPlacementSlotState(FGameStateDescriptor& GameStateDescriptorValue,
+                                   const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
+                                   const uint8_t OrdinalValue,
+                                   const EObservedWallSlotState ObservedWallSlotStateValue)
+{
+    GameStateDescriptorValue.ObservedPlacementSlotState.SetObservedPlacementSlotState(
+        CreatePlacementSlotIdValue(BuildPlacementSlotTypeValue, OrdinalValue), ObservedWallSlotStateValue);
+    GameStateDescriptorValue.ObservedRampWallState.SetObservedWallSlotState(BuildPlacementSlotTypeValue,
+                                                                            ObservedWallSlotStateValue);
+}
+
 void CheckOpeningPlanStepMetadata(const FOpeningPlanStep& OpeningPlanStepValue, const uint32_t ExpectedStepIdValue,
                                   const uint64_t ExpectedMinGameLoopValue, const int ExpectedPriorityValue,
                                   const AbilityID ExpectedAbilityIdValue,
@@ -361,6 +381,10 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     Check(OpeningPlanDescriptorValue.Steps[0].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainRampDepotLeft,
           SuccessValue, "The first depot step should bind to the left ramp depot slot.");
+    Check(OpeningPlanDescriptorValue.Steps[0].TaskDescriptor.ActionPreferredPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainRampDepotLeft &&
+              OpeningPlanDescriptorValue.Steps[0].TaskDescriptor.ActionPreferredPlacementSlotId.Ordinal == 0U,
+          SuccessValue, "The first depot step should bind to the left ramp depot slot ordinal zero.");
     Check(OpeningPlanDescriptorValue.Steps[0].TaskDescriptor.Origin == ECommandTaskOrigin::Opening, SuccessValue,
           "Opening steps should preserve opening task origin metadata.");
     Check(OpeningPlanDescriptorValue.Steps[0].TaskDescriptor.CommitmentClass ==
@@ -375,15 +399,33 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     Check(OpeningPlanDescriptorValue.Steps[1].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainRampBarracksWithAddon,
           SuccessValue, "The first barracks step should bind to the ramp barracks slot.");
+    Check(OpeningPlanDescriptorValue.Steps[1].TaskDescriptor.ActionPreferredPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainRampBarracksWithAddon &&
+              OpeningPlanDescriptorValue.Steps[1].TaskDescriptor.ActionPreferredPlacementSlotId.Ordinal == 0U,
+          SuccessValue, "The first barracks step should bind to the ramp barracks slot ordinal zero.");
     Check(OpeningPlanDescriptorValue.Steps[1].TaskDescriptor.CommitmentClass ==
               ECommandCommitmentClass::MandatoryOpening,
           SuccessValue, "The wall barracks step should be a mandatory opening commitment.");
     Check(OpeningPlanDescriptorValue.Steps[7].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainRampDepotRight,
           SuccessValue, "The second wall depot step should bind to the right ramp depot slot.");
+    Check(OpeningPlanDescriptorValue.Steps[7].TaskDescriptor.ActionPreferredPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainRampDepotRight &&
+              OpeningPlanDescriptorValue.Steps[7].TaskDescriptor.ActionPreferredPlacementSlotId.Ordinal == 0U,
+          SuccessValue, "The second wall depot step should bind to the right ramp depot slot ordinal zero.");
     Check(OpeningPlanDescriptorValue.Steps[7].TaskDescriptor.CommitmentClass ==
               ECommandCommitmentClass::MandatoryOpening,
           SuccessValue, "The second wall depot step should be a mandatory opening commitment.");
+    Check(OpeningPlanDescriptorValue.Steps[6].TaskDescriptor.ActionPreferredProducerPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainRampBarracksWithAddon &&
+              OpeningPlanDescriptorValue.Steps[6].TaskDescriptor.ActionPreferredProducerPlacementSlotId.Ordinal == 0U,
+          SuccessValue, "The first barracks reactor step should bind to the wall barracks producer slot.");
+    Check(OpeningPlanDescriptorValue.Steps[6].TaskDescriptor.CommitmentClass ==
+              ECommandCommitmentClass::MandatoryOpening,
+          SuccessValue, "The first barracks reactor step should be a mandatory opening commitment.");
+    Check(OpeningPlanDescriptorValue.Steps[6].TaskDescriptor.ExecutionGuarantee ==
+              ECommandTaskExecutionGuarantee::MustExecute,
+          SuccessValue, "The first barracks reactor step should be marked must-execute.");
     Check(OpeningPlanDescriptorValue.Steps[8].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainFactoryWithAddon,
           SuccessValue, "The first factory step should bind to the first authored main factory slot.");
@@ -404,6 +446,14 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     Check(OpeningPlanDescriptorValue.Steps[13].TaskDescriptor.CommitmentClass ==
               ECommandCommitmentClass::MandatoryOpening,
           SuccessValue, "The first starport step should be a mandatory opening commitment.");
+    Check(OpeningPlanDescriptorValue.Steps[18].TaskDescriptor.ActionPreferredProducerPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainFactoryWithAddon &&
+              OpeningPlanDescriptorValue.Steps[18].TaskDescriptor.ActionPreferredProducerPlacementSlotId.Ordinal == 0U,
+          SuccessValue, "The first factory tech-lab step should bind to the first authored main factory slot.");
+    Check(OpeningPlanDescriptorValue.Steps[40].TaskDescriptor.ActionPreferredProducerPlacementSlotId.SlotType ==
+                  EBuildPlacementSlotType::MainStarportWithAddon &&
+              OpeningPlanDescriptorValue.Steps[40].TaskDescriptor.ActionPreferredProducerPlacementSlotId.Ordinal == 0U,
+          SuccessValue, "The first starport add-on step should bind to the first authored main starport slot.");
     Check(OpeningPlanDescriptorValue.Steps[25].TaskDescriptor.ActionPreferredPlacementSlotType ==
               EBuildPlacementSlotType::MainBarracksWithAddon,
           SuccessValue, "The second barracks step should bind to the first authored main barracks slot.");
@@ -523,6 +573,8 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
           SuccessValue, "Dependency-gated steps should stay deferred until their prerequisite step completes.");
 
     GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 1U;
+    SetObservedPlacementSlotState(GameStateDescriptorValue, EBuildPlacementSlotType::MainRampDepotLeft, 0U,
+                                  EObservedWallSlotState::Occupied);
     CommandAuthorityProcessorValue.ProcessSchedulerStep(GameStateDescriptorValue);
 
     Check(GameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(1U), SuccessValue,
@@ -544,6 +596,56 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
                                          ECommandAuthorityLayer::StrategicDirector, RefineryStrategicOrderIndexValue),
           SuccessValue, "Later authored steps should not seed before their minimum game loop is reached.");
 
+    GameStateDescriptorValue.CurrentGameLoop = 2464U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(GameStateDescriptorValue);
+    size_t WallDepotRightStrategicOrderIndexValue = 0U;
+    Check(!TryFindOrderIndexByPlanStepId(GameStateDescriptorValue.CommandAuthoritySchedulingState, 8U,
+                                         ECommandAuthorityLayer::StrategicDirector,
+                                         WallDepotRightStrategicOrderIndexValue),
+          SuccessValue,
+          "The second wall depot step should stay blocked until the mandatory wall barracks step completes.");
+
+    GameStateDescriptorValue.CurrentGameLoop = 5040U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(GameStateDescriptorValue);
+    size_t FlexibleDepotStrategicOrderIndexValue = 0U;
+    Check(!TryFindOrderIndexByPlanStepId(GameStateDescriptorValue.CommandAuthoritySchedulingState, 25U,
+                                         ECommandAuthorityLayer::StrategicDirector,
+                                         FlexibleDepotStrategicOrderIndexValue),
+          SuccessValue,
+          "Later generic opening depots should stay blocked while the mandatory wall chain is unresolved.");
+
+    FGameStateDescriptor NoSupplyPressureOpeningGameStateDescriptorValue;
+    NoSupplyPressureOpeningGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+    NoSupplyPressureOpeningGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 2U;
+    NoSupplyPressureOpeningGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_BARRACKS)] = 1U;
+    NoSupplyPressureOpeningGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
+    NoSupplyPressureOpeningGameStateDescriptorValue.MacroState.WorkerCount = 18U;
+    NoSupplyPressureOpeningGameStateDescriptorValue.MacroState.BarracksCount = 1U;
+    NoSupplyPressureOpeningGameStateDescriptorValue.MacroState.SupplyUsed = 18U;
+    NoSupplyPressureOpeningGameStateDescriptorValue.MacroState.SupplyCap = 31U;
+    SetObservedWorkerCount(NoSupplyPressureOpeningGameStateDescriptorValue, 18U);
+    SetProjectedDiscretionaryBudget(NoSupplyPressureOpeningGameStateDescriptorValue, 500U, 100U, 13U);
+    SetObservedPlacementSlotState(NoSupplyPressureOpeningGameStateDescriptorValue,
+                                  EBuildPlacementSlotType::MainRampDepotLeft, 0U,
+                                  EObservedWallSlotState::Occupied);
+    SetObservedPlacementSlotState(NoSupplyPressureOpeningGameStateDescriptorValue,
+                                  EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U,
+                                  EObservedWallSlotState::Occupied);
+    SetObservedPlacementSlotState(NoSupplyPressureOpeningGameStateDescriptorValue,
+                                  EBuildPlacementSlotType::MainRampDepotRight, 0U,
+                                  EObservedWallSlotState::Occupied);
+    NoSupplyPressureOpeningGameStateDescriptorValue.CurrentGameLoop = 5040U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(NoSupplyPressureOpeningGameStateDescriptorValue);
+
+    size_t NoDemandFlexibleDepotStrategicOrderIndexValue = 0U;
+    Check(!TryFindOrderIndexByPlanStepId(NoSupplyPressureOpeningGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                         25U, ECommandAuthorityLayer::StrategicDirector,
+                                         NoDemandFlexibleDepotStrategicOrderIndexValue),
+          SuccessValue,
+          "Flexible opening depot steps should stay deferred when current buffered supply demand is already satisfied.");
+
     FGameStateDescriptor OpeningOnlyGameStateDescriptorValue;
     OpeningOnlyGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
     OpeningOnlyGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
@@ -552,6 +654,8 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     OpeningOnlyGameStateDescriptorValue.MacroState.WorkerCount = 12U;
     SetObservedWorkerCount(OpeningOnlyGameStateDescriptorValue, 12U);
     SetProjectedDiscretionaryBudget(OpeningOnlyGameStateDescriptorValue, 500U, 100U, 7U);
+    SetObservedPlacementSlotState(OpeningOnlyGameStateDescriptorValue, EBuildPlacementSlotType::MainRampDepotLeft, 0U,
+                                  EObservedWallSlotState::Occupied);
     OpeningOnlyGameStateDescriptorValue.CurrentGameLoop = 941U;
     CommandAuthorityProcessorValue.ProcessSchedulerStep(OpeningOnlyGameStateDescriptorValue);
     Check(TryFindOrderIndexByPlanStepId(OpeningOnlyGameStateDescriptorValue.CommandAuthoritySchedulingState, 3U,
@@ -559,18 +663,58 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
           SuccessValue, "Opening-only scheduling should seed later authored steps once their frame gate is reached.");
 
     GameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(UNIT_TYPEID::TERRAN_BARRACKS)] = 1U;
+    SetObservedPlacementSlotState(GameStateDescriptorValue, EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U,
+                                  EObservedWallSlotState::Occupied);
     CommandAuthorityProcessorValue.ProcessSchedulerStep(GameStateDescriptorValue);
     Check(GameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(2U), SuccessValue,
           "Observed barracks completion should complete the second authored opening-plan step.");
+
+    FGameStateDescriptor ReactorPendingWallDepotGameStateDescriptorValue;
+    ReactorPendingWallDepotGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
+    ReactorPendingWallDepotGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_SUPPLYDEPOT)] = 1U;
+    ReactorPendingWallDepotGameStateDescriptorValue.BuildPlanning.ObservedBuildingCounts[GetBuildingIndex(
+        UNIT_TYPEID::TERRAN_BARRACKS)] = 1U;
+    ReactorPendingWallDepotGameStateDescriptorValue.MacroState.ActiveBaseCount = 1U;
+    ReactorPendingWallDepotGameStateDescriptorValue.MacroState.WorkerCount = 16U;
+    ReactorPendingWallDepotGameStateDescriptorValue.MacroState.BarracksCount = 1U;
+    SetObservedWorkerCount(ReactorPendingWallDepotGameStateDescriptorValue, 16U);
+    SetProjectedDiscretionaryBudget(ReactorPendingWallDepotGameStateDescriptorValue, 500U, 100U, 7U);
+    SetObservedPlacementSlotState(ReactorPendingWallDepotGameStateDescriptorValue,
+                                  EBuildPlacementSlotType::MainRampDepotLeft, 0U,
+                                  EObservedWallSlotState::Occupied);
+    SetObservedPlacementSlotState(ReactorPendingWallDepotGameStateDescriptorValue,
+                                  EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U,
+                                  EObservedWallSlotState::Occupied);
+    ReactorPendingWallDepotGameStateDescriptorValue.CurrentGameLoop = 2464U;
+    CommandAuthorityProcessorValue.ProcessSchedulerStep(ReactorPendingWallDepotGameStateDescriptorValue);
+
+    size_t BarracksReactorStrategicOrderIndexValue = 0U;
+    Check(TryFindOrderIndexByPlanStepId(ReactorPendingWallDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        7U, ECommandAuthorityLayer::StrategicDirector,
+                                        BarracksReactorStrategicOrderIndexValue),
+          SuccessValue,
+          "The mandatory barracks reactor step should seed once the wall barracks is observed complete.");
+
+    size_t ReactorPendingWallDepotStrategicOrderIndexValue = 0U;
+    Check(TryFindOrderIndexByPlanStepId(ReactorPendingWallDepotGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                        8U, ECommandAuthorityLayer::StrategicDirector,
+                                        ReactorPendingWallDepotStrategicOrderIndexValue),
+          SuccessValue,
+          "The second wall depot should still seed while the mandatory barracks reactor is pending.");
 
     FGameStateDescriptor WallSlotGameStateDescriptorValue;
     WallSlotGameStateDescriptorValue.BuildPlanning.ObservedTownHallCount = 1U;
     SetObservedWorkerCount(WallSlotGameStateDescriptorValue, 12U);
     SetProjectedDiscretionaryBudget(WallSlotGameStateDescriptorValue, 500U, 100U, 7U);
     WallSlotGameStateDescriptorValue.RampWallDescriptor.bIsValid = true;
-    WallSlotGameStateDescriptorValue.ObservedRampWallState.LeftDepotState = EObservedWallSlotState::Empty;
-    WallSlotGameStateDescriptorValue.ObservedRampWallState.BarracksState = EObservedWallSlotState::Empty;
-    WallSlotGameStateDescriptorValue.ObservedRampWallState.RightDepotState = EObservedWallSlotState::Empty;
+    SetObservedPlacementSlotState(WallSlotGameStateDescriptorValue, EBuildPlacementSlotType::MainRampDepotLeft, 0U,
+                                  EObservedWallSlotState::Empty);
+    SetObservedPlacementSlotState(WallSlotGameStateDescriptorValue,
+                                  EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U,
+                                  EObservedWallSlotState::Empty);
+    SetObservedPlacementSlotState(WallSlotGameStateDescriptorValue, EBuildPlacementSlotType::MainRampDepotRight, 0U,
+                                  EObservedWallSlotState::Empty);
 
     WallSlotGameStateDescriptorValue.CurrentGameLoop = 357U;
     CommandAuthorityProcessorValue.ProcessSchedulerStep(WallSlotGameStateDescriptorValue);
@@ -598,12 +742,14 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     Check(!WallSlotGameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(1U), SuccessValue,
           "Slot-bound wall steps should not complete from aggregate depot counts when the exact wall slot is empty.");
 
-    WallSlotGameStateDescriptorValue.ObservedRampWallState.LeftDepotState = EObservedWallSlotState::Occupied;
+    SetObservedPlacementSlotState(WallSlotGameStateDescriptorValue, EBuildPlacementSlotType::MainRampDepotLeft, 0U,
+                                  EObservedWallSlotState::Occupied);
     CommandAuthorityProcessorValue.ProcessSchedulerStep(WallSlotGameStateDescriptorValue);
     Check(WallSlotGameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(1U), SuccessValue,
           "Slot-bound wall steps should complete once the exact wall slot is occupied.");
 
-    WallSlotGameStateDescriptorValue.ObservedRampWallState.LeftDepotState = EObservedWallSlotState::Empty;
+    SetObservedPlacementSlotState(WallSlotGameStateDescriptorValue, EBuildPlacementSlotType::MainRampDepotLeft, 0U,
+                                  EObservedWallSlotState::Empty);
     CommandAuthorityProcessorValue.ProcessSchedulerStep(WallSlotGameStateDescriptorValue);
     Check(!WallSlotGameStateDescriptorValue.OpeningPlanExecutionState.IsStepCompleted(1U), SuccessValue,
           "Destroyed wall structures should regress slot-bound opening-plan step completion.");
@@ -647,49 +793,22 @@ bool TestTerranOpeningPlanScheduler(int ArgC, char** ArgV)
     CommandAuthorityProcessorValue.ProcessSchedulerStep(GoalDrivenFamilyFreedomGameStateDescriptorValue);
 
     size_t StarportReactorStrategicOrderIndexValue = 0U;
-    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                        901U, StarportReactorStrategicOrderIndexValue),
+    Check(!TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                         901U, StarportReactorStrategicOrderIndexValue),
           SuccessValue,
-          "Remaining authored opening steps should not block unrelated goal-driven starport add-on work.");
-    if (TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                      901U, StarportReactorStrategicOrderIndexValue))
-    {
-        const FCommandOrderRecord StarportReactorStrategicOrderValue =
-            GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(
-                StarportReactorStrategicOrderIndexValue);
-        Check(StarportReactorStrategicOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_STARPORT, SuccessValue,
-              "Goal-driven starport reactor seeding should preserve the requested add-on ability.");
-    }
+          "Goal-driven starport add-on work should stay blocked while mandatory opening structure work is unresolved.");
 
     size_t StimpackStrategicOrderIndexValue = 0U;
-    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                        902U, StimpackStrategicOrderIndexValue),
+    Check(!TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                         902U, StimpackStrategicOrderIndexValue),
           SuccessValue,
-          "Remaining authored opening steps should not block unrelated goal-driven barracks upgrade work.");
-    if (TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                      902U, StimpackStrategicOrderIndexValue))
-    {
-        const FCommandOrderRecord StimpackStrategicOrderValue =
-            GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(
-                StimpackStrategicOrderIndexValue);
-        Check(StimpackStrategicOrderValue.AbilityId == ABILITY_ID::RESEARCH_STIMPACK, SuccessValue,
-              "Goal-driven upgrade seeding should preserve the requested stimpack research ability.");
-    }
+          "Goal-driven upgrade work should stay blocked while mandatory opening structure work is unresolved.");
 
     size_t MedivacStrategicOrderIndexValue = 0U;
-    Check(TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                        903U, MedivacStrategicOrderIndexValue),
+    Check(!TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
+                                         903U, MedivacStrategicOrderIndexValue),
           SuccessValue,
-          "Remaining authored opening steps should not block unrelated goal-driven starport unit production.");
-    if (TryFindStrategicOrderByGoalId(GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState,
-                                      903U, MedivacStrategicOrderIndexValue))
-    {
-        const FCommandOrderRecord MedivacStrategicOrderValue =
-            GoalDrivenFamilyFreedomGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(
-                MedivacStrategicOrderIndexValue);
-        Check(MedivacStrategicOrderValue.AbilityId == ABILITY_ID::TRAIN_MEDIVAC, SuccessValue,
-              "Goal-driven medivac seeding should preserve the requested training ability.");
-    }
+          "Goal-driven unit production should stay blocked while mandatory opening structure work is unresolved.");
 
     return SuccessValue;
 }

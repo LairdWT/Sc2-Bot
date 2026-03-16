@@ -1384,6 +1384,16 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     AddonBlockerGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 200U;
     AddonBlockerGameStateDescriptorValue.BuildPlanning.AvailableVespene = 100U;
     AddonBlockerGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    AddonBlockerGameStateDescriptorValue.RampWallDescriptor.bIsValid = true;
+    AddonBlockerGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.SlotId.SlotType =
+        EBuildPlacementSlotType::MainRampBarracksWithAddon;
+    AddonBlockerGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.SlotId.Ordinal = 0U;
+    AddonBlockerGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.FootprintPolicy =
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance;
+    AddonBlockerGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.BuildPoint = Point2D(20.0f, 20.0f);
+    AddonBlockerGameStateDescriptorValue.MainBaseLayoutDescriptor.bIsValid = true;
+    AddonBlockerGameStateDescriptorValue.MainBaseLayoutDescriptor.ProductionClearanceAnchorPoint =
+        Point2D(12.0f, 12.0f);
 
     FCommandAuthoritySchedulingState& AddonBlockerSchedulingStateValue =
         AddonBlockerGameStateDescriptorValue.CommandAuthoritySchedulingState;
@@ -1393,6 +1403,10 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
     AddonBlockerEconomyOrderValue.TargetCount = 1U;
     AddonBlockerEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
     AddonBlockerEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKSREACTOR;
+    AddonBlockerEconomyOrderValue.CommitmentClass = ECommandCommitmentClass::MandatoryOpening;
+    AddonBlockerEconomyOrderValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::MustExecute;
+    AddonBlockerEconomyOrderValue.PreferredProducerPlacementSlotId =
+        AddonBlockerGameStateDescriptorValue.RampWallDescriptor.BarracksSlot.SlotId;
     const uint32_t AddonBlockerEconomyOrderIdValue =
         AddonBlockerSchedulingStateValue.EnqueueOrder(AddonBlockerEconomyOrderValue);
 
@@ -1431,6 +1445,10 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
         }
 
         HasMarineReliefIntentValue = true;
+        Check(IntentValue.TargetPoint ==
+                  AddonBlockerGameStateDescriptorValue.MainBaseLayoutDescriptor.ProductionClearanceAnchorPoint,
+              SuccessValue,
+              "A marine blocking an add-on footprint should be moved toward the main-side production-clearance anchor.");
         break;
     }
 
@@ -1492,6 +1510,119 @@ bool TestTerranEconomyProductionOrderExpander(int ArgC, char** ArgV)
               SuccessValue,
               "An add-on blocker that persists across three relief windows should promote to a hard placement block.");
     }
+
+    std::vector<Unit> AddonClearUnitStorageValue;
+    AddonClearUnitStorageValue.push_back(
+        MakeUnit(901U, UNIT_TYPEID::TERRAN_BARRACKS, Unit::Alliance::Self, Point2D(20.0f, 20.0f), true));
+    Units AddonClearUnitPointersValue;
+    AppendUnitPointers(AddonClearUnitStorageValue, AddonClearUnitPointersValue);
+
+    FakeObservation AddonClearObservationValue;
+    AddonClearObservationValue.GameLoopValue = 740U;
+    AddonClearObservationValue.SetUnits(AddonClearUnitPointersValue);
+    FakeQuery AddonClearQueryValue;
+    const FFrameContext AddonClearFrameValue = FFrameContext::Create(&AddonClearObservationValue, &AddonClearQueryValue, 40U);
+
+    FAgentState AddonClearAgentStateValue;
+    AddonClearAgentStateValue.Update(AddonClearFrameValue);
+
+    FGameStateDescriptor AddonClearGameStateDescriptorValue;
+    AddonClearGameStateDescriptorValue.CurrentStep = 40U;
+    AddonClearGameStateDescriptorValue.CurrentGameLoop = 740U;
+    AddonClearGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 200U;
+    AddonClearGameStateDescriptorValue.BuildPlanning.AvailableVespene = 100U;
+    AddonClearGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    AddonClearGameStateDescriptorValue.RampWallDescriptor =
+        AddonBlockerGameStateDescriptorValue.RampWallDescriptor;
+    AddonClearGameStateDescriptorValue.MainBaseLayoutDescriptor =
+        AddonBlockerGameStateDescriptorValue.MainBaseLayoutDescriptor;
+    FCommandOrderRecord AddonClearEconomyOrderValue = AddonBlockerEconomyOrderValue;
+    AddonClearEconomyOrderValue.CreationStep = 40U;
+    const uint32_t AddonClearEconomyOrderIdValue =
+        AddonClearGameStateDescriptorValue.CommandAuthoritySchedulingState.EnqueueOrder(AddonClearEconomyOrderValue);
+
+    FTerranEconomyProductionOrderExpander AddonClearEconomyProductionOrderExpanderValue;
+    IntentBufferValue.Reset();
+    AddonClearEconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        AddonClearFrameValue, AddonClearAgentStateValue, AddonClearGameStateDescriptorValue, IntentBufferValue,
+        BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    size_t AddonClearChildOrderIndexValue = 0U;
+    Check(AddonClearGameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetActiveChildOrderIndex(
+              AddonClearEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution, AddonClearChildOrderIndexValue),
+          SuccessValue, "Once the footprint clears, the bound barracks add-on order should create a child order.");
+    if (AddonClearGameStateDescriptorValue.CommandAuthoritySchedulingState.TryGetActiveChildOrderIndex(
+            AddonClearEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution, AddonClearChildOrderIndexValue))
+    {
+        const FCommandOrderRecord AddonClearChildOrderValue =
+            AddonClearGameStateDescriptorValue.CommandAuthoritySchedulingState.GetOrderRecord(AddonClearChildOrderIndexValue);
+        Check(AddonClearChildOrderValue.ActorTag == 901U &&
+                  AddonClearChildOrderValue.AbilityId == ABILITY_ID::BUILD_REACTOR_BARRACKS,
+              SuccessValue,
+              "Once the footprint clears, the add-on child order should dispatch from the bound wall barracks.");
+    }
+
+    std::vector<Unit> ReservedBarracksUnitStorageValue;
+    ReservedBarracksUnitStorageValue.push_back(
+        MakeUnit(951U, UNIT_TYPEID::TERRAN_BARRACKS, Unit::Alliance::Self, Point2D(20.0f, 20.0f), true));
+    Units ReservedBarracksUnitPointersValue;
+    AppendUnitPointers(ReservedBarracksUnitStorageValue, ReservedBarracksUnitPointersValue);
+
+    FakeObservation ReservedBarracksObservationValue;
+    ReservedBarracksObservationValue.GameLoopValue = 800U;
+    ReservedBarracksObservationValue.SetUnits(ReservedBarracksUnitPointersValue);
+    FakeQuery ReservedBarracksQueryValue;
+    const FFrameContext ReservedBarracksFrameValue =
+        FFrameContext::Create(&ReservedBarracksObservationValue, &ReservedBarracksQueryValue, 50U);
+
+    FAgentState ReservedBarracksAgentStateValue;
+    ReservedBarracksAgentStateValue.Update(ReservedBarracksFrameValue);
+
+    FGameStateDescriptor ReservedBarracksGameStateDescriptorValue;
+    ReservedBarracksGameStateDescriptorValue.CurrentStep = 50U;
+    ReservedBarracksGameStateDescriptorValue.CurrentGameLoop = 800U;
+    ReservedBarracksGameStateDescriptorValue.BuildPlanning.AvailableMinerals = 300U;
+    ReservedBarracksGameStateDescriptorValue.BuildPlanning.AvailableVespene = 100U;
+    ReservedBarracksGameStateDescriptorValue.BuildPlanning.AvailableSupply = 20U;
+    ReservedBarracksGameStateDescriptorValue.RampWallDescriptor =
+        AddonBlockerGameStateDescriptorValue.RampWallDescriptor;
+    ReservedBarracksGameStateDescriptorValue.MainBaseLayoutDescriptor =
+        AddonBlockerGameStateDescriptorValue.MainBaseLayoutDescriptor;
+    FCommandAuthoritySchedulingState& ReservedBarracksSchedulingStateValue =
+        ReservedBarracksGameStateDescriptorValue.CommandAuthoritySchedulingState;
+
+    FCommandOrderRecord ReservedAddonEconomyOrderValue = AddonBlockerEconomyOrderValue;
+    ReservedAddonEconomyOrderValue.CreationStep = 50U;
+    ReservedAddonEconomyOrderValue.BasePriorityValue = 200;
+    const uint32_t ReservedAddonEconomyOrderIdValue =
+        ReservedBarracksSchedulingStateValue.EnqueueOrder(ReservedAddonEconomyOrderValue);
+
+    FCommandOrderRecord ReservedMarineEconomyOrderValue = FCommandOrderRecord::CreateNoTarget(
+        ECommandAuthorityLayer::EconomyAndProduction, NullTag, ABILITY_ID::TRAIN_MARINE, 150,
+        EIntentDomain::UnitProduction, 50U);
+    ReservedMarineEconomyOrderValue.TaskType = ECommandTaskType::UnitProduction;
+    ReservedMarineEconomyOrderValue.ProducerUnitTypeId = UNIT_TYPEID::TERRAN_BARRACKS;
+    ReservedMarineEconomyOrderValue.ResultUnitTypeId = UNIT_TYPEID::TERRAN_MARINE;
+    ReservedMarineEconomyOrderValue.TargetCount = 1U;
+    const uint32_t ReservedMarineEconomyOrderIdValue =
+        ReservedBarracksSchedulingStateValue.EnqueueOrder(ReservedMarineEconomyOrderValue);
+
+    IntentBufferValue.Reset();
+    EconomyProductionOrderExpanderValue.ExpandEconomyAndProductionOrders(
+        ReservedBarracksFrameValue, ReservedBarracksAgentStateValue, ReservedBarracksGameStateDescriptorValue,
+        IntentBufferValue, BuildPlacementServiceValue, ExpansionLocationsValue);
+
+    size_t ReservedAddonChildOrderIndexValue = 0U;
+    Check(ReservedBarracksSchedulingStateValue.TryGetActiveChildOrderIndex(
+              ReservedAddonEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              ReservedAddonChildOrderIndexValue),
+          SuccessValue,
+          "The mandatory opening add-on should keep ownership of the wall barracks producer.");
+    Check(!ReservedBarracksSchedulingStateValue.TryGetActiveChildOrderIndex(
+              ReservedMarineEconomyOrderIdValue, ECommandAuthorityLayer::UnitExecution,
+              ReservedAddonChildOrderIndexValue),
+          SuccessValue,
+          "Generic marine production should not consume the wall barracks while its mandatory reactor is still pending.");
 
     std::vector<Unit> CommandCenterUnitStorageValue;
     CommandCenterUnitStorageValue.push_back(

@@ -8,6 +8,7 @@
 #include "common/descriptors/FEconomyStateDescriptor.h"
 #include "common/descriptors/FEconomicCommitmentLedgerDescriptor.h"
 #include "common/descriptors/FExecutionPressureDescriptor.h"
+#include "common/descriptors/FObservedPlacementSlotState.h"
 #include "common/descriptors/FObservedRampWallState.h"
 #include "common/descriptors/FProductionStateDescriptor.h"
 #include "common/descriptors/FSchedulerOutlookDescriptor.h"
@@ -39,6 +40,7 @@ struct FGameStateDescriptor
     FSpatialFieldSet SpatialFields;
     FRampWallDescriptor RampWallDescriptor;
     FMainBaseLayoutDescriptor MainBaseLayoutDescriptor;
+    FObservedPlacementSlotState ObservedPlacementSlotState;
     FObservedRampWallState ObservedRampWallState;
 
     FGameStateDescriptor();

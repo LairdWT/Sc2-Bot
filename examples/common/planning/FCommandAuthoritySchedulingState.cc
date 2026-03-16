@@ -120,6 +120,10 @@ FCommandTaskSignatureKey BuildTaskSignatureKeyForOrderIndex(
         CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdTypes[OrderIndexValue];
     CommandTaskSignatureKeyValue.PreferredPlacementSlotId.Ordinal =
         CommandAuthoritySchedulingStateValue.PreferredPlacementSlotIdOrdinals[OrderIndexValue];
+    CommandTaskSignatureKeyValue.PreferredProducerPlacementSlotId.SlotType =
+        CommandAuthoritySchedulingStateValue.PreferredProducerPlacementSlotIdTypes[OrderIndexValue];
+    CommandTaskSignatureKeyValue.PreferredProducerPlacementSlotId.Ordinal =
+        CommandAuthoritySchedulingStateValue.PreferredProducerPlacementSlotIdOrdinals[OrderIndexValue];
     return CommandTaskSignatureKeyValue;
 }
 
@@ -201,6 +205,8 @@ void FCommandAuthoritySchedulingState::Reset()
     PreferredPlacementSlotTypes.clear();
     PreferredPlacementSlotIdTypes.clear();
     PreferredPlacementSlotIdOrdinals.clear();
+    PreferredProducerPlacementSlotIdTypes.clear();
+    PreferredProducerPlacementSlotIdOrdinals.clear();
     ReservedPlacementSlotTypes.clear();
     ReservedPlacementSlotOrdinals.clear();
     LastDeferralReasons.clear();
@@ -328,6 +334,8 @@ void FCommandAuthoritySchedulingState::Reserve(const size_t OrderCapacityValue)
     PreferredPlacementSlotTypes.reserve(OrderCapacityValue);
     PreferredPlacementSlotIdTypes.reserve(OrderCapacityValue);
     PreferredPlacementSlotIdOrdinals.reserve(OrderCapacityValue);
+    PreferredProducerPlacementSlotIdTypes.reserve(OrderCapacityValue);
+    PreferredProducerPlacementSlotIdOrdinals.reserve(OrderCapacityValue);
     ReservedPlacementSlotTypes.reserve(OrderCapacityValue);
     ReservedPlacementSlotOrdinals.reserve(OrderCapacityValue);
     LastDeferralReasons.reserve(OrderCapacityValue);
@@ -393,6 +401,8 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     PreferredPlacementSlotTypes.push_back(StoredOrderValue.PreferredPlacementSlotType);
     PreferredPlacementSlotIdTypes.push_back(StoredOrderValue.PreferredPlacementSlotId.SlotType);
     PreferredPlacementSlotIdOrdinals.push_back(StoredOrderValue.PreferredPlacementSlotId.Ordinal);
+    PreferredProducerPlacementSlotIdTypes.push_back(StoredOrderValue.PreferredProducerPlacementSlotId.SlotType);
+    PreferredProducerPlacementSlotIdOrdinals.push_back(StoredOrderValue.PreferredProducerPlacementSlotId.Ordinal);
     ReservedPlacementSlotTypes.push_back(StoredOrderValue.ReservedPlacementSlotId.SlotType);
     ReservedPlacementSlotOrdinals.push_back(StoredOrderValue.ReservedPlacementSlotId.Ordinal);
     LastDeferralReasons.push_back(StoredOrderValue.LastDeferralReason);
@@ -559,6 +569,10 @@ FCommandOrderRecord FCommandAuthoritySchedulingState::GetOrderRecord(const size_
     CommandOrderRecordValue.PreferredPlacementSlotType = PreferredPlacementSlotTypes[OrderIndexValue];
     CommandOrderRecordValue.PreferredPlacementSlotId.SlotType = PreferredPlacementSlotIdTypes[OrderIndexValue];
     CommandOrderRecordValue.PreferredPlacementSlotId.Ordinal = PreferredPlacementSlotIdOrdinals[OrderIndexValue];
+    CommandOrderRecordValue.PreferredProducerPlacementSlotId.SlotType =
+        PreferredProducerPlacementSlotIdTypes[OrderIndexValue];
+    CommandOrderRecordValue.PreferredProducerPlacementSlotId.Ordinal =
+        PreferredProducerPlacementSlotIdOrdinals[OrderIndexValue];
     CommandOrderRecordValue.ReservedPlacementSlotId.SlotType = ReservedPlacementSlotTypes[OrderIndexValue];
     CommandOrderRecordValue.ReservedPlacementSlotId.Ordinal = ReservedPlacementSlotOrdinals[OrderIndexValue];
     CommandOrderRecordValue.LastDeferralReason = LastDeferralReasons[OrderIndexValue];
@@ -813,6 +827,10 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders(
     PreferredPlacementSlotIdTypes = BuildCompactedVector(PreferredPlacementSlotIdTypes, RetainedOrderIndicesValue);
     PreferredPlacementSlotIdOrdinals =
         BuildCompactedVector(PreferredPlacementSlotIdOrdinals, RetainedOrderIndicesValue);
+    PreferredProducerPlacementSlotIdTypes =
+        BuildCompactedVector(PreferredProducerPlacementSlotIdTypes, RetainedOrderIndicesValue);
+    PreferredProducerPlacementSlotIdOrdinals =
+        BuildCompactedVector(PreferredProducerPlacementSlotIdOrdinals, RetainedOrderIndicesValue);
     ReservedPlacementSlotTypes = BuildCompactedVector(ReservedPlacementSlotTypes, RetainedOrderIndicesValue);
     ReservedPlacementSlotOrdinals = BuildCompactedVector(ReservedPlacementSlotOrdinals, RetainedOrderIndicesValue);
     LastDeferralReasons = BuildCompactedVector(LastDeferralReasons, RetainedOrderIndicesValue);

@@ -156,6 +156,88 @@ Point2D ClampPointToPlayableBounds(const FBuildPlacementContext& BuildPlacementC
     return Point2D(ClampedXValue, ClampedYValue);
 }
 
+FBuildPlacementSlot CreatePlacementSlot(const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
+                                        const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
+                                        const Point2D& BuildPointValue,
+                                        const uint8_t SlotOrdinalValue);
+
+Point2D ComputeNaturalEntranceAssemblyAnchorPoint(const FBuildPlacementContext& BuildPlacementContextValue)
+{
+    constexpr float NaturalEntranceProjectionDistanceValue = 12.0f;
+
+    if (!BuildPlacementContextValue.RampWallDescriptor.bIsValid)
+    {
+        return Point2D();
+    }
+
+    Point2D NaturalEntranceDirectionValue;
+    if (BuildPlacementContextValue.HasNaturalLocation())
+    {
+        NaturalEntranceDirectionValue = GetNormalizedDirection(BuildPlacementContextValue.NaturalLocation -
+                                                              BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint);
+    }
+    else
+    {
+        NaturalEntranceDirectionValue = GetNormalizedDirection(
+            BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint -
+            BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint);
+    }
+
+    return ClampPointToPlayableBounds(
+        BuildPlacementContextValue,
+        BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint +
+            (NaturalEntranceDirectionValue * NaturalEntranceProjectionDistanceValue));
+}
+
+void PopulateNaturalEntranceLayoutDescriptor(const FBuildPlacementContext& BuildPlacementContextValue,
+                                             FMainBaseLayoutDescriptor& MainBaseLayoutDescriptorValue)
+{
+    constexpr float NaturalEntranceWallForwardOffsetValue = 4.0f;
+    constexpr float NaturalEntranceWallLateralOffsetValue = 4.0f;
+
+    MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.clear();
+    MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint = Point2D();
+    if (!BuildPlacementContextValue.RampWallDescriptor.bIsValid)
+    {
+        return;
+    }
+
+    Point2D NaturalEntranceDirectionValue;
+    if (BuildPlacementContextValue.HasNaturalLocation())
+    {
+        NaturalEntranceDirectionValue = GetNormalizedDirection(BuildPlacementContextValue.NaturalLocation -
+                                                              BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint);
+    }
+    else
+    {
+        NaturalEntranceDirectionValue = GetNormalizedDirection(
+            BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint -
+            BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint);
+    }
+
+    const Point2D NaturalEntranceLateralDirectionValue = GetClockwiseLateralDirection(NaturalEntranceDirectionValue);
+    const Point2D NaturalEntranceWallCenterPointValue = ClampPointToPlayableBounds(
+        BuildPlacementContextValue,
+        BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint +
+            (NaturalEntranceDirectionValue * NaturalEntranceWallForwardOffsetValue));
+    MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint =
+        ComputeNaturalEntranceAssemblyAnchorPoint(BuildPlacementContextValue);
+    MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::NaturalEntranceDepotLeft, EBuildPlacementFootprintPolicy::StructureOnly,
+        ClampPointToPlayableBounds(
+            BuildPlacementContextValue,
+            NaturalEntranceWallCenterPointValue +
+                (NaturalEntranceLateralDirectionValue * NaturalEntranceWallLateralOffsetValue)),
+        0U));
+    MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::NaturalEntranceDepotRight, EBuildPlacementFootprintPolicy::StructureOnly,
+        ClampPointToPlayableBounds(
+            BuildPlacementContextValue,
+            NaturalEntranceWallCenterPointValue -
+                (NaturalEntranceLateralDirectionValue * NaturalEntranceWallLateralOffsetValue)),
+        0U));
+}
+
 void UpdateMaxForwardProjectionFromPlacementSlots(const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue,
                                                   const Point2D& BaseLocationValue,
                                                   const Point2D& ForwardDirectionValue,
@@ -947,8 +1029,26 @@ FMainBaseLayoutDescriptor CreateMirroredAuthoredMainBaseLayoutDescriptor(
     FMainBaseLayoutDescriptor MirroredMainBaseLayoutDescriptorValue;
     MirroredMainBaseLayoutDescriptorValue.LayoutAnchorPoint =
         SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint;
+    MirroredMainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout =
+        SourceMainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout;
+    MirroredMainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint = MirrorPointAcrossDepthAxis(
+        SourceMainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint,
+        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint, MainBaseDepthDirectionValue,
+        MainBaseLateralDirectionValue);
+    MirroredMainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint = MirrorPointAcrossDepthAxis(
+        SourceMainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint,
+        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint, MainBaseDepthDirectionValue,
+        MainBaseLateralDirectionValue);
+    MirroredMainBaseLayoutDescriptorValue.ProductionClearanceAnchorPoint = MirrorPointAcrossDepthAxis(
+        SourceMainBaseLayoutDescriptorValue.ProductionClearanceAnchorPoint,
+        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint, MainBaseDepthDirectionValue,
+        MainBaseLateralDirectionValue);
     MirroredMainBaseLayoutDescriptorValue.bIsValid = SourceMainBaseLayoutDescriptorValue.bIsValid;
 
+    MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots,
+                                        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                        MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                        MirroredMainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots);
     MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
                                         SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
                                         MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
@@ -957,6 +1057,10 @@ FMainBaseLayoutDescriptor CreateMirroredAuthoredMainBaseLayoutDescriptor(
                                         SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
                                         MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
                                         MirroredMainBaseLayoutDescriptorValue.SupportDepotSlots);
+    MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.PeripheralDepotSlots,
+                                        SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                        MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                        MirroredMainBaseLayoutDescriptorValue.PeripheralDepotSlots);
     MirrorPlacementSlotsAcrossDepthAxis(SourceMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
                                         SourceMainBaseLayoutDescriptorValue.LayoutAnchorPoint,
                                         MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
@@ -985,17 +1089,20 @@ void ResolveAuthoredMainBaseLayoutDescriptor(
 {
     OutResolvedMainBaseLayoutDescriptorValue.Reset();
     OutResolvedMainBaseLayoutDescriptorValue.LayoutAnchorPoint = TemplateMainBaseLayoutDescriptorValue.LayoutAnchorPoint;
+    OutResolvedMainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout =
+        TemplateMainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout;
+    OutResolvedMainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint =
+        TemplateMainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint;
+    OutResolvedMainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint =
+        TemplateMainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint;
+    OutResolvedMainBaseLayoutDescriptorValue.ProductionClearanceAnchorPoint =
+        TemplateMainBaseLayoutDescriptorValue.ProductionClearanceAnchorPoint;
     OutProductionRailSearchOffsetIndexValue = std::numeric_limits<size_t>::max();
 
     AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                       TemplateMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                       TemplateMainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots,
                                        ABILITY_ID::BUILD_SUPPLYDEPOT,
-                                       OutResolvedMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
-                                       OutResolvedLayoutPlacementSlotsValue);
-    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                       TemplateMainBaseLayoutDescriptorValue.SupportDepotSlots,
-                                       ABILITY_ID::BUILD_SUPPLYDEPOT,
-                                       OutResolvedMainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                       OutResolvedMainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots,
                                        OutResolvedLayoutPlacementSlotsValue);
     std::vector<FBuildPlacementSlot> ResolvedProductionRailSlotsValue;
     std::vector<FResolvedLayoutPlacementSlot> ResolvedProductionRailLayoutPlacementSlotsValue;
@@ -1030,6 +1137,21 @@ void ResolveAuthoredMainBaseLayoutDescriptor(
                                        OutResolvedMainBaseLayoutDescriptorValue.StarportWithAddonSlots,
                                        OutResolvedLayoutPlacementSlotsValue,
                                        EPlacementCandidateValidationMode::StaticLayout);
+    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                       TemplateMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                       ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                       OutResolvedMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                       OutResolvedLayoutPlacementSlotsValue);
+    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                       TemplateMainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                       ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                       OutResolvedMainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                       OutResolvedLayoutPlacementSlotsValue);
+    AppendExactSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                       TemplateMainBaseLayoutDescriptorValue.PeripheralDepotSlots,
+                                       ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                       OutResolvedMainBaseLayoutDescriptorValue.PeripheralDepotSlots,
+                                       OutResolvedLayoutPlacementSlotsValue);
 
     const Point2D VerticalMainBaseStepValue =
         GetSpawnVerticalMainBaseStepForBuildPlacement(FrameValue, BuildPlacementContextValue);
@@ -1076,8 +1198,10 @@ void ResolveAuthoredMainBaseLayoutDescriptor(
     }
 
     OutResolvedMainBaseLayoutDescriptorValue.bIsValid =
+        !OutResolvedMainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.empty() ||
         !OutResolvedMainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty() ||
         !OutResolvedMainBaseLayoutDescriptorValue.SupportDepotSlots.empty() ||
+        !OutResolvedMainBaseLayoutDescriptorValue.PeripheralDepotSlots.empty() ||
         !OutResolvedMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty() ||
         !OutResolvedMainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() ||
         !OutResolvedMainBaseLayoutDescriptorValue.FactoryWithAddonSlots.empty() ||
@@ -1139,6 +1263,8 @@ uint32_t GetAuthoredMainBaseLayoutResolutionScore(
            (static_cast<uint32_t>(MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.size()) * 10U) +
            (static_cast<uint32_t>(MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.size()) * 10U) +
            (static_cast<uint32_t>(MainBaseLayoutDescriptorValue.StarportWithAddonSlots.size()) * 10U) +
+           static_cast<uint32_t>(MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.size()) +
+           static_cast<uint32_t>(MainBaseLayoutDescriptorValue.PeripheralDepotSlots.size()) +
            static_cast<uint32_t>(MainBaseLayoutDescriptorValue.SupportDepotSlots.size()) +
            static_cast<uint32_t>(MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.size());
 }
@@ -1236,11 +1362,11 @@ void AppendExactSlotsToLayoutDescriptor(
         CandidateBuildPlacementSlotValue.SlotId.Ordinal = static_cast<uint8_t>(OutPlacementSlotsValue.size());
 
         FBuildPlacementSlot ResolvedBuildPlacementSlotValue;
-        if (!TryResolveAuthoredPlacementSlot(FrameValue, BuildPlacementContextValue,
-                                             CandidateBuildPlacementSlotValue, StructureAbilityIdValue,
-                                             OutResolvedLayoutPlacementSlotsValue,
-                                             ResolvedBuildPlacementSlotValue,
-                                             ValidationModeValue))
+        if (!TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue,
+                                          CandidateBuildPlacementSlotValue, StructureAbilityIdValue,
+                                          OutResolvedLayoutPlacementSlotsValue,
+                                          ResolvedBuildPlacementSlotValue,
+                                          ValidationModeValue))
         {
             continue;
         }
@@ -1328,12 +1454,12 @@ bool TryResolveProductionRailPivotSlot(
     const ABILITY_ID PivotStructureAbilityIdValue =
         GetProductionRailRepresentativeAbilityId(PivotTemplateBuildPlacementSlotValue.SlotId.Ordinal);
     FBuildPlacementSlot ResolvedPivotBuildPlacementSlotValue;
-    if (!TryResolveAuthoredPlacementSlot(FrameValue, BuildPlacementContextValue,
-                                         PivotTemplateBuildPlacementSlotValue,
-                                         PivotStructureAbilityIdValue,
-                                         OutResolvedLayoutPlacementSlotsValue,
-                                         ResolvedPivotBuildPlacementSlotValue,
-                                         EPlacementCandidateValidationMode::StaticLayout))
+    if (!TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue,
+                                      PivotTemplateBuildPlacementSlotValue,
+                                      PivotStructureAbilityIdValue,
+                                      OutResolvedLayoutPlacementSlotsValue,
+                                      ResolvedPivotBuildPlacementSlotValue,
+                                      EPlacementCandidateValidationMode::StaticLayout))
     {
         OutResolvedBuildPlacementSlotsValue.clear();
         OutResolvedLayoutPlacementSlotsValue.clear();
@@ -1362,12 +1488,12 @@ bool TryResolveProductionRailPivotSlot(
         const ABILITY_ID StructureAbilityIdValue =
             GetProductionRailRepresentativeAbilityId(PreviousTemplateBuildPlacementSlotValue.SlotId.Ordinal);
         FBuildPlacementSlot ResolvedBuildPlacementSlotValue;
-        if (!TryResolveAuthoredPlacementSlot(FrameValue, BuildPlacementContextValue,
-                                             PreviousTemplateBuildPlacementSlotValue,
-                                             StructureAbilityIdValue,
-                                             OutResolvedLayoutPlacementSlotsValue,
-                                             ResolvedBuildPlacementSlotValue,
-                                             EPlacementCandidateValidationMode::StaticLayout))
+        if (!TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue,
+                                          PreviousTemplateBuildPlacementSlotValue,
+                                          StructureAbilityIdValue,
+                                          OutResolvedLayoutPlacementSlotsValue,
+                                          ResolvedBuildPlacementSlotValue,
+                                          EPlacementCandidateValidationMode::StaticLayout))
         {
             OutResolvedBuildPlacementSlotsValue.clear();
             OutResolvedLayoutPlacementSlotsValue.clear();
@@ -1398,12 +1524,12 @@ bool TryResolveProductionRailPivotSlot(
         const ABILITY_ID StructureAbilityIdValue =
             GetProductionRailRepresentativeAbilityId(CurrentTemplateBuildPlacementSlotValue.SlotId.Ordinal);
         FBuildPlacementSlot ResolvedBuildPlacementSlotValue;
-        if (!TryResolveAuthoredPlacementSlot(FrameValue, BuildPlacementContextValue,
-                                             CurrentTemplateBuildPlacementSlotValue,
-                                             StructureAbilityIdValue,
-                                             OutResolvedLayoutPlacementSlotsValue,
-                                             ResolvedBuildPlacementSlotValue,
-                                             EPlacementCandidateValidationMode::StaticLayout))
+        if (!TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue,
+                                          CurrentTemplateBuildPlacementSlotValue,
+                                          StructureAbilityIdValue,
+                                          OutResolvedLayoutPlacementSlotsValue,
+                                          ResolvedBuildPlacementSlotValue,
+                                          EPlacementCandidateValidationMode::StaticLayout))
         {
             OutResolvedBuildPlacementSlotsValue.clear();
             OutResolvedLayoutPlacementSlotsValue.clear();
@@ -1619,28 +1745,17 @@ bool TryResolveAuthoredProductionRailSlotGroup(
         return true;
     }
 
-    const std::vector<Point2DI>& LayoutSearchOffsetsValue = GetLayoutAnchorSearchOffsets();
-    const size_t SearchOffsetCountValue =
-        FrameValue.GameInfo != nullptr ? LayoutSearchOffsetsValue.size() : static_cast<size_t>(1U);
-
-    for (size_t SearchOffsetIndexValue = 0U; SearchOffsetIndexValue < SearchOffsetCountValue;
-         ++SearchOffsetIndexValue)
+    if (TryResolveProductionRailPivotSlot(
+            FrameValue, BuildPlacementContextValue,
+            TemplateBuildPlacementSlotsValue,
+            SeedResolvedLayoutPlacementSlotsValue,
+            Point2D(0.0f, 0.0f),
+            GetProductionRailPivotSlotIndex(TemplateBuildPlacementSlotsValue),
+            OutResolvedBuildPlacementSlotsValue,
+            OutResolvedLayoutPlacementSlotsValue))
     {
-        const Point2DI SearchOffsetValue = LayoutSearchOffsetsValue[SearchOffsetIndexValue];
-        const Point2D TranslationOffsetValue(static_cast<float>(SearchOffsetValue.x),
-                                             static_cast<float>(SearchOffsetValue.y));
-        if (TryResolveProductionRailPivotSlot(
-                FrameValue, BuildPlacementContextValue,
-                TemplateBuildPlacementSlotsValue,
-                SeedResolvedLayoutPlacementSlotsValue,
-                TranslationOffsetValue,
-                GetProductionRailPivotSlotIndex(TemplateBuildPlacementSlotsValue),
-                OutResolvedBuildPlacementSlotsValue,
-                OutResolvedLayoutPlacementSlotsValue))
-        {
-            OutSearchOffsetIndexValue = SearchOffsetIndexValue;
-            return true;
-        }
+        OutSearchOffsetIndexValue = 0U;
+        return true;
     }
 
     OutResolvedBuildPlacementSlotsValue.clear();
@@ -2464,6 +2579,17 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
         {18.0f, 16.0f},
         {-18.0f, 16.0f},
     };
+    const std::vector<FPlacementOffsetDescriptor> PeripheralDepotOffsetValues =
+    {
+        {28.0f, 20.0f},
+        {-28.0f, 20.0f},
+        {32.0f, 28.0f},
+        {-32.0f, 28.0f},
+        {12.0f, 28.0f},
+        {-12.0f, 28.0f},
+        {0.0f, 32.0f},
+        {0.0f, -8.0f},
+    };
     const std::vector<FPlacementOffsetDescriptor> BarracksOffsetValues =
     {
         {8.0f, 0.0f},
@@ -2555,6 +2681,10 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
             ResolvedLayoutPlacementSlotsValue = PrimaryResolvedAuthoredPlacementSlotsValue;
         }
     }
+    else
+    {
+        MainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout = false;
+    }
 
     const bool HasAuthoredProductionSlotsValue = !MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty() ||
                                                  !MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() ||
@@ -2590,6 +2720,27 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
         MainBaseLayoutDescriptorValue.LayoutAnchorPoint = ResolvedLayoutAnchorPointValue;
     }
 
+    PopulateNaturalEntranceLayoutDescriptor(BuildPlacementContextValue, MainBaseLayoutDescriptorValue);
+    if (MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint.x != 0.0f ||
+        MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint.y != 0.0f)
+    {
+        MainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint =
+            MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint;
+    }
+    else
+    {
+        const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
+        MainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint = ClampPointToPlayableBounds(
+            BuildPlacementContextValue,
+            Point2D(BuildPlacementContextValue.BaseLocation.x + (ForwardDirectionValue.x * 16.0f),
+                    BuildPlacementContextValue.BaseLocation.y + (ForwardDirectionValue.y * 16.0f)));
+    }
+
+    MainBaseLayoutDescriptorValue.ProductionClearanceAnchorPoint = ClampPointToPlayableBounds(
+        BuildPlacementContextValue,
+        Point2D(MainBaseLayoutDescriptorValue.LayoutAnchorPoint.x + (MainBaseDepthDirectionValue.x * 8.0f),
+                MainBaseLayoutDescriptorValue.LayoutAnchorPoint.y + (MainBaseDepthDirectionValue.y * 8.0f)));
+
     const bool AllowProductionTemplateSearchValue = !HasResolvedProductionLayoutAnchorValue;
 
     AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
@@ -2613,6 +2764,17 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
                                           EBuildPlacementFootprintPolicy::StructureOnly,
                                           ABILITY_ID::BUILD_SUPPLYDEPOT,
                                           MainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                          ResolvedLayoutPlacementSlotsValue);
+    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                          MainBaseDepthDirectionValue,
+                                          MainBaseLateralDirectionValue,
+                                          PeripheralDepotOffsetValues,
+                                          true,
+                                          EBuildPlacementSlotType::MainPeripheralDepot,
+                                          EBuildPlacementFootprintPolicy::StructureOnly,
+                                          ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                          MainBaseLayoutDescriptorValue.PeripheralDepotSlots,
                                           ResolvedLayoutPlacementSlotsValue);
     AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
                                           MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
@@ -2669,8 +2831,10 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
                                           ResolvedLayoutPlacementSlotsValue);
 
     MainBaseLayoutDescriptorValue.bIsValid =
+        !MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.empty() ||
         !MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty() ||
         !MainBaseLayoutDescriptorValue.SupportDepotSlots.empty() ||
+        !MainBaseLayoutDescriptorValue.PeripheralDepotSlots.empty() ||
         !MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty() ||
         !MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() ||
         !MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.empty() ||
@@ -2696,21 +2860,24 @@ Point2D FTerranBuildPlacementService::GetArmyAssemblyPoint(
             ? BuildPlacementContextValue.MainBaseLayoutDescriptor
             : GetMainBaseLayoutDescriptor(FFrameContext(), BuildPlacementContextValue);
 
-    if (!MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.empty())
+    if (MainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint.x != 0.0f ||
+        MainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint.y != 0.0f)
     {
-        return GetNaturalApproachMidpoint(MainBaseLayoutDescriptorValue);
+        return ClampPointToPlayableBounds(BuildPlacementContextValue,
+                                          MainBaseLayoutDescriptorValue.ArmyAssemblyAnchorPoint);
     }
 
     if (BuildPlacementContextValue.RampWallDescriptor.bIsValid)
     {
-        return BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint;
+        return ComputeNaturalEntranceAssemblyAnchorPoint(BuildPlacementContextValue);
     }
 
     const Point2D PrimaryAnchorValue =
         GetPrimaryStructureAnchor(GameStateDescriptorValue, BuildPlacementContextValue);
     const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
-    return Point2D(PrimaryAnchorValue.x + (ForwardDirectionValue.x * 8.0f),
-                   PrimaryAnchorValue.y + (ForwardDirectionValue.y * 8.0f));
+    return ClampPointToPlayableBounds(BuildPlacementContextValue,
+                                      Point2D(PrimaryAnchorValue.x + (ForwardDirectionValue.x * 12.0f),
+                                              PrimaryAnchorValue.y + (ForwardDirectionValue.y * 12.0f)));
 }
 
 Point2D FTerranBuildPlacementService::GetProductionRallyPoint(
@@ -2718,41 +2885,19 @@ Point2D FTerranBuildPlacementService::GetProductionRallyPoint(
 {
     (void)GameStateDescriptorValue;
 
-    if (BuildPlacementContextValue.RampWallDescriptor.bIsValid)
-    {
-        return ClampPointToPlayableBounds(BuildPlacementContextValue,
-                                          BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint);
-    }
-
     const FMainBaseLayoutDescriptor MainBaseLayoutDescriptorValue =
         BuildPlacementContextValue.MainBaseLayoutDescriptor.bIsValid
             ? BuildPlacementContextValue.MainBaseLayoutDescriptor
             : GetMainBaseLayoutDescriptor(FFrameContext(), BuildPlacementContextValue);
-    const Point2D ForwardDirectionValue = GetForwardDirection(BuildPlacementContextValue);
-    float MaxForwardProjectionValue = 8.0f;
-    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
-                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 4.0f,
-                                                 MaxForwardProjectionValue);
-    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.SupportDepotSlots,
-                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 2.0f,
-                                                 MaxForwardProjectionValue);
-    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots,
-                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 6.0f,
-                                                 MaxForwardProjectionValue);
-    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
-                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 6.0f,
-                                                 MaxForwardProjectionValue);
-    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
-                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 6.0f,
-                                                 MaxForwardProjectionValue);
-    UpdateMaxForwardProjectionFromPlacementSlots(MainBaseLayoutDescriptorValue.StarportWithAddonSlots,
-                                                 BuildPlacementContextValue.BaseLocation, ForwardDirectionValue, 6.0f,
-                                                 MaxForwardProjectionValue);
 
-    const Point2D RallyPointValue(
-        BuildPlacementContextValue.BaseLocation.x + (ForwardDirectionValue.x * (MaxForwardProjectionValue + 4.0f)),
-        BuildPlacementContextValue.BaseLocation.y + (ForwardDirectionValue.y * (MaxForwardProjectionValue + 4.0f)));
-    return ClampPointToPlayableBounds(BuildPlacementContextValue, RallyPointValue);
+    if (MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint.x != 0.0f ||
+        MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint.y != 0.0f)
+    {
+        return ClampPointToPlayableBounds(BuildPlacementContextValue,
+                                          MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint);
+    }
+
+    return GetArmyAssemblyPoint(GameStateDescriptorValue, BuildPlacementContextValue);
 }
 
 std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlacementSlots(
@@ -2781,11 +2926,17 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
             }
 
             PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.end());
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
                                        MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.begin(),
                                        MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.end());
             PlacementSlotsValue.insert(PlacementSlotsValue.end(),
                                        MainBaseLayoutDescriptorValue.SupportDepotSlots.begin(),
                                        MainBaseLayoutDescriptorValue.SupportDepotSlots.end());
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.PeripheralDepotSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.PeripheralDepotSlots.end());
             break;
         }
         case ABILITY_ID::BUILD_BARRACKS:
@@ -2804,20 +2955,44 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
             break;
         }
         case ABILITY_ID::BUILD_FACTORY:
-            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                       MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.begin(),
-                                       MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.end());
-            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
-                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+            if (MainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout)
+            {
+                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                           MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.begin(),
+                                           MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.end());
+                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
+                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+            }
+            else
+            {
+                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
+                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                           MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.begin(),
+                                           MainBaseLayoutDescriptorValue.FactoryWithAddonSlots.end());
+            }
             break;
         case ABILITY_ID::BUILD_STARPORT:
-            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                       MainBaseLayoutDescriptorValue.StarportWithAddonSlots.begin(),
-                                       MainBaseLayoutDescriptorValue.StarportWithAddonSlots.end());
-            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
-                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
-                                       MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+            if (MainBaseLayoutDescriptorValue.bUsesAuthoredProductionLayout)
+            {
+                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                           MainBaseLayoutDescriptorValue.StarportWithAddonSlots.begin(),
+                                           MainBaseLayoutDescriptorValue.StarportWithAddonSlots.end());
+                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
+                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+            }
+            else
+            {
+                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.begin(),
+                                           MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.end());
+                PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                           MainBaseLayoutDescriptorValue.StarportWithAddonSlots.begin(),
+                                           MainBaseLayoutDescriptorValue.StarportWithAddonSlots.end());
+            }
             break;
         default:
         {

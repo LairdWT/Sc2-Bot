@@ -5,6 +5,7 @@
 #include "common/build_orders/FOpeningPlanRegistry.h"
 #include "common/catalogs/FTerranGoalDefinition.h"
 #include "common/catalogs/FTerranGoalDictionary.h"
+#include "common/catalogs/FTerranGoalRuleLibrary.h"
 #include "common/catalogs/FTerranTaskTemplateDefinition.h"
 #include "common/catalogs/FTerranTaskTemplateDictionary.h"
 #include "common/planning/FTerranCommandTaskAdmissionService.h"
@@ -126,6 +127,18 @@ bool IsRampWallSlotType(const EBuildPlacementSlotType PreferredPlacementSlotType
     }
 }
 
+bool IsRampWallDepotSlotType(const EBuildPlacementSlotType PreferredPlacementSlotTypeValue)
+{
+    switch (PreferredPlacementSlotTypeValue)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool DoesTaskSignatureMatch(const uint32_t LeftTaskIdValue, const uint32_t LeftSourceGoalIdValue,
                             const AbilityID LeftAbilityIdValue, const UNIT_TYPEID LeftResultUnitTypeIdValue,
                             const UpgradeID LeftUpgradeIdValue,
@@ -145,19 +158,85 @@ bool DoesTaskSignatureMatch(const uint32_t LeftTaskIdValue, const uint32_t LeftS
            LeftPreferredPlacementSlotIdValue == RightPreferredPlacementSlotIdValue;
 }
 
-bool ShouldUseExactWallSlotObservedMatch(const FGameStateDescriptor& GameStateDescriptorValue,
-                                         const FCommandOrderRecord& CommandOrderRecordValue)
+bool TryGetObservedExactPlacementSlotId(const FCommandOrderRecord& CommandOrderRecordValue,
+                                        FBuildPlacementSlotId& OutBuildPlacementSlotIdValue)
 {
-    return CommandOrderRecordValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown &&
-           GameStateDescriptorValue.RampWallDescriptor.bIsValid &&
-           IsRampWallSlotType(CommandOrderRecordValue.PreferredPlacementSlotType);
+    if (CommandOrderRecordValue.ReservedPlacementSlotId.IsValid())
+    {
+        OutBuildPlacementSlotIdValue = CommandOrderRecordValue.ReservedPlacementSlotId;
+        return true;
+    }
+
+    if (CommandOrderRecordValue.PreferredPlacementSlotId.IsValid())
+    {
+        OutBuildPlacementSlotIdValue = CommandOrderRecordValue.PreferredPlacementSlotId;
+        return true;
+    }
+
+    return false;
 }
 
-bool DoesExactWallSlotContainExpectedStructure(const FGameStateDescriptor& GameStateDescriptorValue,
-                                               const FCommandOrderRecord& CommandOrderRecordValue)
+bool ShouldUseExactPlacementSlotObservedMatch(const FCommandOrderRecord& CommandOrderRecordValue)
 {
-    return GameStateDescriptorValue.ObservedRampWallState.GetObservedWallSlotState(
-               CommandOrderRecordValue.PreferredPlacementSlotType) == EObservedWallSlotState::Occupied;
+    FBuildPlacementSlotId BuildPlacementSlotIdValue;
+    return TryGetObservedExactPlacementSlotId(CommandOrderRecordValue, BuildPlacementSlotIdValue);
+}
+
+bool DoesExactPlacementSlotContainExpectedStructure(const FGameStateDescriptor& GameStateDescriptorValue,
+                                                    const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    FBuildPlacementSlotId BuildPlacementSlotIdValue;
+    if (!TryGetObservedExactPlacementSlotId(CommandOrderRecordValue, BuildPlacementSlotIdValue))
+    {
+        return false;
+    }
+
+    return GameStateDescriptorValue.ObservedPlacementSlotState.GetObservedPlacementSlotState(
+               BuildPlacementSlotIdValue) == EObservedWallSlotState::Occupied;
+}
+
+bool IsMandatoryOpeningDepotTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return CommandTaskDescriptorValue.CommitmentClass == ECommandCommitmentClass::MandatoryOpening &&
+           CommandTaskDescriptorValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute &&
+           CommandTaskDescriptorValue.ActionAbilityId == ABILITY_ID::BUILD_SUPPLYDEPOT &&
+           IsRampWallDepotSlotType(CommandTaskDescriptorValue.ActionPreferredPlacementSlotType);
+}
+
+FCommandTaskDescriptor ResolveEffectiveOpeningTaskDescriptor(
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+    const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    FCommandTaskDescriptor EffectiveTaskDescriptorValue = CommandTaskDescriptorValue;
+    FBuildPlacementSlotId RemappedPlacementSlotIdValue;
+    if (!OpeningPlanExecutionStateValue.TryGetRemappedPlacementSlotId(CommandTaskDescriptorValue.TaskId,
+                                                                      RemappedPlacementSlotIdValue))
+    {
+        return EffectiveTaskDescriptorValue;
+    }
+
+    EffectiveTaskDescriptorValue.ActionPreferredPlacementSlotId = RemappedPlacementSlotIdValue;
+    EffectiveTaskDescriptorValue.ActionPreferredPlacementSlotType = RemappedPlacementSlotIdValue.SlotType;
+    return EffectiveTaskDescriptorValue;
+}
+
+bool AreAllMandatoryOpeningDepotTasksComplete(const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+                                              const FOpeningPlanDescriptor& OpeningPlanDescriptorValue)
+{
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        if (!IsMandatoryOpeningDepotTask(OpeningPlanStepValue.TaskDescriptor))
+        {
+            continue;
+        }
+
+        if (!OpeningPlanExecutionStateValue.IsStepCompleted(OpeningPlanStepValue.TaskDescriptor.TaskId))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool IsArmyMissionGoalType(const EGoalType GoalTypeValue)
@@ -490,39 +569,192 @@ bool IsOpeningIncomplete(const FGameStateDescriptor& GameStateDescriptorValue)
     return GameStateDescriptorValue.OpeningPlanExecutionState.LifecycleState != EOpeningPlanLifecycleState::Completed;
 }
 
-UNIT_TYPEID GetStructureCommitmentFamilyUnitType(const UNIT_TYPEID ResultUnitTypeIdValue)
-{
-    switch (ResultUnitTypeIdValue)
-    {
-        case UNIT_TYPEID::TERRAN_SUPPLYDEPOT:
-        case UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED:
-            return UNIT_TYPEID::TERRAN_SUPPLYDEPOT;
-        case UNIT_TYPEID::TERRAN_BARRACKS:
-        case UNIT_TYPEID::TERRAN_BARRACKSFLYING:
-        case UNIT_TYPEID::TERRAN_BARRACKSREACTOR:
-        case UNIT_TYPEID::TERRAN_BARRACKSTECHLAB:
-            return UNIT_TYPEID::TERRAN_BARRACKS;
-        case UNIT_TYPEID::TERRAN_FACTORY:
-        case UNIT_TYPEID::TERRAN_FACTORYFLYING:
-        case UNIT_TYPEID::TERRAN_FACTORYREACTOR:
-        case UNIT_TYPEID::TERRAN_FACTORYTECHLAB:
-            return UNIT_TYPEID::TERRAN_FACTORY;
-        case UNIT_TYPEID::TERRAN_STARPORT:
-        case UNIT_TYPEID::TERRAN_STARPORTFLYING:
-        case UNIT_TYPEID::TERRAN_STARPORTREACTOR:
-        case UNIT_TYPEID::TERRAN_STARPORTTECHLAB:
-            return UNIT_TYPEID::TERRAN_STARPORT;
-        default:
-            return UNIT_TYPEID::INVALID;
-    }
-}
-
 bool IsMandatoryExactOpeningStructureTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
 {
     return CommandTaskDescriptorValue.CommitmentClass == ECommandCommitmentClass::MandatoryOpening &&
            CommandTaskDescriptorValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute &&
            CommandTaskDescriptorValue.ActionKind == ECommandTaskActionKind::BuildStructure &&
            CommandTaskDescriptorValue.ActionPreferredPlacementSlotType != EBuildPlacementSlotType::Unknown;
+}
+
+bool IsMandatoryProducerBoundOpeningAddonTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return CommandTaskDescriptorValue.CommitmentClass == ECommandCommitmentClass::MandatoryOpening &&
+           CommandTaskDescriptorValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute &&
+           CommandTaskDescriptorValue.ActionKind == ECommandTaskActionKind::BuildAddon &&
+           CommandTaskDescriptorValue.ActionPreferredProducerPlacementSlotId.IsValid();
+}
+
+bool IsOpeningWallStructureSlotType(const EBuildPlacementSlotType BuildPlacementSlotTypeValue)
+{
+    switch (BuildPlacementSlotTypeValue)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampBarracksWithAddon:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+        case EBuildPlacementSlotType::NaturalEntranceDepotLeft:
+        case EBuildPlacementSlotType::NaturalEntranceDepotRight:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsMandatoryOpeningWallStructureTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return IsMandatoryExactOpeningStructureTask(CommandTaskDescriptorValue) &&
+           IsOpeningWallStructureSlotType(CommandTaskDescriptorValue.ActionPreferredPlacementSlotType);
+}
+
+bool IsFlexibleOpeningSupplyTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return CommandTaskDescriptorValue.ActionAbilityId == ABILITY_ID::BUILD_SUPPLYDEPOT &&
+           (CommandTaskDescriptorValue.CommitmentClass != ECommandCommitmentClass::MandatoryOpening ||
+            CommandTaskDescriptorValue.ExecutionGuarantee != ECommandTaskExecutionGuarantee::MustExecute);
+}
+
+bool HasOutstandingFlexibleSupplyDepotDemand(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    const uint32_t DesiredSupplyDepotCountValue =
+        FTerranGoalRuleLibrary::DetermineDesiredSupplyDepotCount(GameStateDescriptorValue);
+    return GameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
+           DesiredSupplyDepotCountValue;
+}
+
+bool IsHotMustRunOpeningTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return CommandTaskDescriptorValue.Origin == ECommandTaskOrigin::Opening &&
+           (CommandTaskDescriptorValue.RetentionPolicy == ECommandTaskRetentionPolicy::HotMustRun ||
+            CommandTaskDescriptorValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute);
+}
+
+bool DoesOpeningTaskRequireMandatorySequenceGuard(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    if (IsFlexibleOpeningSupplyTask(CommandTaskDescriptorValue))
+    {
+        return false;
+    }
+
+    switch (CommandTaskDescriptorValue.TaskType)
+    {
+        case ECommandTaskType::Supply:
+        case ECommandTaskType::ProductionStructure:
+        case ECommandTaskType::TechStructure:
+        case ECommandTaskType::AddOn:
+        case ECommandTaskType::UnitProduction:
+        case ECommandTaskType::UpgradeResearch:
+        case ECommandTaskType::StaticDefense:
+            return true;
+        case ECommandTaskType::Recovery:
+        case ECommandTaskType::WorkerProduction:
+        case ECommandTaskType::Expansion:
+        case ECommandTaskType::Refinery:
+        case ECommandTaskType::ArmyMission:
+        case ECommandTaskType::Unknown:
+        default:
+            return false;
+    }
+}
+
+bool HasIncompleteEarlierMandatoryExactOpeningStructureTask(
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue, const uint32_t TaskIdValue)
+{
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        const FCommandTaskDescriptor OpeningTaskDescriptorValue = ResolveEffectiveOpeningTaskDescriptor(
+            OpeningPlanExecutionStateValue, OpeningPlanStepValue.TaskDescriptor);
+        if (OpeningTaskDescriptorValue.TaskId >= TaskIdValue)
+        {
+            break;
+        }
+
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId) ||
+            !IsMandatoryExactOpeningStructureTask(OpeningTaskDescriptorValue))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool HasIncompleteEarlierMandatoryOpeningWallStructureTask(
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue, const uint32_t TaskIdValue)
+{
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        const FCommandTaskDescriptor OpeningTaskDescriptorValue = ResolveEffectiveOpeningTaskDescriptor(
+            OpeningPlanExecutionStateValue, OpeningPlanStepValue.TaskDescriptor);
+        if (OpeningTaskDescriptorValue.TaskId >= TaskIdValue)
+        {
+            break;
+        }
+
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId) ||
+            !IsMandatoryOpeningWallStructureTask(OpeningTaskDescriptorValue))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool ShouldDelayOpeningTaskUntilMandatorySequenceAdvances(
+    const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue,
+    const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    if (IsFlexibleOpeningSupplyTask(CommandTaskDescriptorValue))
+    {
+        return OpeningPlanExecutionStateValue.WallChainState == EOpeningWallChainState::RampActive &&
+               !AreAllMandatoryOpeningDepotTasksComplete(OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue);
+    }
+
+    if (IsMandatoryOpeningWallStructureTask(CommandTaskDescriptorValue))
+    {
+        return HasIncompleteEarlierMandatoryOpeningWallStructureTask(
+            OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue, CommandTaskDescriptorValue.TaskId);
+    }
+
+    if (IsMandatoryProducerBoundOpeningAddonTask(CommandTaskDescriptorValue))
+    {
+        return HasIncompleteEarlierMandatoryExactOpeningStructureTask(
+            OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue, CommandTaskDescriptorValue.TaskId);
+    }
+
+    if (!DoesOpeningTaskRequireMandatorySequenceGuard(CommandTaskDescriptorValue))
+    {
+        return false;
+    }
+
+    return HasIncompleteEarlierMandatoryExactOpeningStructureTask(
+        OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue, CommandTaskDescriptorValue.TaskId);
+}
+
+bool HasAnyIncompleteMandatoryOpeningSequenceTask(const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+                                                  const FOpeningPlanDescriptor& OpeningPlanDescriptorValue)
+{
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        const FCommandTaskDescriptor OpeningTaskDescriptorValue = ResolveEffectiveOpeningTaskDescriptor(
+            OpeningPlanExecutionStateValue, OpeningPlanStepValue.TaskDescriptor);
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId) ||
+            !IsMandatoryExactOpeningStructureTask(OpeningTaskDescriptorValue))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 bool DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(const FGameStateDescriptor& GameStateDescriptorValue,
@@ -536,40 +768,39 @@ bool DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(const FGameStateDesc
 
     switch (CommandOrderRecordValue.TaskType)
     {
-        case ECommandTaskType::ProductionStructure:
         case ECommandTaskType::Supply:
+        case ECommandTaskType::ProductionStructure:
+        case ECommandTaskType::TechStructure:
+        case ECommandTaskType::AddOn:
+        case ECommandTaskType::UnitProduction:
+        case ECommandTaskType::UpgradeResearch:
+        case ECommandTaskType::StaticDefense:
             break;
+        case ECommandTaskType::WorkerProduction:
+        case ECommandTaskType::Expansion:
+        case ECommandTaskType::Refinery:
+        case ECommandTaskType::Recovery:
+        case ECommandTaskType::ArmyMission:
+        case ECommandTaskType::Unknown:
         default:
             return false;
-    }
-
-    const UNIT_TYPEID ResultFamilyUnitTypeValue =
-        GetStructureCommitmentFamilyUnitType(CommandOrderRecordValue.ResultUnitTypeId);
-    if (ResultFamilyUnitTypeValue == UNIT_TYPEID::INVALID)
-    {
-        return false;
     }
 
     const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
     const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
         FOpeningPlanRegistry::GetOpeningPlanDescriptor(OpeningPlanExecutionStateValue.ActivePlanId);
-    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    if (!HasAnyIncompleteMandatoryOpeningSequenceTask(OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue))
     {
-        const FCommandTaskDescriptor& OpeningTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
-        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId) ||
-            !IsMandatoryExactOpeningStructureTask(OpeningTaskDescriptorValue))
-        {
-            continue;
-        }
-
-        if (GetStructureCommitmentFamilyUnitType(OpeningTaskDescriptorValue.ActionResultUnitTypeId) ==
-            ResultFamilyUnitTypeValue)
-        {
-            return true;
-        }
+        return false;
     }
 
-    return false;
+    if (CommandOrderRecordValue.TaskType == ECommandTaskType::Supply)
+    {
+        return OpeningPlanExecutionStateValue.WallChainState == EOpeningWallChainState::RampActive &&
+               !AreAllMandatoryOpeningDepotTasksComplete(OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue);
+    }
+
+    return true;
 }
 
 }  // namespace
@@ -643,8 +874,8 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
 
         const FCommandOrderRecord StrategicOrderRecordValue =
             CommandAuthoritySchedulingStateValue.GetOrderRecord(StrategicOrderIndexValue);
-        if (!ShouldUseExactWallSlotObservedMatch(GameStateDescriptorValue, StrategicOrderRecordValue) ||
-            DoesExactWallSlotContainExpectedStructure(GameStateDescriptorValue, StrategicOrderRecordValue))
+        if (!ShouldUseExactPlacementSlotObservedMatch(StrategicOrderRecordValue) ||
+            DoesExactPlacementSlotContainExpectedStructure(GameStateDescriptorValue, StrategicOrderRecordValue))
         {
             continue;
         }
@@ -660,28 +891,29 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
 
     for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
     {
-        const FCommandTaskDescriptor& CommandTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
-        if (OpeningPlanExecutionStateValue.IsStepCompleted(CommandTaskDescriptorValue.TaskId))
+        const FCommandTaskDescriptor EffectiveTaskDescriptorValue =
+            ResolveEffectiveOpeningTaskDescriptor(OpeningPlanExecutionStateValue, OpeningPlanStepValue.TaskDescriptor);
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(EffectiveTaskDescriptorValue.TaskId))
         {
             continue;
         }
 
         FCommandOrderRecord CompletionProbeValue;
-        CompletionProbeValue.ResultUnitTypeId = CommandTaskDescriptorValue.ActionResultUnitTypeId;
-        CompletionProbeValue.UpgradeId = CommandTaskDescriptorValue.ActionUpgradeId;
-        CompletionProbeValue.TargetCount = CommandTaskDescriptorValue.CompletionObservedCountAtLeast;
+        CompletionProbeValue.ResultUnitTypeId = EffectiveTaskDescriptorValue.ActionResultUnitTypeId;
+        CompletionProbeValue.UpgradeId = EffectiveTaskDescriptorValue.ActionUpgradeId;
+        CompletionProbeValue.TargetCount = EffectiveTaskDescriptorValue.CompletionObservedCountAtLeast;
         CompletionProbeValue.PreferredPlacementSlotType =
-            CommandTaskDescriptorValue.ActionPreferredPlacementSlotType;
-        CompletionProbeValue.PreferredPlacementSlotId = CommandTaskDescriptorValue.ActionPreferredPlacementSlotId;
+            EffectiveTaskDescriptorValue.ActionPreferredPlacementSlotType;
+        CompletionProbeValue.PreferredPlacementSlotId = EffectiveTaskDescriptorValue.ActionPreferredPlacementSlotId;
         if (!DoesOrderTargetMatchObservedState(GameStateDescriptorValue, CompletionProbeValue))
         {
             continue;
         }
 
-        OpeningPlanExecutionStateValue.MarkStepCompleted(CommandTaskDescriptorValue.TaskId);
+        OpeningPlanExecutionStateValue.MarkStepCompleted(EffectiveTaskDescriptorValue.TaskId);
 
         uint32_t StrategicOrderIdValue = 0U;
-        if (OpeningPlanExecutionStateValue.TryGetPlanOrderId(CommandTaskDescriptorValue.TaskId, StrategicOrderIdValue))
+        if (OpeningPlanExecutionStateValue.TryGetPlanOrderId(EffectiveTaskDescriptorValue.TaskId, StrategicOrderIdValue))
         {
             GameStateDescriptorValue.CommandAuthoritySchedulingState.SetOrderLifecycleState(StrategicOrderIdValue,
                                                                                            EOrderLifecycleState::Completed);
@@ -725,6 +957,11 @@ void FCommandAuthorityProcessor::UpdateCompletedOpeningSteps(FGameStateDescripto
                                                                     EOrderLifecycleState::Completed);
     }
 
+    if (AreAllMandatoryOpeningDepotTasksComplete(OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue))
+    {
+        OpeningPlanExecutionStateValue.WallChainState = EOpeningWallChainState::Completed;
+    }
+
     if (OpeningPlanExecutionStateValue.CompletedStepIds.size() >= OpeningPlanDescriptorValue.Steps.size())
     {
         OpeningPlanExecutionStateValue.LifecycleState = EOpeningPlanLifecycleState::Completed;
@@ -744,21 +981,35 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(
     uint32_t SeededOrderCountValue = 0U;
     for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
     {
-        const FCommandTaskDescriptor& CommandTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
-        if (SeededOrderCountValue >= CommandAuthoritySchedulingStateValue.MaxStrategicOrdersPerStep)
-        {
-            return;
-        }
-        if (OpeningPlanExecutionStateValue.HasSeededStep(CommandTaskDescriptorValue.TaskId) ||
-            OpeningPlanExecutionStateValue.IsStepCompleted(CommandTaskDescriptorValue.TaskId))
+        const FCommandTaskDescriptor EffectiveTaskDescriptorValue =
+            ResolveEffectiveOpeningTaskDescriptor(OpeningPlanExecutionStateValue, OpeningPlanStepValue.TaskDescriptor);
+        if (OpeningPlanExecutionStateValue.HasSeededStep(EffectiveTaskDescriptorValue.TaskId) ||
+            OpeningPlanExecutionStateValue.IsStepCompleted(EffectiveTaskDescriptorValue.TaskId))
         {
             continue;
         }
-        if (GameStateDescriptorValue.CurrentGameLoop < CommandTaskDescriptorValue.TriggerMinGameLoop)
+        const bool bBypassStrategicCapValue = IsHotMustRunOpeningTask(EffectiveTaskDescriptorValue);
+        if (SeededOrderCountValue >= CommandAuthoritySchedulingStateValue.MaxStrategicOrdersPerStep &&
+            !bBypassStrategicCapValue)
+        {
+            continue;
+        }
+        if (GameStateDescriptorValue.CurrentGameLoop < EffectiveTaskDescriptorValue.TriggerMinGameLoop)
         {
             return;
         }
-        if (!AreRequiredTasksCompleted(OpeningPlanExecutionStateValue, CommandTaskDescriptorValue))
+        if (!AreRequiredTasksCompleted(OpeningPlanExecutionStateValue, EffectiveTaskDescriptorValue))
+        {
+            continue;
+        }
+        if (IsFlexibleOpeningSupplyTask(EffectiveTaskDescriptorValue) &&
+            !HasOutstandingFlexibleSupplyDepotDemand(GameStateDescriptorValue))
+        {
+            continue;
+        }
+        if (ShouldDelayOpeningTaskUntilMandatorySequenceAdvances(OpeningPlanExecutionStateValue,
+                                                                 OpeningPlanDescriptorValue,
+                                                                 EffectiveTaskDescriptorValue))
         {
             continue;
         }
@@ -767,7 +1018,7 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(
         {
             uint32_t AdmittedOrderIdValue = 0U;
             return CommandTaskAdmissionServiceValue.TryAdmitOpeningTask(
-                       GameStateDescriptorValue, CommandTaskDescriptorValue, AdmittedOrderIdValue)
+                       GameStateDescriptorValue, EffectiveTaskDescriptorValue, AdmittedOrderIdValue)
                        ? AdmittedOrderIdValue
                        : 0U;
         }();
@@ -775,8 +1026,11 @@ void FCommandAuthorityProcessor::SeedReadyStrategicOrders(
         {
             continue;
         }
-        OpeningPlanExecutionStateValue.RecordSeededStep(CommandTaskDescriptorValue.TaskId, StrategicOrderIdValue);
-        ++SeededOrderCountValue;
+        OpeningPlanExecutionStateValue.RecordSeededStep(EffectiveTaskDescriptorValue.TaskId, StrategicOrderIdValue);
+        if (!bBypassStrategicCapValue)
+        {
+            ++SeededOrderCountValue;
+        }
     }
 }
 
@@ -948,6 +1202,7 @@ void FCommandAuthorityProcessor::EnsureStrategicChildOrders(FGameStateDescriptor
         EconomyOrderValue.UpgradeId = StrategicOrderValue.UpgradeId;
         EconomyOrderValue.PreferredPlacementSlotType = StrategicOrderValue.PreferredPlacementSlotType;
         EconomyOrderValue.PreferredPlacementSlotId = StrategicOrderValue.PreferredPlacementSlotId;
+        EconomyOrderValue.PreferredProducerPlacementSlotId = StrategicOrderValue.PreferredProducerPlacementSlotId;
         CommandAuthoritySchedulingStateValue.EnqueueOrder(EconomyOrderValue);
     }
 }
@@ -975,9 +1230,9 @@ bool FCommandAuthorityProcessor::DoesOrderTargetMatchObservedState(
         return false;
     }
 
-    if (ShouldUseExactWallSlotObservedMatch(GameStateDescriptorValue, CommandOrderRecordValue))
+    if (ShouldUseExactPlacementSlotObservedMatch(CommandOrderRecordValue))
     {
-        return DoesExactWallSlotContainExpectedStructure(GameStateDescriptorValue, CommandOrderRecordValue);
+        return DoesExactPlacementSlotContainExpectedStructure(GameStateDescriptorValue, CommandOrderRecordValue);
     }
 
     return GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, CommandOrderRecordValue) >=

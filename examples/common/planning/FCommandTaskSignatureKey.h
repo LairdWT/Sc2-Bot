@@ -32,6 +32,7 @@ public:
     UNIT_TYPEID ResultUnitTypeId;
     UpgradeID UpgradeId;
     FBuildPlacementSlotId PreferredPlacementSlotId;
+    FBuildPlacementSlotId PreferredProducerPlacementSlotId;
 };
 
 struct FCommandTaskSignatureKeyHash

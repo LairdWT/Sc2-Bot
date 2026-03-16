@@ -90,7 +90,10 @@ public:
     bool HasProducerConfirmedDispatchedOrder(const FCommandOrderRecord& CommandOrderRecordValue,
                                              const Unit* ActorUnitValue) const;
 
-    const Unit* FindNearestMineralPatch(const Point2D& Origin);
+    const Unit* FindNearestMineralPatch(const Point2D& OriginPointValue) const;
+    const Unit* FindNearestMineralPatchForTownHall(const Point2D& TownHallPointValue) const;
+    const Unit* FindNearestReadyTownHall(const Point2D& OriginPointValue) const;
+    const Unit* SelectRecoveryMineralPatchForWorker(const Unit& WorkerUnitValue) const;
     Point2D GetEnemyTargetLocation() const;
 
     Units NeutralUnits;

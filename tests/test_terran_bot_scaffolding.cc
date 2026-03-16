@@ -245,6 +245,33 @@ bool TestTerranBotScaffolding(int ArgC, char** ArgV)
     Check(TerranAgentValue.HasProducerConfirmedDispatchedOrder(AddonConstructionOrderValue, &BarracksUnitValue),
           SuccessValue, "Add-on construction should still confirm from the producer once the add-on is attached.");
 
+    Unit MainCommandCenterUnitValue;
+    MainCommandCenterUnitValue.unit_type = UNIT_TYPEID::TERRAN_COMMANDCENTER;
+    MainCommandCenterUnitValue.build_progress = 1.0f;
+    MainCommandCenterUnitValue.pos = Point3D(40.0f, 40.0f, 0.0f);
+    TerranAgentValue.AgentState.UnitContainer.ControlledUnits.push_back(&MainCommandCenterUnitValue);
+
+    Unit RecoveryWorkerUnitValue;
+    RecoveryWorkerUnitValue.unit_type = UNIT_TYPEID::TERRAN_SCV;
+    RecoveryWorkerUnitValue.build_progress = 1.0f;
+    RecoveryWorkerUnitValue.pos = Point3D(68.0f, 40.0f, 0.0f);
+
+    Unit MainMineralPatchUnitValue;
+    MainMineralPatchUnitValue.unit_type = UNIT_TYPEID::NEUTRAL_MINERALFIELD;
+    MainMineralPatchUnitValue.pos = Point3D(46.0f, 43.0f, 0.0f);
+
+    Unit NaturalMineralPatchUnitValue;
+    NaturalMineralPatchUnitValue.unit_type = UNIT_TYPEID::NEUTRAL_MINERALFIELD;
+    NaturalMineralPatchUnitValue.pos = Point3D(74.0f, 44.0f, 0.0f);
+
+    TerranAgentValue.NeutralUnits.push_back(&MainMineralPatchUnitValue);
+    TerranAgentValue.NeutralUnits.push_back(&NaturalMineralPatchUnitValue);
+
+    const Unit* RecoveryMineralPatchValue =
+        TerranAgentValue.SelectRecoveryMineralPatchForWorker(RecoveryWorkerUnitValue);
+    Check(RecoveryMineralPatchValue == &MainMineralPatchUnitValue, SuccessValue,
+          "Recovery workers should select a mineral patch backed by a completed owned town hall instead of long-distance mining an unfinished natural.");
+
     return SuccessValue;
 }
 

@@ -17,9 +17,15 @@ public:
 
 public:
     bool bIsValid;
+    bool bUsesAuthoredProductionLayout;
     Point2D LayoutAnchorPoint;
+    Point2D ArmyAssemblyAnchorPoint;
+    Point2D NaturalEntranceArmyRallyAnchorPoint;
+    Point2D ProductionClearanceAnchorPoint;
+    std::vector<FBuildPlacementSlot> NaturalEntranceWallDepotSlots;
     std::vector<FBuildPlacementSlot> NaturalApproachDepotSlots;
     std::vector<FBuildPlacementSlot> SupportDepotSlots;
+    std::vector<FBuildPlacementSlot> PeripheralDepotSlots;
     std::vector<FBuildPlacementSlot> ProductionRailWithAddonSlots;
     std::vector<FBuildPlacementSlot> BarracksWithAddonSlots;
     std::vector<FBuildPlacementSlot> FactoryWithAddonSlots;

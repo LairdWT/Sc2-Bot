@@ -46,6 +46,7 @@ public:
     UNIT_TYPEID ResultUnitTypeId;
     UpgradeID UpgradeId;
     FBuildPlacementSlotId PreferredPlacementSlotId;
+    FBuildPlacementSlotId PreferredProducerPlacementSlotId;
     ECommandOrderDeferralReason BlockingReason;
     EBlockedTaskWakeKind WakeKind;
     uint64_t NextEligibleGameLoop;

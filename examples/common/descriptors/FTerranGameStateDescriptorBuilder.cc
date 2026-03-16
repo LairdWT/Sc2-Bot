@@ -21,10 +21,26 @@ bool DoesWallSlotAcceptUnitType(const EBuildPlacementSlotType BuildPlacementSlot
     {
         case EBuildPlacementSlotType::MainRampDepotLeft:
         case EBuildPlacementSlotType::MainRampDepotRight:
+        case EBuildPlacementSlotType::NaturalEntranceDepotLeft:
+        case EBuildPlacementSlotType::NaturalEntranceDepotRight:
+        case EBuildPlacementSlotType::NaturalApproachDepot:
+        case EBuildPlacementSlotType::MainSupportDepot:
+        case EBuildPlacementSlotType::MainPeripheralDepot:
             return CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_SUPPLYDEPOT ||
                    CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_SUPPLYDEPOTLOWERED;
         case EBuildPlacementSlotType::MainRampBarracksWithAddon:
+        case EBuildPlacementSlotType::MainBarracksWithAddon:
             return CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_BARRACKS;
+        case EBuildPlacementSlotType::MainFactoryWithAddon:
+            return CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_FACTORY;
+        case EBuildPlacementSlotType::MainStarportWithAddon:
+            return CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_STARPORT;
+        case EBuildPlacementSlotType::MainProductionWithAddon:
+            return CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_BARRACKS ||
+                   CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_FACTORY ||
+                   CandidateUnitTypeIdValue == UNIT_TYPEID::TERRAN_STARPORT;
+        case EBuildPlacementSlotType::MainSupportStructure:
+            return IsTerranBuilding(CandidateUnitTypeIdValue);
         default:
             return false;
     }
@@ -52,6 +68,41 @@ EObservedWallSlotState DetermineObservedWallSlotState(const FTerranUnitContainer
     return EObservedWallSlotState::Empty;
 }
 
+void SetObservedPlacementSlotState(const FTerranUnitContainer& UnitContainerValue,
+                                   const FBuildPlacementSlot& BuildPlacementSlotValue,
+                                   FObservedPlacementSlotState& ObservedPlacementSlotStateValue,
+                                   FObservedRampWallState& ObservedRampWallStateValue)
+{
+    const EObservedWallSlotState ObservedWallSlotStateValue = DetermineObservedWallSlotState(
+        UnitContainerValue, BuildPlacementSlotValue.SlotId.SlotType, BuildPlacementSlotValue.BuildPoint);
+    ObservedPlacementSlotStateValue.SetObservedPlacementSlotState(BuildPlacementSlotValue.SlotId,
+                                                                  ObservedWallSlotStateValue);
+
+    switch (BuildPlacementSlotValue.SlotId.SlotType)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampBarracksWithAddon:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+            ObservedRampWallStateValue.SetObservedWallSlotState(BuildPlacementSlotValue.SlotId.SlotType,
+                                                                ObservedWallSlotStateValue);
+            break;
+        default:
+            break;
+    }
+}
+
+void SetObservedPlacementStatesForSlots(const FTerranUnitContainer& UnitContainerValue,
+                                        const std::vector<FBuildPlacementSlot>& BuildPlacementSlotsValue,
+                                        FObservedPlacementSlotState& ObservedPlacementSlotStateValue,
+                                        FObservedRampWallState& ObservedRampWallStateValue)
+{
+    for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
+    {
+        SetObservedPlacementSlotState(UnitContainerValue, BuildPlacementSlotValue, ObservedPlacementSlotStateValue,
+                                      ObservedRampWallStateValue);
+    }
+}
+
 }  // namespace
 
 void FTerranGameStateDescriptorBuilder::RebuildGameStateDescriptor(
@@ -63,19 +114,56 @@ void FTerranGameStateDescriptorBuilder::RebuildGameStateDescriptor(
     RebuildMacroStateDescriptor(CurrentGameLoopValue, AgentStateValue, GameStateDescriptorValue.MacroState);
     RebuildArmyDomainState(AgentStateValue, GameStateDescriptorValue.ArmyState);
     RebuildBuildPlanningState(CurrentGameLoopValue, AgentStateValue, GameStateDescriptorValue.BuildPlanning);
+    GameStateDescriptorValue.ObservedPlacementSlotState.Reset();
     GameStateDescriptorValue.ObservedRampWallState.Reset();
     if (GameStateDescriptorValue.RampWallDescriptor.bIsValid)
     {
-        GameStateDescriptorValue.ObservedRampWallState.LeftDepotState = DetermineObservedWallSlotState(
-            AgentStateValue.UnitContainer, EBuildPlacementSlotType::MainRampDepotLeft,
-            GameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot.BuildPoint);
-        GameStateDescriptorValue.ObservedRampWallState.BarracksState = DetermineObservedWallSlotState(
-            AgentStateValue.UnitContainer, EBuildPlacementSlotType::MainRampBarracksWithAddon,
-            GameStateDescriptorValue.RampWallDescriptor.BarracksSlot.BuildPoint);
-        GameStateDescriptorValue.ObservedRampWallState.RightDepotState = DetermineObservedWallSlotState(
-            AgentStateValue.UnitContainer, EBuildPlacementSlotType::MainRampDepotRight,
-            GameStateDescriptorValue.RampWallDescriptor.RightDepotSlot.BuildPoint);
+        SetObservedPlacementSlotState(AgentStateValue.UnitContainer,
+                                      GameStateDescriptorValue.RampWallDescriptor.LeftDepotSlot,
+                                      GameStateDescriptorValue.ObservedPlacementSlotState,
+                                      GameStateDescriptorValue.ObservedRampWallState);
+        SetObservedPlacementSlotState(AgentStateValue.UnitContainer,
+                                      GameStateDescriptorValue.RampWallDescriptor.BarracksSlot,
+                                      GameStateDescriptorValue.ObservedPlacementSlotState,
+                                      GameStateDescriptorValue.ObservedRampWallState);
+        SetObservedPlacementSlotState(AgentStateValue.UnitContainer,
+                                      GameStateDescriptorValue.RampWallDescriptor.RightDepotSlot,
+                                      GameStateDescriptorValue.ObservedPlacementSlotState,
+                                      GameStateDescriptorValue.ObservedRampWallState);
     }
+
+    SetObservedPlacementStatesForSlots(AgentStateValue.UnitContainer,
+                                       GameStateDescriptorValue.MainBaseLayoutDescriptor.NaturalEntranceWallDepotSlots,
+                                       GameStateDescriptorValue.ObservedPlacementSlotState,
+                                       GameStateDescriptorValue.ObservedRampWallState);
+    SetObservedPlacementStatesForSlots(AgentStateValue.UnitContainer,
+                                       GameStateDescriptorValue.MainBaseLayoutDescriptor.NaturalApproachDepotSlots,
+                                       GameStateDescriptorValue.ObservedPlacementSlotState,
+                                       GameStateDescriptorValue.ObservedRampWallState);
+    SetObservedPlacementStatesForSlots(AgentStateValue.UnitContainer,
+                                       GameStateDescriptorValue.MainBaseLayoutDescriptor.SupportDepotSlots,
+                                       GameStateDescriptorValue.ObservedPlacementSlotState,
+                                       GameStateDescriptorValue.ObservedRampWallState);
+    SetObservedPlacementStatesForSlots(AgentStateValue.UnitContainer,
+                                       GameStateDescriptorValue.MainBaseLayoutDescriptor.PeripheralDepotSlots,
+                                       GameStateDescriptorValue.ObservedPlacementSlotState,
+                                       GameStateDescriptorValue.ObservedRampWallState);
+    SetObservedPlacementStatesForSlots(AgentStateValue.UnitContainer,
+                                       GameStateDescriptorValue.MainBaseLayoutDescriptor.ProductionRailWithAddonSlots,
+                                       GameStateDescriptorValue.ObservedPlacementSlotState,
+                                       GameStateDescriptorValue.ObservedRampWallState);
+    SetObservedPlacementStatesForSlots(AgentStateValue.UnitContainer,
+                                       GameStateDescriptorValue.MainBaseLayoutDescriptor.BarracksWithAddonSlots,
+                                       GameStateDescriptorValue.ObservedPlacementSlotState,
+                                       GameStateDescriptorValue.ObservedRampWallState);
+    SetObservedPlacementStatesForSlots(AgentStateValue.UnitContainer,
+                                       GameStateDescriptorValue.MainBaseLayoutDescriptor.FactoryWithAddonSlots,
+                                       GameStateDescriptorValue.ObservedPlacementSlotState,
+                                       GameStateDescriptorValue.ObservedRampWallState);
+    SetObservedPlacementStatesForSlots(AgentStateValue.UnitContainer,
+                                       GameStateDescriptorValue.MainBaseLayoutDescriptor.StarportWithAddonSlots,
+                                       GameStateDescriptorValue.ObservedPlacementSlotState,
+                                       GameStateDescriptorValue.ObservedRampWallState);
 }
 
 void FTerranGameStateDescriptorBuilder::RebuildMacroStateDescriptor(

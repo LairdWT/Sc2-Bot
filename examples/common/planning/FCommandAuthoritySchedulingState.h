@@ -133,6 +133,8 @@ public:
     std::vector<EBuildPlacementSlotType> PreferredPlacementSlotTypes;
     std::vector<EBuildPlacementSlotType> PreferredPlacementSlotIdTypes;
     std::vector<uint8_t> PreferredPlacementSlotIdOrdinals;
+    std::vector<EBuildPlacementSlotType> PreferredProducerPlacementSlotIdTypes;
+    std::vector<uint8_t> PreferredProducerPlacementSlotIdOrdinals;
     std::vector<EBuildPlacementSlotType> ReservedPlacementSlotTypes;
     std::vector<uint8_t> ReservedPlacementSlotOrdinals;
     std::vector<ECommandOrderDeferralReason> LastDeferralReasons;

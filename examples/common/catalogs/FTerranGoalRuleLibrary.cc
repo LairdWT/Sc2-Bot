@@ -64,6 +64,23 @@ bool HasIdleCombatProductionPressure(const FExecutionPressureDescriptor& Executi
            ExecutionPressureDescriptorValue.RecentIdleProductionConflictCount > 0U;
 }
 
+uint32_t GetSupplyBufferForMacroPhase(const EMacroPhase MacroPhaseValue)
+{
+    switch (MacroPhaseValue)
+    {
+        case EMacroPhase::Opening:
+        case EMacroPhase::Recovery:
+            return 4U;
+        case EMacroPhase::EarlyGame:
+            return 8U;
+        case EMacroPhase::MidGame:
+        case EMacroPhase::LateGame:
+            return 12U;
+        default:
+            return 8U;
+    }
+}
+
 }  // namespace
 
 bool FTerranGoalRuleLibrary::IsGoalActive(const FGoalDescriptor& GoalDescriptorValue)
@@ -308,15 +325,22 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredRefineryCount(const FGameStateD
 uint32_t FTerranGoalRuleLibrary::DetermineDesiredSupplyDepotCount(
     const FGameStateDescriptor& GameStateDescriptorValue)
 {
-    const uint32_t DesiredWorkerCountValue = DetermineDesiredWorkerCount(GameStateDescriptorValue);
-    const uint32_t DesiredSupplyUsedValue =
-        DesiredWorkerCountValue + DetermineDesiredMarineCount(GameStateDescriptorValue) +
-        DetermineDesiredMarauderCount(GameStateDescriptorValue) +
-        (DetermineDesiredCycloneCount(GameStateDescriptorValue) * 3U) +
-        (DetermineDesiredSiegeTankCount(GameStateDescriptorValue) * 3U) +
-        (DetermineDesiredMedivacCount(GameStateDescriptorValue) * 2U) +
-        (DetermineDesiredLiberatorCount(GameStateDescriptorValue) * 3U);
-    return std::max<uint32_t>(2U, (DesiredSupplyUsedValue + 7U) / 8U);
+    constexpr uint32_t StartingSupplyCapValue = 15U;
+    constexpr uint32_t MaximumSupplyCapValue = 200U;
+
+    const uint32_t SupplyBufferValue =
+        GetSupplyBufferForMacroPhase(GameStateDescriptorValue.MacroState.ActiveMacroPhase);
+    const uint32_t ProjectedSupplyUsedValue =
+        std::min<uint32_t>(MaximumSupplyCapValue,
+                           GameStateDescriptorValue.MacroState.SupplyUsed +
+                               GameStateDescriptorValue.SchedulerOutlook.ExpectedSupplyUsedDelta);
+    const uint32_t BufferedSupplyCapTargetValue =
+        std::min<uint32_t>(MaximumSupplyCapValue, ProjectedSupplyUsedValue + SupplyBufferValue);
+    const uint32_t RequiredSupplyDepotCountValue =
+        BufferedSupplyCapTargetValue > StartingSupplyCapValue
+            ? ((BufferedSupplyCapTargetValue - StartingSupplyCapValue) + 7U) / 8U
+            : 0U;
+    return std::max<uint32_t>(2U, RequiredSupplyDepotCountValue);
 }
 
 uint32_t FTerranGoalRuleLibrary::DetermineDesiredBarracksCount(const FGameStateDescriptor& GameStateDescriptorValue)

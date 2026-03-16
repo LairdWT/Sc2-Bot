@@ -16,7 +16,6 @@ constexpr int GasHarvestIntentPriorityValue = 320;
 constexpr int GasReliefIntentPriorityValue = 321;
 constexpr uint64_t TerminalOrderCompactionIntervalStepCountValue = 120U;
 constexpr size_t TerminalOrderCompactionTriggerCountValue = 512U;
-constexpr uint64_t ProductionRallyRetryDelayGameLoopsValue = 16U;
 constexpr uint64_t RecentProductionRallyCounterWindowStepCountValue = 120U;
 using FSteadyClock = std::chrono::steady_clock;
 using FSteadyTimePoint = std::chrono::time_point<FSteadyClock>;
@@ -1697,17 +1696,14 @@ void TerranAgent::ProduceRecoveryIntents(const FFrameContext& Frame)
             continue;
         }
 
-        const Unit* NearestMineralPatch = FindNearestMineralPatch(Worker->pos);
-        if (NearestMineralPatch)
+        const Unit* RecoveryMineralPatchValue = SelectRecoveryMineralPatchForWorker(*Worker);
+        if (RecoveryMineralPatchValue != nullptr)
         {
-            IntentBuffer.Add(FUnitIntent::CreateUnitTarget(Worker->tag, ABILITY_ID::SMART, NearestMineralPatch->tag,
+            IntentBuffer.Add(FUnitIntent::CreateUnitTarget(Worker->tag, ABILITY_ID::SMART,
+                                                           RecoveryMineralPatchValue->tag,
                                                            300, EIntentDomain::Recovery));
             continue;
         }
-
-        IntentBuffer.Add(FUnitIntent::CreatePointTarget(Worker->tag, ABILITY_ID::ATTACK_ATTACK,
-                                                        GetEnemyTargetLocation(), 300, EIntentDomain::Recovery,
-                                                        true));
     }
 }
 
@@ -1948,7 +1944,7 @@ void TerranAgent::ProduceWorkerHarvestIntents(const FFrameContext& Frame)
                 break;
             }
 
-            const Unit* MineralPatchValue = FindNearestMineralPatch(WorkerUnitValue->pos);
+            const Unit* MineralPatchValue = SelectRecoveryMineralPatchForWorker(*WorkerUnitValue);
             if (MineralPatchValue == nullptr)
             {
                 break;
@@ -1999,16 +1995,13 @@ void TerranAgent::ProduceProductionRallyIntents()
         if (bAssemblyAnchorChangedValue)
         {
             ProductionRallyStateValue.DesiredRallyPoint = ProductionRallyPoint;
-            ProductionRallyStateValue.bNeedsInitialApply = true;
-            ProductionRallyStateValue.PendingApplyAttemptCount = FProductionRallyState::DefaultMaxApplyAttemptCount;
-            ProductionRallyStateValue.NextAllowedApplyGameLoop = 0U;
+            ProductionRallyStateValue.ApplyState = EProductionRallyApplyState::PendingApply;
         }
 
         const bool bShouldApplyRallyValue =
-            ProductionRallyStateValue.PendingApplyAttemptCount > 0U &&
-            GameStateDescriptor.CurrentGameLoop >= ProductionRallyStateValue.NextAllowedApplyGameLoop &&
-            (ProductionRallyStateValue.bNeedsInitialApply || ProductionRallyStateValue.LastAppliedGameLoop == 0U ||
-             DistanceSquared2D(ProductionRallyStateValue.LastAppliedRallyPoint, ProductionRallyPoint) > 1.0f);
+            ProductionRallyStateValue.ApplyState != EProductionRallyApplyState::Applied ||
+            ProductionRallyStateValue.LastAppliedGameLoop == 0U ||
+            DistanceSquared2D(ProductionRallyStateValue.LastAppliedRallyPoint, ProductionRallyPoint) > 1.0f;
         if (!bShouldApplyRallyValue)
         {
             continue;
@@ -2024,13 +2017,7 @@ void TerranAgent::ProduceProductionRallyIntents()
             ControlledUnitValue->tag, RallyAbilityValue, ProductionRallyPoint, 5, EIntentDomain::UnitProduction));
         ProductionRallyStateValue.LastAppliedRallyPoint = ProductionRallyPoint;
         ProductionRallyStateValue.LastAppliedGameLoop = GameStateDescriptor.CurrentGameLoop;
-        ProductionRallyStateValue.NextAllowedApplyGameLoop =
-            GameStateDescriptor.CurrentGameLoop + ProductionRallyRetryDelayGameLoopsValue;
-        if (ProductionRallyStateValue.PendingApplyAttemptCount > 0U)
-        {
-            --ProductionRallyStateValue.PendingApplyAttemptCount;
-        }
-        ProductionRallyStateValue.bNeedsInitialApply = ProductionRallyStateValue.PendingApplyAttemptCount > 0U;
+        ProductionRallyStateValue.ApplyState = EProductionRallyApplyState::Applied;
         ++LastProductionRallyApplyCount;
         ++RecentProductionRallyApplyCount;
     }
@@ -2341,29 +2328,104 @@ bool TerranAgent::HasProducerConfirmedDispatchedOrder(const FCommandOrderRecord&
     return false;
 }
 
-const Unit* TerranAgent::FindNearestMineralPatch(const Point2D& Origin)
+const Unit* TerranAgent::FindNearestMineralPatch(const Point2D& OriginPointValue) const
 {
-    float NearestDistance = std::numeric_limits<float>::max();
-    const Unit* Target = nullptr;
-    const IsMineralPatch MineralFilter;
+    float NearestDistanceSquaredValue = std::numeric_limits<float>::max();
+    const Unit* SelectedMineralPatchValue = nullptr;
+    const IsMineralPatch MineralFilterValue;
 
-    for (const Unit* NeutralUnit : NeutralUnits)
+    for (const Unit* NeutralUnitValue : NeutralUnits)
     {
-        if (!NeutralUnit || !MineralFilter(*NeutralUnit))
+        if (NeutralUnitValue == nullptr || !MineralFilterValue(*NeutralUnitValue))
         {
             continue;
         }
 
-        const Point2D Diff = Point2D(NeutralUnit->pos) - Origin;
-        const float DistanceValue = Dot2D(Diff, Diff);
-        if (DistanceValue <= NearestDistance)
+        const Point2D DeltaPointValue = Point2D(NeutralUnitValue->pos) - OriginPointValue;
+        const float DistanceSquaredValue = Dot2D(DeltaPointValue, DeltaPointValue);
+        if (DistanceSquaredValue <= NearestDistanceSquaredValue)
         {
-            NearestDistance = DistanceValue;
-            Target = NeutralUnit;
+            NearestDistanceSquaredValue = DistanceSquaredValue;
+            SelectedMineralPatchValue = NeutralUnitValue;
         }
     }
 
-    return Target;
+    return SelectedMineralPatchValue;
+}
+
+const Unit* TerranAgent::FindNearestMineralPatchForTownHall(const Point2D& TownHallPointValue) const
+{
+    constexpr float SupportedMineralLineRadiusSquaredValue = 225.0f;
+
+    float NearestDistanceSquaredValue = std::numeric_limits<float>::max();
+    const Unit* SelectedMineralPatchValue = nullptr;
+    const IsMineralPatch MineralFilterValue;
+
+    for (const Unit* NeutralUnitValue : NeutralUnits)
+    {
+        if (NeutralUnitValue == nullptr || !MineralFilterValue(*NeutralUnitValue))
+        {
+            continue;
+        }
+
+        const float DistanceToTownHallSquaredValue =
+            DistanceSquared2D(Point2D(NeutralUnitValue->pos), TownHallPointValue);
+        if (DistanceToTownHallSquaredValue > SupportedMineralLineRadiusSquaredValue)
+        {
+            continue;
+        }
+
+        if (DistanceToTownHallSquaredValue >= NearestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        NearestDistanceSquaredValue = DistanceToTownHallSquaredValue;
+        SelectedMineralPatchValue = NeutralUnitValue;
+    }
+
+    return SelectedMineralPatchValue;
+}
+
+const Unit* TerranAgent::FindNearestReadyTownHall(const Point2D& OriginPointValue) const
+{
+    float NearestDistanceSquaredValue = std::numeric_limits<float>::max();
+    const Unit* SelectedTownHallUnitValue = nullptr;
+    for (const Unit* BuildingUnitValue : AgentState.UnitContainer.ControlledUnits)
+    {
+        if (BuildingUnitValue == nullptr || BuildingUnitValue->build_progress < 1.0f)
+        {
+            continue;
+        }
+
+        if (!IsTownHallStructureType(BuildingUnitValue->unit_type.ToType()))
+        {
+            continue;
+        }
+
+        const float DistanceSquaredValue =
+            DistanceSquared2D(Point2D(BuildingUnitValue->pos), OriginPointValue);
+        if (DistanceSquaredValue >= NearestDistanceSquaredValue)
+        {
+            continue;
+        }
+
+        NearestDistanceSquaredValue = DistanceSquaredValue;
+        SelectedTownHallUnitValue = BuildingUnitValue;
+    }
+
+    return SelectedTownHallUnitValue;
+}
+
+const Unit* TerranAgent::SelectRecoveryMineralPatchForWorker(const Unit& WorkerUnitValue) const
+{
+    const Unit* ReadyTownHallUnitValue = FindNearestReadyTownHall(Point2D(WorkerUnitValue.pos));
+    if (ReadyTownHallUnitValue == nullptr)
+    {
+        return nullptr;
+    }
+
+    return FindNearestMineralPatchForTownHall(Point2D(ReadyTownHallUnitValue->pos));
 }
 
 Point2D TerranAgent::GetEnemyTargetLocation() const

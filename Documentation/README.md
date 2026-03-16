@@ -46,6 +46,8 @@ This folder contains bot-owned architecture and planning references for the Terr
 - [Automation/Sc2BotTerranDocumentationAutomationReport.md](Automation/Sc2BotTerranDocumentationAutomationReport.md)
 - [Automation/Sc2BotApiRefinementLedger.md](Automation/Sc2BotApiRefinementLedger.md)
 - [Automation/Sc2BotApiSkillAutomationReport.md](Automation/Sc2BotApiSkillAutomationReport.md)
+- [Automation/Sc2BotGoalActionCoverageMatrix.md](Automation/Sc2BotGoalActionCoverageMatrix.md)
+- [Automation/Sc2BotGoalActionCoverageAutomationReport.md](Automation/Sc2BotGoalActionCoverageAutomationReport.md)
 
 ## Current Intent
 

@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 
+#include "common/build_orders/FOpeningPlanRegistry.h"
 #include "common/bot_status_models.h"
+#include "common/catalogs/FTerranGoalRuleLibrary.h"
 #include "common/economic_models.h"
 #include "common/economy/EconomyForecastConstants.h"
 #include "sc2api/sc2_map_info.h"
@@ -20,6 +23,34 @@ constexpr float ExistingMoveOrderDistanceSquaredToleranceValue = 1.0f;
 constexpr float DisplacementFootprintPaddingValue = 1.5f;
 constexpr uint64_t BlockerReliefRetryDelayGameLoopsValue = 32U;
 constexpr uint32_t MaxSoftBlockWindowCountValue = 3U;
+
+Point2D GetNormalizedDirection(const Point2D& DirectionValue)
+{
+    const float LengthSquaredValue =
+        (DirectionValue.x * DirectionValue.x) + (DirectionValue.y * DirectionValue.y);
+    if (LengthSquaredValue <= 0.0001f)
+    {
+        return Point2D(1.0f, 0.0f);
+    }
+
+    const float InverseLengthValue = 1.0f / std::sqrt(LengthSquaredValue);
+    return Point2D(DirectionValue.x * InverseLengthValue, DirectionValue.y * InverseLengthValue);
+}
+
+Point2D GetCounterClockwiseLateralDirection(const Point2D& ForwardDirectionValue)
+{
+    return Point2D(-ForwardDirectionValue.y, ForwardDirectionValue.x);
+}
+
+const Unit* FindObservedStructureOccupyingPlacementSlot(const ObservationInterface& ObservationValue,
+                                                        const ABILITY_ID StructureAbilityIdValue,
+                                                        const FBuildPlacementSlot& BuildPlacementSlotValue);
+
+bool TryResolvePreferredProducerUnit(
+    const FFrameContext& FrameValue, const FGameStateDescriptor& GameStateDescriptorValue,
+    const IBuildPlacementService& BuildPlacementServiceValue, const std::vector<Point2D>& ExpansionLocationsValue,
+    const UNIT_TYPEID ProducerUnitTypeIdValue, const FBuildPlacementSlotId& PreferredProducerPlacementSlotIdValue,
+    FBuildPlacementSlot& OutProducerPlacementSlotValue, const Unit*& OutProducerUnitValue);
 
 bool IsReactorUnitType(const UNIT_TYPEID UnitTypeValue)
 {
@@ -77,6 +108,168 @@ bool IsRampWallSlotType(const EBuildPlacementSlotType BuildPlacementSlotTypeValu
             return true;
         default:
             return false;
+    }
+}
+
+bool IsRampWallDepotSlotType(const EBuildPlacementSlotType BuildPlacementSlotTypeValue)
+{
+    switch (BuildPlacementSlotTypeValue)
+    {
+        case EBuildPlacementSlotType::MainRampDepotLeft:
+        case EBuildPlacementSlotType::MainRampDepotRight:
+            return true;
+        default:
+            return false;
+    }
+}
+
+FBuildPlacementSlotId CreatePlacementSlotId(const EBuildPlacementSlotType BuildPlacementSlotTypeValue,
+                                            const uint8_t OrdinalValue)
+{
+    FBuildPlacementSlotId BuildPlacementSlotIdValue;
+    BuildPlacementSlotIdValue.SlotType = BuildPlacementSlotTypeValue;
+    BuildPlacementSlotIdValue.Ordinal = OrdinalValue;
+    return BuildPlacementSlotIdValue;
+}
+
+bool TryGetObservedExactPlacementSlotId(const FCommandOrderRecord& CommandOrderRecordValue,
+                                        FBuildPlacementSlotId& OutBuildPlacementSlotIdValue)
+{
+    if (CommandOrderRecordValue.ReservedPlacementSlotId.IsValid())
+    {
+        OutBuildPlacementSlotIdValue = CommandOrderRecordValue.ReservedPlacementSlotId;
+        return true;
+    }
+
+    if (CommandOrderRecordValue.PreferredPlacementSlotId.IsValid())
+    {
+        OutBuildPlacementSlotIdValue = CommandOrderRecordValue.PreferredPlacementSlotId;
+        return true;
+    }
+
+    return false;
+}
+
+bool IsMandatoryRampWallDepotOrder(const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    return CommandOrderRecordValue.AbilityId == ABILITY_ID::BUILD_SUPPLYDEPOT &&
+           CommandOrderRecordValue.CommitmentClass == ECommandCommitmentClass::MandatoryOpening &&
+           CommandOrderRecordValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute &&
+           IsRampWallDepotSlotType(CommandOrderRecordValue.PreferredPlacementSlotType);
+}
+
+bool IsMandatoryRampWallDepotTaskDescriptor(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return CommandTaskDescriptorValue.ActionAbilityId == ABILITY_ID::BUILD_SUPPLYDEPOT &&
+           CommandTaskDescriptorValue.CommitmentClass == ECommandCommitmentClass::MandatoryOpening &&
+           CommandTaskDescriptorValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute &&
+           IsRampWallDepotSlotType(CommandTaskDescriptorValue.ActionPreferredPlacementSlotType);
+}
+
+void ExpireOpeningStepOrders(FGameStateDescriptor& GameStateDescriptorValue, const uint32_t PlanStepIdValue)
+{
+    FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
+    FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
+        GameStateDescriptorValue.CommandAuthoritySchedulingState;
+    uint32_t StrategicOrderIdValue = 0U;
+    if (!OpeningPlanExecutionStateValue.TryGetPlanOrderId(PlanStepIdValue, StrategicOrderIdValue))
+    {
+        return;
+    }
+
+    CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(StrategicOrderIdValue, EOrderLifecycleState::Expired);
+    const size_t OrderCountValue = CommandAuthoritySchedulingStateValue.OrderIds.size();
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < OrderCountValue; ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ParentOrderIds[OrderIndexValue] != StrategicOrderIdValue ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(
+            CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue], EOrderLifecycleState::Expired);
+    }
+
+    OpeningPlanExecutionStateValue.UnseedStep(PlanStepIdValue);
+}
+
+void ActivateNaturalEntranceDepotFallback(FGameStateDescriptor& GameStateDescriptorValue)
+{
+    FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
+    if (OpeningPlanExecutionStateValue.WallChainState == EOpeningWallChainState::NaturalFallbackActive ||
+        OpeningPlanExecutionStateValue.WallChainState == EOpeningWallChainState::Completed)
+    {
+        return;
+    }
+
+    OpeningPlanExecutionStateValue.WallChainState = EOpeningWallChainState::NaturalFallbackActive;
+    OpeningPlanExecutionStateValue.ClearRemappedPlacementSlotIds();
+
+    const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
+        FOpeningPlanRegistry::GetOpeningPlanDescriptor(OpeningPlanExecutionStateValue.ActivePlanId);
+    std::vector<FBuildPlacementSlotId> FallbackPlacementSlotIdsValue;
+    FallbackPlacementSlotIdsValue.push_back(
+        CreatePlacementSlotId(EBuildPlacementSlotType::NaturalEntranceDepotLeft, 0U));
+    FallbackPlacementSlotIdsValue.push_back(
+        CreatePlacementSlotId(EBuildPlacementSlotType::NaturalEntranceDepotRight, 0U));
+    uint32_t NextFallbackSlotIndexValue = 0U;
+
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        const FCommandTaskDescriptor& OpeningTaskDescriptorValue = OpeningPlanStepValue.TaskDescriptor;
+        if (!IsMandatoryRampWallDepotTaskDescriptor(OpeningTaskDescriptorValue))
+        {
+            continue;
+        }
+
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId))
+        {
+            continue;
+        }
+
+        if (NextFallbackSlotIndexValue >= FallbackPlacementSlotIdsValue.size())
+        {
+            break;
+        }
+
+        OpeningPlanExecutionStateValue.SetRemappedPlacementSlotId(
+            OpeningTaskDescriptorValue.TaskId, FallbackPlacementSlotIdsValue[NextFallbackSlotIndexValue]);
+        OpeningPlanExecutionStateValue.ResetPlacementFailureCount(OpeningTaskDescriptorValue.TaskId);
+        ExpireOpeningStepOrders(GameStateDescriptorValue, OpeningTaskDescriptorValue.TaskId);
+        ++NextFallbackSlotIndexValue;
+    }
+}
+
+void ApplyOpeningWallFallbackForPlacementDeferral(FGameStateDescriptor& GameStateDescriptorValue,
+                                                  const FCommandOrderRecord& EconomyOrderValue,
+                                                  const ECommandOrderDeferralReason DeferralReasonValue)
+{
+    if (!IsMandatoryRampWallDepotOrder(EconomyOrderValue))
+    {
+        return;
+    }
+
+    FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
+    if (OpeningPlanExecutionStateValue.WallChainState != EOpeningWallChainState::RampActive)
+    {
+        return;
+    }
+
+    switch (DeferralReasonValue)
+    {
+        case ECommandOrderDeferralReason::ReservedSlotInvalidated:
+            ActivateNaturalEntranceDepotFallback(GameStateDescriptorValue);
+            return;
+        case ECommandOrderDeferralReason::ReservedSlotOccupied:
+            if (OpeningPlanExecutionStateValue.IncrementPlacementFailureCount(EconomyOrderValue.PlanStepId) >= 3U)
+            {
+                ActivateNaturalEntranceDepotFallback(GameStateDescriptorValue);
+            }
+            return;
+        default:
+            OpeningPlanExecutionStateValue.ResetPlacementFailureCount(EconomyOrderValue.PlanStepId);
+            return;
     }
 }
 
@@ -249,12 +442,11 @@ bool DoesOrderTargetMatchObservedState(const FGameStateDescriptor& GameStateDesc
         return false;
     }
 
-    if (CommandOrderRecordValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown &&
-        GameStateDescriptorValue.RampWallDescriptor.bIsValid &&
-        IsRampWallSlotType(CommandOrderRecordValue.PreferredPlacementSlotType))
+    FBuildPlacementSlotId BuildPlacementSlotIdValue;
+    if (TryGetObservedExactPlacementSlotId(CommandOrderRecordValue, BuildPlacementSlotIdValue))
     {
-        return GameStateDescriptorValue.ObservedRampWallState.GetObservedWallSlotState(
-                   CommandOrderRecordValue.PreferredPlacementSlotType) == EObservedWallSlotState::Occupied;
+        return GameStateDescriptorValue.ObservedPlacementSlotState.GetObservedPlacementSlotState(
+                   BuildPlacementSlotIdValue) == EObservedWallSlotState::Occupied;
     }
 
     return GetObservedCountForOrder(GameStateDescriptorValue.BuildPlanning, CommandOrderRecordValue) >=
@@ -971,6 +1163,9 @@ bool HasPlacementSlotBeenAttempted(const std::vector<FBuildPlacementSlotId>& Att
 }
 
 bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
+                                const FGameStateDescriptor& GameStateDescriptorValue,
+                                const IBuildPlacementService& BuildPlacementServiceValue,
+                                const std::vector<Point2D>& ExpansionLocationsValue,
                                 const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                 const FCommandOrderRecord& EconomyOrderValue,
                                 const UNIT_TYPEID ProducerUnitTypeIdValue,
@@ -988,14 +1183,39 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
         return false;
     }
 
-    const Units ProducerUnitsValue =
-        FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(ProducerUnitTypeIdValue));
     bool HasBusyProducerWithoutAddonValue = false;
     bool HasHardBlockedProducerValue = false;
     bool HasSoftBlockedProducerValue = false;
     FProductionBlockerResolution& ProductionBlockerResolutionValue =
         ProductionBlockerResolutionsValue[FCommandTaskSignatureKey::FromOrderRecord(EconomyOrderValue)];
-    for (const Unit* CandidateProducerUnitValue : ProducerUnitsValue)
+    std::vector<const Unit*> CandidateProducerUnitsValue;
+    if (EconomyOrderValue.PreferredProducerPlacementSlotId.IsValid())
+    {
+        FBuildPlacementSlot PreferredProducerPlacementSlotValue;
+        const Unit* PreferredProducerUnitValue = nullptr;
+        if (!TryResolvePreferredProducerUnit(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                             ExpansionLocationsValue, ProducerUnitTypeIdValue,
+                                             EconomyOrderValue.PreferredProducerPlacementSlotId,
+                                             PreferredProducerPlacementSlotValue, PreferredProducerUnitValue))
+        {
+            OutDeferralReasonValue = ECommandOrderDeferralReason::NoProducer;
+            return false;
+        }
+
+        CandidateProducerUnitsValue.push_back(PreferredProducerUnitValue);
+    }
+    else
+    {
+        const Units ProducerUnitsValue =
+            FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(ProducerUnitTypeIdValue));
+        CandidateProducerUnitsValue.reserve(ProducerUnitsValue.size());
+        for (const Unit* ProducerUnitValue : ProducerUnitsValue)
+        {
+            CandidateProducerUnitsValue.push_back(ProducerUnitValue);
+        }
+    }
+
+    for (const Unit* CandidateProducerUnitValue : CandidateProducerUnitsValue)
     {
         if (CandidateProducerUnitValue == nullptr || CandidateProducerUnitValue->add_on_tag != NullTag)
         {
@@ -1119,7 +1339,9 @@ bool RequiresTechLabAddonForAbility(const ABILITY_ID AbilityIdValue)
 }
 
 void PrimeQueuedAddonFootprintRelief(
-    const FFrameContext& FrameValue, const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+    const FFrameContext& FrameValue, const FGameStateDescriptor& GameStateDescriptorValue,
+    const IBuildPlacementService& BuildPlacementServiceValue, const std::vector<Point2D>& ExpansionLocationsValue,
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
     const std::vector<size_t>& PlanningOrderIndicesValue, const Point2D& ProductionRallyPointValue,
     const std::unordered_map<FCommandTaskSignatureKey, FProductionBlockerResolution, FCommandTaskSignatureKeyHash>&
         ProductionBlockerResolutionsValue,
@@ -1159,9 +1381,34 @@ void PrimeQueuedAddonFootprintRelief(
                 continue;
         }
 
-        const Units ProducerUnitsValue =
-            FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(ProducerUnitTypeIdValue));
-        for (const Unit* CandidateProducerUnitValue : ProducerUnitsValue)
+        std::vector<const Unit*> CandidateProducerUnitsValue;
+        if (EconomyOrderValue.PreferredProducerPlacementSlotId.IsValid())
+        {
+            FBuildPlacementSlot PreferredProducerPlacementSlotValue;
+            const Unit* PreferredProducerUnitValue = nullptr;
+            if (!TryResolvePreferredProducerUnit(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                                 ExpansionLocationsValue, ProducerUnitTypeIdValue,
+                                                 EconomyOrderValue.PreferredProducerPlacementSlotId,
+                                                 PreferredProducerPlacementSlotValue, PreferredProducerUnitValue) ||
+                PreferredProducerUnitValue == nullptr)
+            {
+                continue;
+            }
+
+            CandidateProducerUnitsValue.push_back(PreferredProducerUnitValue);
+        }
+        else
+        {
+            const Units ProducerUnitsValue =
+                FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(ProducerUnitTypeIdValue));
+            CandidateProducerUnitsValue.reserve(ProducerUnitsValue.size());
+            for (const Unit* ProducerUnitValue : ProducerUnitsValue)
+            {
+                CandidateProducerUnitsValue.push_back(ProducerUnitValue);
+            }
+        }
+
+        for (const Unit* CandidateProducerUnitValue : CandidateProducerUnitsValue)
         {
             if (CandidateProducerUnitValue == nullptr || CandidateProducerUnitValue->add_on_tag != NullTag ||
                 CandidateProducerUnitValue->build_progress < 1.0f || !CandidateProducerUnitValue->orders.empty() ||
@@ -1208,7 +1455,7 @@ void PrimeQueuedAddonFootprintRelief(
 bool HasOutstandingSupplyDepotDemand(const FGameStateDescriptor& GameStateDescriptorValue)
 {
     return GameStateDescriptorValue.ProductionState.GetProjectedBuildingCount(UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
-           GameStateDescriptorValue.BuildPlanning.DesiredSupplyDepotCount;
+           FTerranGoalRuleLibrary::DetermineDesiredSupplyDepotCount(GameStateDescriptorValue);
 }
 
 int GetEffectiveEconomyOrderPriority(const FCommandOrderRecord& EconomyOrderValue,
@@ -1233,6 +1480,7 @@ void CopyTaskMetadataToChildOrder(const FCommandOrderRecord& SourceOrderValue, F
     ChildOrderValue.BlockedTaskWakeKind = SourceOrderValue.BlockedTaskWakeKind;
     ChildOrderValue.EffectivePriorityValue = SourceOrderValue.EffectivePriorityValue;
     ChildOrderValue.PriorityTier = SourceOrderValue.PriorityTier;
+    ChildOrderValue.PreferredProducerPlacementSlotId = SourceOrderValue.PreferredProducerPlacementSlotId;
 }
 
 FBuildPlacementContext CreateBuildPlacementContext(const Point2D& BaseLocationValue,
@@ -1279,6 +1527,168 @@ bool TryFindPlacementSlotById(const std::vector<FBuildPlacementSlot>& BuildPlace
     return false;
 }
 
+ABILITY_ID GetStructureAbilityIdForProducerUnitType(const UNIT_TYPEID ProducerUnitTypeIdValue)
+{
+    switch (ProducerUnitTypeIdValue)
+    {
+        case UNIT_TYPEID::TERRAN_BARRACKS:
+            return ABILITY_ID::BUILD_BARRACKS;
+        case UNIT_TYPEID::TERRAN_FACTORY:
+            return ABILITY_ID::BUILD_FACTORY;
+        case UNIT_TYPEID::TERRAN_STARPORT:
+            return ABILITY_ID::BUILD_STARPORT;
+        case UNIT_TYPEID::TERRAN_COMMANDCENTER:
+        case UNIT_TYPEID::TERRAN_ORBITALCOMMAND:
+            return ABILITY_ID::BUILD_COMMANDCENTER;
+        default:
+            return ABILITY_ID::INVALID;
+    }
+}
+
+bool TryResolvePreferredProducerUnit(
+    const FFrameContext& FrameValue, const FGameStateDescriptor& GameStateDescriptorValue,
+    const IBuildPlacementService& BuildPlacementServiceValue, const std::vector<Point2D>& ExpansionLocationsValue,
+    const UNIT_TYPEID ProducerUnitTypeIdValue, const FBuildPlacementSlotId& PreferredProducerPlacementSlotIdValue,
+    FBuildPlacementSlot& OutProducerPlacementSlotValue, const Unit*& OutProducerUnitValue)
+{
+    OutProducerUnitValue = nullptr;
+    if (FrameValue.Observation == nullptr || !PreferredProducerPlacementSlotIdValue.IsValid())
+    {
+        return false;
+    }
+
+    const ABILITY_ID ProducerStructureAbilityIdValue = GetStructureAbilityIdForProducerUnitType(ProducerUnitTypeIdValue);
+    if (ProducerStructureAbilityIdValue == ABILITY_ID::INVALID)
+    {
+        return false;
+    }
+
+    const Point2D BaseLocationValue = Point2D(FrameValue.Observation->GetStartLocation());
+    const FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext(
+        BaseLocationValue, ExpansionLocationsValue, GameStateDescriptorValue.RampWallDescriptor,
+        GameStateDescriptorValue.MainBaseLayoutDescriptor);
+    const std::vector<FBuildPlacementSlot> ProducerPlacementSlotsValue =
+        BuildPlacementServiceValue.GetStructurePlacementSlots(GameStateDescriptorValue, ProducerStructureAbilityIdValue,
+                                                              BuildPlacementContextValue);
+    if (!TryFindPlacementSlotById(ProducerPlacementSlotsValue, PreferredProducerPlacementSlotIdValue,
+                                  OutProducerPlacementSlotValue))
+    {
+        return false;
+    }
+
+    OutProducerUnitValue = FindObservedStructureOccupyingPlacementSlot(*FrameValue.Observation,
+                                                                       ProducerStructureAbilityIdValue,
+                                                                       OutProducerPlacementSlotValue);
+    if (OutProducerUnitValue == nullptr || OutProducerUnitValue->unit_type.ToType() != ProducerUnitTypeIdValue)
+    {
+        OutProducerUnitValue = nullptr;
+        return false;
+    }
+
+    return true;
+}
+
+bool DoesMandatoryOpeningAddonReserveProducer(
+    const FFrameContext& FrameValue, const FGameStateDescriptor& GameStateDescriptorValue,
+    const IBuildPlacementService& BuildPlacementServiceValue, const std::vector<Point2D>& ExpansionLocationsValue,
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const Unit& ProducerUnitValue,
+    const uint32_t IgnoredOrderIdValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue] == IgnoredOrderIdValue ||
+            IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]) ||
+            CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue] != ECommandTaskType::AddOn ||
+            CommandAuthoritySchedulingStateValue.CommitmentClasses[OrderIndexValue] !=
+                ECommandCommitmentClass::MandatoryOpening ||
+            CommandAuthoritySchedulingStateValue.ExecutionGuarantees[OrderIndexValue] !=
+                ECommandTaskExecutionGuarantee::MustExecute)
+        {
+            continue;
+        }
+
+        FBuildPlacementSlotId PreferredProducerPlacementSlotIdValue;
+        PreferredProducerPlacementSlotIdValue.SlotType =
+            CommandAuthoritySchedulingStateValue.PreferredProducerPlacementSlotIdTypes[OrderIndexValue];
+        PreferredProducerPlacementSlotIdValue.Ordinal =
+            CommandAuthoritySchedulingStateValue.PreferredProducerPlacementSlotIdOrdinals[OrderIndexValue];
+        if (!PreferredProducerPlacementSlotIdValue.IsValid())
+        {
+            continue;
+        }
+
+        FBuildPlacementSlot ReservedProducerPlacementSlotValue;
+        const Unit* ReservedProducerUnitValue = nullptr;
+        if (!TryResolvePreferredProducerUnit(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                             ExpansionLocationsValue,
+                                             CommandAuthoritySchedulingStateValue.ProducerUnitTypeIds[OrderIndexValue],
+                                             PreferredProducerPlacementSlotIdValue,
+                                             ReservedProducerPlacementSlotValue, ReservedProducerUnitValue))
+        {
+            continue;
+        }
+
+        if (ReservedProducerUnitValue->tag == ProducerUnitValue.tag)
+        {
+            return true;
+        }
+    }
+
+    const std::array<const FBlockedTaskRingBuffer*, 2U> BlockedTaskBuffersValue =
+    {
+        &CommandAuthoritySchedulingStateValue.BlockedStrategicTasks,
+        &CommandAuthoritySchedulingStateValue.BlockedPlanningTasks,
+    };
+    for (const FBlockedTaskRingBuffer* BlockedTaskRingBufferPtrValue : BlockedTaskBuffersValue)
+    {
+        if (BlockedTaskRingBufferPtrValue == nullptr)
+        {
+            continue;
+        }
+
+        const size_t BlockedTaskCountValue = BlockedTaskRingBufferPtrValue->GetCount();
+        for (size_t OrderedIndexValue = 0U; OrderedIndexValue < BlockedTaskCountValue; ++OrderedIndexValue)
+        {
+            const FBlockedTaskRecord* BlockedTaskRecordPtrValue =
+                BlockedTaskRingBufferPtrValue->GetRecordAtOrderedIndex(OrderedIndexValue);
+            if (BlockedTaskRecordPtrValue == nullptr || BlockedTaskRecordPtrValue->TaskType != ECommandTaskType::AddOn ||
+                BlockedTaskRecordPtrValue->CommitmentClass != ECommandCommitmentClass::MandatoryOpening ||
+                BlockedTaskRecordPtrValue->ExecutionGuarantee != ECommandTaskExecutionGuarantee::MustExecute ||
+                !BlockedTaskRecordPtrValue->PreferredProducerPlacementSlotId.IsValid())
+            {
+                continue;
+            }
+
+            FBuildPlacementSlot ReservedProducerPlacementSlotValue;
+            const Unit* ReservedProducerUnitValue = nullptr;
+            if (!TryResolvePreferredProducerUnit(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                                 ExpansionLocationsValue,
+                                                 BlockedTaskRecordPtrValue->ProducerUnitTypeId,
+                                                 BlockedTaskRecordPtrValue->PreferredProducerPlacementSlotId,
+                                                 ReservedProducerPlacementSlotValue, ReservedProducerUnitValue))
+            {
+                continue;
+            }
+
+            if (ReservedProducerUnitValue->tag == ProducerUnitValue.tag)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool IsSupplyPressureActiveForDepotFallback(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    return GameStateDescriptorValue.EconomyState.ProjectedAvailableSupplyByHorizon[ShortForecastHorizonIndexValue] <=
+               2U ||
+           GameStateDescriptorValue.CommitmentLedger.GetProjectedDiscretionarySupply(ShortForecastHorizonIndexValue) <=
+               2U;
+}
+
 float GetPlacementSlotOccupancyRadiusSquared(const FBuildPlacementSlot& BuildPlacementSlotValue)
 {
     switch (BuildPlacementSlotValue.SlotId.SlotType)
@@ -1286,8 +1696,11 @@ float GetPlacementSlotOccupancyRadiusSquared(const FBuildPlacementSlot& BuildPla
         case EBuildPlacementSlotType::MainRampDepotLeft:
         case EBuildPlacementSlotType::MainRampBarracksWithAddon:
         case EBuildPlacementSlotType::MainRampDepotRight:
+        case EBuildPlacementSlotType::NaturalEntranceDepotLeft:
+        case EBuildPlacementSlotType::NaturalEntranceDepotRight:
         case EBuildPlacementSlotType::NaturalApproachDepot:
         case EBuildPlacementSlotType::MainSupportDepot:
+        case EBuildPlacementSlotType::MainPeripheralDepot:
         case EBuildPlacementSlotType::MainBarracksWithAddon:
         case EBuildPlacementSlotType::MainFactoryWithAddon:
         case EBuildPlacementSlotType::MainStarportWithAddon:
@@ -1512,6 +1925,69 @@ bool TrySelectPlacementSlotCandidate(const FFrameContext& FrameValue,
     return true;
 }
 
+bool TrySelectFallbackSupplyDepotPlacementSlot(const FFrameContext& FrameValue, const Unit& WorkerUnitValue,
+                                               const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+                                               const FCommandOrderRecord& EconomyOrderValue,
+                                               const FBuildPlacementContext& BuildPlacementContextValue,
+                                               const Point2D& BlockerReliefTargetPointValue,
+                                               FIntentBuffer& IntentBufferValue,
+                                               FBuildPlacementSlot& OutBuildPlacementSlotValue)
+{
+    if (FrameValue.GameInfo == nullptr || FrameValue.Query == nullptr)
+    {
+        return false;
+    }
+
+    const Point2D ForwardDirectionValue = GetNormalizedDirection(
+        BuildPlacementContextValue.HasNaturalLocation()
+            ? (BuildPlacementContextValue.NaturalLocation - BuildPlacementContextValue.BaseLocation)
+            : Point2D(1.0f, 0.0f));
+    const Point2D LateralDirectionValue = GetCounterClockwiseLateralDirection(ForwardDirectionValue);
+    const Point2D BaseLocationValue = BuildPlacementContextValue.BaseLocation;
+    const Point2D NaturalLocationValue =
+        BuildPlacementContextValue.HasNaturalLocation()
+            ? BuildPlacementContextValue.NaturalLocation
+            : Point2D(BaseLocationValue.x + (ForwardDirectionValue.x * 20.0f),
+                      BaseLocationValue.y + (ForwardDirectionValue.y * 20.0f));
+    const std::array<Point2D, 8U> CandidateBuildPointsValue =
+    {
+        Point2D(NaturalLocationValue.x + (LateralDirectionValue.x * 10.0f),
+                NaturalLocationValue.y + (LateralDirectionValue.y * 10.0f)),
+        Point2D(NaturalLocationValue.x - (LateralDirectionValue.x * 10.0f),
+                NaturalLocationValue.y - (LateralDirectionValue.y * 10.0f)),
+        Point2D(NaturalLocationValue.x + (ForwardDirectionValue.x * 6.0f) + (LateralDirectionValue.x * 14.0f),
+                NaturalLocationValue.y + (ForwardDirectionValue.y * 6.0f) + (LateralDirectionValue.y * 14.0f)),
+        Point2D(NaturalLocationValue.x + (ForwardDirectionValue.x * 6.0f) - (LateralDirectionValue.x * 14.0f),
+                NaturalLocationValue.y + (ForwardDirectionValue.y * 6.0f) - (LateralDirectionValue.y * 14.0f)),
+        Point2D(BaseLocationValue.x + (LateralDirectionValue.x * 22.0f) + (ForwardDirectionValue.x * 18.0f),
+                BaseLocationValue.y + (LateralDirectionValue.y * 22.0f) + (ForwardDirectionValue.y * 18.0f)),
+        Point2D(BaseLocationValue.x - (LateralDirectionValue.x * 22.0f) + (ForwardDirectionValue.x * 18.0f),
+                BaseLocationValue.y - (LateralDirectionValue.y * 22.0f) + (ForwardDirectionValue.y * 18.0f)),
+        Point2D(BaseLocationValue.x + (LateralDirectionValue.x * 26.0f),
+                BaseLocationValue.y + (LateralDirectionValue.y * 26.0f)),
+        Point2D(BaseLocationValue.x - (LateralDirectionValue.x * 26.0f),
+                BaseLocationValue.y - (LateralDirectionValue.y * 26.0f)),
+    };
+
+    for (const Point2D& CandidateBuildPointValue : CandidateBuildPointsValue)
+    {
+        FBuildPlacementSlot FallbackPlacementSlotValue;
+        FallbackPlacementSlotValue.SlotId.Reset();
+        FallbackPlacementSlotValue.FootprintPolicy = EBuildPlacementFootprintPolicy::StructureOnly;
+        FallbackPlacementSlotValue.BuildPoint = CandidateBuildPointValue;
+        bool HasFriendlyMovableBlockerValue = false;
+        if (TrySelectPlacementSlotCandidate(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
+                                            WorkerUnitValue, FallbackPlacementSlotValue,
+                                            BlockerReliefTargetPointValue, IntentBufferValue,
+                                            OutBuildPlacementSlotValue, HasFriendlyMovableBlockerValue))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
                                      const FGameStateDescriptor& GameStateDescriptorValue,
                                      const IBuildPlacementService& BuildPlacementServiceValue,
@@ -1589,6 +2065,10 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
     bool HasIssuedFriendlyBlockerReliefValue = false;
     std::vector<FBuildPlacementSlotId> AttemptedPlacementSlotIdsValue;
     bool HasPreferredPlacementSlotCandidatesValue = false;
+    const bool IsExactMustExecutePlacementValue =
+        EconomyOrderValue.ExecutionGuarantee == ECommandTaskExecutionGuarantee::MustExecute &&
+        (EconomyOrderValue.PreferredPlacementSlotId.IsValid() ||
+         EconomyOrderValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown);
     if (EconomyOrderValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown)
     {
         for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
@@ -1614,6 +2094,21 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
         }
     }
 
+    if (IsExactMustExecutePlacementValue &&
+        EconomyOrderValue.PreferredPlacementSlotType != EBuildPlacementSlotType::Unknown)
+    {
+        if (HasIssuedFriendlyBlockerReliefValue)
+        {
+            OutDeferralReasonValue = ECommandOrderDeferralReason::ProducerBusy;
+            return false;
+        }
+
+        OutDeferralReasonValue = HasPreferredPlacementSlotCandidatesValue
+                                     ? ECommandOrderDeferralReason::ReservedSlotOccupied
+                                     : ECommandOrderDeferralReason::ReservedSlotInvalidated;
+        return false;
+    }
+
     for (const FBuildPlacementSlot& BuildPlacementSlotValue : BuildPlacementSlotsValue)
     {
         if (HasPlacementSlotBeenAttempted(AttemptedPlacementSlotIdsValue, BuildPlacementSlotValue.SlotId))
@@ -1632,6 +2127,16 @@ bool TrySelectStructurePlacementSlot(const FFrameContext& FrameValue,
 
         HasIssuedFriendlyBlockerReliefValue =
             HasIssuedFriendlyBlockerReliefValue || HasFriendlyMovableBlockerValue;
+    }
+
+    if (EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_SUPPLYDEPOT && !HasIssuedFriendlyBlockerReliefValue &&
+        IsSupplyPressureActiveForDepotFallback(GameStateDescriptorValue) &&
+        TrySelectFallbackSupplyDepotPlacementSlot(FrameValue, WorkerUnitValue, CommandAuthoritySchedulingStateValue,
+                                                  EconomyOrderValue, BuildPlacementContextValue,
+                                                  BlockerReliefTargetPointValue, IntentBufferValue,
+                                                  OutBuildPlacementSlotValue))
+    {
+        return true;
     }
 
     if (HasIssuedFriendlyBlockerReliefValue)
@@ -2064,8 +2569,15 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
         GameStateDescriptorValue.MainBaseLayoutDescriptor);
     const Point2D ProductionRallyPointValue =
         BuildPlacementServiceValue.GetProductionRallyPoint(GameStateDescriptorValue, BuildPlacementContextValue);
-    PrimeQueuedAddonFootprintRelief(FrameValue, CommandAuthoritySchedulingStateValue, PlanningOrderIndicesValue,
-                                    ProductionRallyPointValue, ProductionBlockerResolutions, IntentBufferValue);
+    const Point2D ProductionClearancePointValue =
+        (BuildPlacementContextValue.MainBaseLayoutDescriptor.ProductionClearanceAnchorPoint.x != 0.0f ||
+         BuildPlacementContextValue.MainBaseLayoutDescriptor.ProductionClearanceAnchorPoint.y != 0.0f)
+            ? BuildPlacementContextValue.MainBaseLayoutDescriptor.ProductionClearanceAnchorPoint
+            : ProductionRallyPointValue;
+    PrimeQueuedAddonFootprintRelief(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                    ExpansionLocationsValue, CommandAuthoritySchedulingStateValue,
+                                    PlanningOrderIndicesValue, ProductionClearancePointValue,
+                                    ProductionBlockerResolutions, IntentBufferValue);
 
     for (const size_t PlanningOrderIndexValue : PlanningOrderIndicesValue)
     {
@@ -2079,6 +2591,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
         if (DoesOrderTargetMatchObservedState(GameStateDescriptorValue, EconomyOrderValue))
         {
+            GameStateDescriptorValue.OpeningPlanExecutionState.ResetPlacementFailureCount(EconomyOrderValue.PlanStepId);
             CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
                 EconomyOrderValue.OrderId, ECommandOrderDeferralReason::TargetAlreadySatisfied, CurrentStepValue,
                 CurrentGameLoopValue);
@@ -2113,11 +2626,15 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             {
                 case EReservedPlacementSlotState::Invalidated:
                     CommandAuthoritySchedulingStateValue.ClearOrderReservedPlacementSlot(EconomyOrderValue.OrderId);
+                    ApplyOpeningWallFallbackForPlacementDeferral(GameStateDescriptorValue, EconomyOrderValue,
+                                                                 ECommandOrderDeferralReason::ReservedSlotInvalidated);
                     CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
                         EconomyOrderValue.OrderId, ECommandOrderDeferralReason::ReservedSlotInvalidated,
                         CurrentStepValue, CurrentGameLoopValue);
                     break;
                 case EReservedPlacementSlotState::Occupied:
+                    ApplyOpeningWallFallbackForPlacementDeferral(GameStateDescriptorValue, EconomyOrderValue,
+                                                                 ECommandOrderDeferralReason::ReservedSlotOccupied);
                     CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
                         EconomyOrderValue.OrderId, ECommandOrderDeferralReason::ReservedSlotOccupied,
                         CurrentStepValue, CurrentGameLoopValue);
@@ -2172,7 +2689,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 if (!TrySelectStructurePlacementSlot(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
                                                      ExpansionLocationsValue,
                                                      CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                     *WorkerUnitValue, ProductionRallyPointValue, IntentBufferValue,
+                                                     *WorkerUnitValue, ProductionClearancePointValue, IntentBufferValue,
                                                      SelectedBuildPlacementSlotValue,
                                                      DeferralReasonValue))
                 {
@@ -2429,10 +2946,11 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 }
 
                 const Unit* BarracksUnitValue = nullptr;
-                if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                UNIT_TYPEID::TERRAN_BARRACKS, ProductionRallyPointValue,
-                                                ProductionBlockerResolutions, IntentBufferValue, BarracksUnitValue,
-                                                DeferralReasonValue))
+                if (!TrySelectAddonProducerUnit(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                                ExpansionLocationsValue, CommandAuthoritySchedulingStateValue,
+                                                EconomyOrderValue, UNIT_TYPEID::TERRAN_BARRACKS,
+                                                ProductionClearancePointValue, ProductionBlockerResolutions,
+                                                IntentBufferValue, BarracksUnitValue, DeferralReasonValue))
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
                                              MineralsCostValue,
@@ -2463,10 +2981,11 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 }
 
                 const Unit* FactoryUnitValue = nullptr;
-                if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                UNIT_TYPEID::TERRAN_FACTORY, ProductionRallyPointValue,
-                                                ProductionBlockerResolutions, IntentBufferValue, FactoryUnitValue,
-                                                DeferralReasonValue))
+                if (!TrySelectAddonProducerUnit(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                                ExpansionLocationsValue, CommandAuthoritySchedulingStateValue,
+                                                EconomyOrderValue, UNIT_TYPEID::TERRAN_FACTORY,
+                                                ProductionClearancePointValue, ProductionBlockerResolutions,
+                                                IntentBufferValue, FactoryUnitValue, DeferralReasonValue))
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
                                              MineralsCostValue,
@@ -2496,10 +3015,11 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 }
 
                 const Unit* StarportUnitValue = nullptr;
-                if (!TrySelectAddonProducerUnit(FrameValue, CommandAuthoritySchedulingStateValue, EconomyOrderValue,
-                                                UNIT_TYPEID::TERRAN_STARPORT, ProductionRallyPointValue,
-                                                ProductionBlockerResolutions, IntentBufferValue, StarportUnitValue,
-                                                DeferralReasonValue))
+                if (!TrySelectAddonProducerUnit(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                                ExpansionLocationsValue, CommandAuthoritySchedulingStateValue,
+                                                EconomyOrderValue, UNIT_TYPEID::TERRAN_STARPORT,
+                                                ProductionClearancePointValue, ProductionBlockerResolutions,
+                                                IntentBufferValue, StarportUnitValue, DeferralReasonValue))
                 {
                     ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
                                              MineralsCostValue,
@@ -2568,6 +3088,15 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     {
                         if (ProducerUnitValue == nullptr)
                         {
+                            continue;
+                        }
+
+                        if (DoesMandatoryOpeningAddonReserveProducer(
+                                FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                ExpansionLocationsValue, CommandAuthoritySchedulingStateValue, *ProducerUnitValue,
+                                EconomyOrderValue.OrderId))
+                        {
+                            HasBusyProducerValue = true;
                             continue;
                         }
 
@@ -2655,15 +3184,24 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                     bool HasBusyProducerValue = false;
                     uint32_t CreatedChildCountValue = 0U;
-                    for (const Unit* ProducerUnitValue : ProducerUnitsValue)
+                for (const Unit* ProducerUnitValue : ProducerUnitsValue)
+                {
+                    if (ProducerUnitValue == nullptr)
                     {
-                        if (ProducerUnitValue == nullptr)
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        if (ProducerUnitValue->build_progress < 1.0f ||
-                            IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
+                    if (DoesMandatoryOpeningAddonReserveProducer(
+                            FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                            ExpansionLocationsValue, CommandAuthoritySchedulingStateValue, *ProducerUnitValue,
+                            EconomyOrderValue.OrderId))
+                    {
+                        HasBusyProducerValue = true;
+                        continue;
+                    }
+
+                    if (ProducerUnitValue->build_progress < 1.0f ||
+                        IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
                             HasConflictingSchedulerOrderForProductionActor(CommandAuthoritySchedulingStateValue,
                                                                            ProducerUnitValue->tag))
                         {
@@ -2742,6 +3280,15 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         continue;
                     }
 
+                    if (DoesMandatoryOpeningAddonReserveProducer(
+                            FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                            ExpansionLocationsValue, CommandAuthoritySchedulingStateValue, *ProducerUnitValue,
+                            EconomyOrderValue.OrderId))
+                    {
+                        HasBusyProducerValue = true;
+                        continue;
+                    }
+
                     if (ProducerUnitValue->build_progress < 1.0f ||
                         IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
                         HasConflictingSchedulerOrderForProductionActor(CommandAuthoritySchedulingStateValue,
@@ -2792,6 +3339,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
         {
             if (DeferralReasonValue != ECommandOrderDeferralReason::None)
             {
+                ApplyOpeningWallFallbackForPlacementDeferral(GameStateDescriptorValue, EconomyOrderValue,
+                                                             DeferralReasonValue);
                 CommandAuthoritySchedulingStateValue.SetOrderDeferralState(EconomyOrderValue.OrderId,
                                                                            DeferralReasonValue, CurrentStepValue,
                                                                            CurrentGameLoopValue);
@@ -2799,6 +3348,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             continue;
         }
 
+        GameStateDescriptorValue.OpeningPlanExecutionState.ResetPlacementFailureCount(EconomyOrderValue.PlanStepId);
         UnitExecutionOrderValue.LifecycleState = EOrderLifecycleState::Ready;
         UnitExecutionOrderValue.PlanStepId = EconomyOrderValue.PlanStepId;
         UnitExecutionOrderValue.TargetCount = EconomyOrderValue.TargetCount;

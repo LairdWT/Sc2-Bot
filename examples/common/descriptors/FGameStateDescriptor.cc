@@ -26,6 +26,7 @@ void FGameStateDescriptor::Reset()
     SpatialFields.Reset();
     RampWallDescriptor.Reset();
     MainBaseLayoutDescriptor.Reset();
+    ObservedPlacementSlotState.Reset();
     ObservedRampWallState.Reset();
 }
 

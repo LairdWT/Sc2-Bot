@@ -145,6 +145,12 @@ bool IsExactSlotOpeningStructureTask(const FCommandTaskDescriptor& CommandTaskDe
            CommandTaskDescriptorValue.ActionPreferredPlacementSlotType != EBuildPlacementSlotType::Unknown;
 }
 
+bool IsExactProducerBoundOpeningAddonTask(const FCommandTaskDescriptor& CommandTaskDescriptorValue)
+{
+    return CommandTaskDescriptorValue.ActionKind == ECommandTaskActionKind::BuildAddon &&
+           CommandTaskDescriptorValue.ActionPreferredProducerPlacementSlotId.IsValid();
+}
+
 FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_t MinGameLoopValue,
                                        const int PriorityValue, const AbilityID AbilityIdValue,
                                        const UNIT_TYPEID ProducerUnitTypeIdValue,
@@ -155,6 +161,8 @@ FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_
                                        const EBuildPlacementSlotType PreferredPlacementSlotTypeValue =
                                            EBuildPlacementSlotType::Unknown,
                                        const FBuildPlacementSlotId PreferredPlacementSlotIdValue =
+                                           FBuildPlacementSlotId(),
+                                       const FBuildPlacementSlotId PreferredProducerPlacementSlotIdValue =
                                            FBuildPlacementSlotId(),
                                        const UpgradeID UpgradeIdValue = UpgradeID(UPGRADE_ID::INVALID))
 {
@@ -189,8 +197,15 @@ FOpeningPlanStep CreateOpeningPlanStep(const uint32_t StepIdValue, const uint64_
     TaskDescriptorValue.ParallelGroupId = ParallelGroupIdValue;
     TaskDescriptorValue.ActionPreferredPlacementSlotType = PreferredPlacementSlotTypeValue;
     TaskDescriptorValue.ActionPreferredPlacementSlotId = PreferredPlacementSlotIdValue;
+    TaskDescriptorValue.ActionPreferredProducerPlacementSlotId = PreferredProducerPlacementSlotIdValue;
     TaskDescriptorValue.CompletionObservedCountAtLeast = TargetCountValue;
     if (IsExactSlotOpeningStructureTask(TaskDescriptorValue))
+    {
+        TaskDescriptorValue.CommitmentClass = ECommandCommitmentClass::MandatoryOpening;
+        TaskDescriptorValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::MustExecute;
+        TaskDescriptorValue.RetentionPolicy = ECommandTaskRetentionPolicy::HotMustRun;
+    }
+    if (IsExactProducerBoundOpeningAddonTask(TaskDescriptorValue))
     {
         TaskDescriptorValue.CommitmentClass = ECommandCommitmentClass::MandatoryOpening;
         TaskDescriptorValue.ExecutionGuarantee = ECommandTaskExecutionGuarantee::MustExecute;
@@ -234,11 +249,15 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
             StepsValue.reserve(102U);
             StepsValue.push_back(CreateOpeningPlanStep(1U, 358U, 100, ABILITY_ID::BUILD_SUPPLYDEPOT,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 1U,
-                                                       1U, 0U, {}, EBuildPlacementSlotType::MainRampDepotLeft));
+                                                       1U, 0U, {}, EBuildPlacementSlotType::MainRampDepotLeft,
+                                                       CreatePlacementSlotId(
+                                                           EBuildPlacementSlotType::MainRampDepotLeft, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(2U, 896U, 95, ABILITY_ID::BUILD_BARRACKS,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_BARRACKS, 1U,
                                                        1U, 15U, {1U},
-                                                       EBuildPlacementSlotType::MainRampBarracksWithAddon));
+                                                       EBuildPlacementSlotType::MainRampBarracksWithAddon,
+                                                       CreatePlacementSlotId(
+                                                           EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(3U, 941U, 94, ABILITY_ID::BUILD_REFINERY,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_REFINERY, 1U,
                                                        1U, 15U, {1U}));
@@ -253,10 +272,15 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
                                                        1U, 20U, {3U}));
             StepsValue.push_back(CreateOpeningPlanStep(7U, 2330U, 87, ABILITY_ID::BUILD_REACTOR_BARRACKS,
                                                        UNIT_TYPEID::TERRAN_BARRACKS,
-                                                       UNIT_TYPEID::TERRAN_BARRACKSREACTOR, 1U, 1U, 20U, {2U}));
+                                                       UNIT_TYPEID::TERRAN_BARRACKSREACTOR, 1U, 1U, 20U, {2U},
+                                                       EBuildPlacementSlotType::Unknown, FBuildPlacementSlotId(),
+                                                       CreatePlacementSlotId(
+                                                           EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(8U, 2464U, 86, ABILITY_ID::BUILD_SUPPLYDEPOT,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 2U,
-                                                       1U, 0U, {}, EBuildPlacementSlotType::MainRampDepotRight));
+                                                       1U, 0U, {}, EBuildPlacementSlotType::MainRampDepotRight,
+                                                       CreatePlacementSlotId(
+                                                           EBuildPlacementSlotType::MainRampDepotRight, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(9U, 2867U, 84, ABILITY_ID::BUILD_FACTORY,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_FACTORY, 1U, 1U,
                                                        22U, {3U}, EBuildPlacementSlotType::MainFactoryWithAddon,
@@ -294,7 +318,10 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
                                                        1U, 0U, {}));
             StepsValue.push_back(CreateOpeningPlanStep(19U, 4390U, 74, ABILITY_ID::BUILD_TECHLAB_FACTORY,
                                                        UNIT_TYPEID::TERRAN_FACTORY,
-                                                       UNIT_TYPEID::TERRAN_FACTORYTECHLAB, 1U, 1U, 0U, {9U}));
+                                                       UNIT_TYPEID::TERRAN_FACTORYTECHLAB, 1U, 1U, 0U, {9U},
+                                                       EBuildPlacementSlotType::Unknown, FBuildPlacementSlotId(),
+                                                       CreatePlacementSlotId(
+                                                           EBuildPlacementSlotType::MainFactoryWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(20U, 4502U, 73, ABILITY_ID::TRAIN_MARINE,
                                                        UNIT_TYPEID::TERRAN_BARRACKS, UNIT_TYPEID::TERRAN_MARINE, 8U,
                                                        1U, 36U, {17U}));
@@ -354,7 +381,8 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
             StepsValue.push_back(CreateOpeningPlanStep(38U, 6540U, 63, ABILITY_ID::RESEARCH_STIMPACK,
                                                        UNIT_TYPEID::TERRAN_BARRACKSTECHLAB, UNIT_TYPEID::INVALID, 1U,
                                                        1U, 37U, {}, EBuildPlacementSlotType::Unknown,
-                                                       FBuildPlacementSlotId(), UpgradeID(UPGRADE_ID::STIMPACK)));
+                                                       FBuildPlacementSlotId(), FBuildPlacementSlotId(),
+                                                       UpgradeID(UPGRADE_ID::STIMPACK)));
             StepsValue.push_back(CreateOpeningPlanStep(39U, 6540U, 62, ABILITY_ID::TRAIN_MARINE,
                                                        UNIT_TYPEID::TERRAN_BARRACKS, UNIT_TYPEID::TERRAN_MARINE, 17U,
                                                        1U, 37U, {}));
@@ -363,7 +391,10 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
                                                        1U, 0U, {}));
             StepsValue.push_back(CreateOpeningPlanStep(41U, 6608U, 60, ABILITY_ID::BUILD_REACTOR_STARPORT,
                                                        UNIT_TYPEID::TERRAN_STARPORT,
-                                                       UNIT_TYPEID::TERRAN_STARPORTREACTOR, 1U, 1U, 0U, {}));
+                                                       UNIT_TYPEID::TERRAN_STARPORTREACTOR, 1U, 1U, 0U, {},
+                                                       EBuildPlacementSlotType::Unknown, FBuildPlacementSlotId(),
+                                                       CreatePlacementSlotId(
+                                                           EBuildPlacementSlotType::MainStarportWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(42U, 6742U, 59, ABILITY_ID::BUILD_SUPPLYDEPOT,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_SUPPLYDEPOT, 7U,
                                                        1U, 0U, {}));
@@ -406,11 +437,12 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
             StepsValue.push_back(CreateOpeningPlanStep(55U, 7571U, 46, ABILITY_ID::RESEARCH_COMBATSHIELD,
                                                        UNIT_TYPEID::TERRAN_BARRACKSTECHLAB, UNIT_TYPEID::INVALID, 1U,
                                                        1U, 0U, {}, EBuildPlacementSlotType::Unknown,
-                                                       FBuildPlacementSlotId(), UpgradeID(UPGRADE_ID::SHIELDWALL)));
+                                                       FBuildPlacementSlotId(), FBuildPlacementSlotId(),
+                                                       UpgradeID(UPGRADE_ID::SHIELDWALL)));
             StepsValue.push_back(CreateOpeningPlanStep(
                 56U, 7593U, 45, ABILITY_ID::RESEARCH_TERRANINFANTRYWEAPONSLEVEL1,
                 UNIT_TYPEID::TERRAN_ENGINEERINGBAY, UNIT_TYPEID::INVALID, 1U, 1U, 0U, {},
-                EBuildPlacementSlotType::Unknown, FBuildPlacementSlotId(),
+                EBuildPlacementSlotType::Unknown, FBuildPlacementSlotId(), FBuildPlacementSlotId(),
                 UpgradeID(UPGRADE_ID::TERRANINFANTRYWEAPONSLEVEL1)));
             StepsValue.push_back(CreateOpeningPlanStep(57U, 7638U, 44, ABILITY_ID::TRAIN_MARINE,
                                                        UNIT_TYPEID::TERRAN_BARRACKS, UNIT_TYPEID::TERRAN_MARINE, 22U,
@@ -460,7 +492,7 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
             StepsValue.push_back(CreateOpeningPlanStep(72U, 8780U, 29, ABILITY_ID::RESEARCH_CONCUSSIVESHELLS,
                                                        UNIT_TYPEID::TERRAN_BARRACKSTECHLAB, UNIT_TYPEID::INVALID, 1U,
                                                        1U, 0U, {}, EBuildPlacementSlotType::Unknown,
-                                                       FBuildPlacementSlotId(),
+                                                       FBuildPlacementSlotId(), FBuildPlacementSlotId(),
                                                        UpgradeID(UPGRADE_ID::PUNISHERGRENADES)));
             StepsValue.push_back(CreateOpeningPlanStep(73U, 8870U, 28, ABILITY_ID::TRAIN_MARINE,
                                                        UNIT_TYPEID::TERRAN_BARRACKS, UNIT_TYPEID::TERRAN_MARINE, 27U,

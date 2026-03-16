@@ -95,12 +95,23 @@ uint64_t BuildPlacementFingerprint(const FGameStateDescriptor& GameStateDescript
             UNIT_TYPEID::TERRAN_STARPORT)]));
     PlacementFingerprintValue =
         CombineFingerprint(PlacementFingerprintValue, GameStateDescriptorValue.RampWallDescriptor.bIsValid ? 1U : 0U);
-    PlacementFingerprintValue = CombineFingerprint(
-        PlacementFingerprintValue, static_cast<uint64_t>(GameStateDescriptorValue.ObservedRampWallState.LeftDepotState));
-    PlacementFingerprintValue = CombineFingerprint(
-        PlacementFingerprintValue, static_cast<uint64_t>(GameStateDescriptorValue.ObservedRampWallState.BarracksState));
-    PlacementFingerprintValue = CombineFingerprint(
-        PlacementFingerprintValue, static_cast<uint64_t>(GameStateDescriptorValue.ObservedRampWallState.RightDepotState));
+    const std::vector<FBuildPlacementSlotId>& ObservedPlacementSlotIdsValue =
+        GameStateDescriptorValue.ObservedPlacementSlotState.GetObservedPlacementSlotIds();
+    const std::vector<EObservedWallSlotState>& ObservedPlacementSlotStatesValue =
+        GameStateDescriptorValue.ObservedPlacementSlotState.GetObservedPlacementSlotStates();
+    const size_t ObservedPlacementSlotCountValue =
+        std::min(ObservedPlacementSlotIdsValue.size(), ObservedPlacementSlotStatesValue.size());
+    for (size_t PlacementSlotIndexValue = 0U; PlacementSlotIndexValue < ObservedPlacementSlotCountValue;
+         ++PlacementSlotIndexValue)
+    {
+        PlacementFingerprintValue = CombineFingerprint(
+            PlacementFingerprintValue,
+            static_cast<uint64_t>(ObservedPlacementSlotIdsValue[PlacementSlotIndexValue].SlotType));
+        PlacementFingerprintValue = CombineFingerprint(
+            PlacementFingerprintValue, ObservedPlacementSlotIdsValue[PlacementSlotIndexValue].Ordinal);
+        PlacementFingerprintValue = CombineFingerprint(
+            PlacementFingerprintValue, static_cast<uint64_t>(ObservedPlacementSlotStatesValue[PlacementSlotIndexValue]));
+    }
     return PlacementFingerprintValue;
 }
 
@@ -489,6 +500,8 @@ FBlockedTaskRecord CreateBlockedTaskRecord(const FCommandOrderRecord& CommandOrd
     BlockedTaskRecordValue.ResultUnitTypeId = CommandOrderRecordValue.ResultUnitTypeId;
     BlockedTaskRecordValue.UpgradeId = CommandOrderRecordValue.UpgradeId;
     BlockedTaskRecordValue.PreferredPlacementSlotId = CommandOrderRecordValue.PreferredPlacementSlotId;
+    BlockedTaskRecordValue.PreferredProducerPlacementSlotId =
+        CommandOrderRecordValue.PreferredProducerPlacementSlotId;
     BlockedTaskRecordValue.BlockingReason = DeferralReasonValue;
     BlockedTaskRecordValue.RequestedQueueCount = CommandOrderRecordValue.RequestedQueueCount;
     BlockedTaskRecordValue.TargetCount = CommandOrderRecordValue.TargetCount;
@@ -584,6 +597,8 @@ FCommandOrderRecord CreateStrategicOrderFromTaskDescriptor(const FCommandTaskDes
     StrategicOrderValue.UpgradeId = CommandTaskDescriptorValue.ActionUpgradeId;
     StrategicOrderValue.PreferredPlacementSlotType = CommandTaskDescriptorValue.ActionPreferredPlacementSlotType;
     StrategicOrderValue.PreferredPlacementSlotId = CommandTaskDescriptorValue.ActionPreferredPlacementSlotId;
+    StrategicOrderValue.PreferredProducerPlacementSlotId =
+        CommandTaskDescriptorValue.ActionPreferredProducerPlacementSlotId;
     StrategicOrderValue.IntentDomain = DetermineIntentDomainFromAbility(StrategicOrderValue);
     return StrategicOrderValue;
 }
@@ -611,6 +626,8 @@ FCommandOrderRecord CreateOrderFromBlockedTaskRecord(const FBlockedTaskRecord& B
     CommandOrderRecordValue.UpgradeId = BlockedTaskRecordValue.UpgradeId;
     CommandOrderRecordValue.PreferredPlacementSlotId = BlockedTaskRecordValue.PreferredPlacementSlotId;
     CommandOrderRecordValue.PreferredPlacementSlotType = BlockedTaskRecordValue.PreferredPlacementSlotId.SlotType;
+    CommandOrderRecordValue.PreferredProducerPlacementSlotId =
+        BlockedTaskRecordValue.PreferredProducerPlacementSlotId;
     CommandOrderRecordValue.IntentDomain = DetermineIntentDomainFromAbility(CommandOrderRecordValue);
     return CommandOrderRecordValue;
 }

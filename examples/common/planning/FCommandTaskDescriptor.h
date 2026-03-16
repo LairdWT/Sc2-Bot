@@ -94,6 +94,7 @@ public:
     uint32_t ParallelGroupId;
     EBuildPlacementSlotType ActionPreferredPlacementSlotType;
     FBuildPlacementSlotId ActionPreferredPlacementSlotId;
+    FBuildPlacementSlotId ActionPreferredProducerPlacementSlotId;
     uint32_t CompletionObservedCountAtLeast;
     uint64_t CompletionExpectedCompleteByGameLoop;
 };

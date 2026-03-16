@@ -11,10 +11,12 @@ bool MatchesTaskSignatureValues(const uint32_t LeftTaskIdValue, const uint32_t L
                                 const AbilityID LeftAbilityIdValue, const UNIT_TYPEID LeftResultUnitTypeIdValue,
                                 const UpgradeID LeftUpgradeIdValue,
                                 const FBuildPlacementSlotId& LeftPreferredPlacementSlotIdValue,
+                                const FBuildPlacementSlotId& LeftPreferredProducerPlacementSlotIdValue,
                                 const uint32_t RightTaskIdValue, const uint32_t RightSourceGoalIdValue,
                                 const AbilityID RightAbilityIdValue, const UNIT_TYPEID RightResultUnitTypeIdValue,
                                 const UpgradeID RightUpgradeIdValue,
-                                const FBuildPlacementSlotId& RightPreferredPlacementSlotIdValue)
+                                const FBuildPlacementSlotId& RightPreferredPlacementSlotIdValue,
+                                const FBuildPlacementSlotId& RightPreferredProducerPlacementSlotIdValue)
 {
     if (LeftTaskIdValue != 0U || RightTaskIdValue != 0U)
     {
@@ -23,7 +25,8 @@ bool MatchesTaskSignatureValues(const uint32_t LeftTaskIdValue, const uint32_t L
 
     return LeftSourceGoalIdValue == RightSourceGoalIdValue && LeftAbilityIdValue == RightAbilityIdValue &&
            LeftResultUnitTypeIdValue == RightResultUnitTypeIdValue && LeftUpgradeIdValue == RightUpgradeIdValue &&
-           LeftPreferredPlacementSlotIdValue == RightPreferredPlacementSlotIdValue;
+           LeftPreferredPlacementSlotIdValue == RightPreferredPlacementSlotIdValue &&
+           LeftPreferredProducerPlacementSlotIdValue == RightPreferredProducerPlacementSlotIdValue;
 }
 
 }  // namespace
@@ -51,6 +54,7 @@ void FBlockedTaskRecord::Reset()
     ResultUnitTypeId = UNIT_TYPEID::INVALID;
     UpgradeId = UpgradeID(UPGRADE_ID::INVALID);
     PreferredPlacementSlotId.Reset();
+    PreferredProducerPlacementSlotId.Reset();
     BlockingReason = ECommandOrderDeferralReason::None;
     WakeKind = EBlockedTaskWakeKind::CooldownOnly;
     NextEligibleGameLoop = 0U;
@@ -63,29 +67,35 @@ void FBlockedTaskRecord::Reset()
 bool FBlockedTaskRecord::MatchesSignature(const FBlockedTaskRecord& BlockedTaskRecordValue) const
 {
     return MatchesTaskSignatureValues(TaskId, SourceGoalId, AbilityId, ResultUnitTypeId, UpgradeId,
-                                      PreferredPlacementSlotId, BlockedTaskRecordValue.TaskId,
+                                      PreferredPlacementSlotId, PreferredProducerPlacementSlotId,
+                                      BlockedTaskRecordValue.TaskId,
                                       BlockedTaskRecordValue.SourceGoalId, BlockedTaskRecordValue.AbilityId,
                                       BlockedTaskRecordValue.ResultUnitTypeId, BlockedTaskRecordValue.UpgradeId,
-                                      BlockedTaskRecordValue.PreferredPlacementSlotId);
+                                      BlockedTaskRecordValue.PreferredPlacementSlotId,
+                                      BlockedTaskRecordValue.PreferredProducerPlacementSlotId);
 }
 
 bool FBlockedTaskRecord::MatchesOrderSignature(const FCommandOrderRecord& CommandOrderRecordValue) const
 {
     return MatchesTaskSignatureValues(TaskId, SourceGoalId, AbilityId, ResultUnitTypeId, UpgradeId,
-                                      PreferredPlacementSlotId, CommandOrderRecordValue.PlanStepId,
+                                      PreferredPlacementSlotId, PreferredProducerPlacementSlotId,
+                                      CommandOrderRecordValue.PlanStepId,
                                       CommandOrderRecordValue.SourceGoalId, CommandOrderRecordValue.AbilityId,
                                       CommandOrderRecordValue.ResultUnitTypeId, CommandOrderRecordValue.UpgradeId,
-                                      CommandOrderRecordValue.PreferredPlacementSlotId);
+                                      CommandOrderRecordValue.PreferredPlacementSlotId,
+                                      CommandOrderRecordValue.PreferredProducerPlacementSlotId);
 }
 
 bool FBlockedTaskRecord::MatchesTaskSignature(const FCommandTaskDescriptor& CommandTaskDescriptorValue) const
 {
     return MatchesTaskSignatureValues(TaskId, SourceGoalId, AbilityId, ResultUnitTypeId, UpgradeId,
-                                      PreferredPlacementSlotId, CommandTaskDescriptorValue.TaskId,
+                                      PreferredPlacementSlotId, PreferredProducerPlacementSlotId,
+                                      CommandTaskDescriptorValue.TaskId,
                                       CommandTaskDescriptorValue.SourceGoalId, CommandTaskDescriptorValue.ActionAbilityId,
                                       CommandTaskDescriptorValue.ActionResultUnitTypeId,
                                       CommandTaskDescriptorValue.ActionUpgradeId,
-                                      CommandTaskDescriptorValue.ActionPreferredPlacementSlotId);
+                                      CommandTaskDescriptorValue.ActionPreferredPlacementSlotId,
+                                      CommandTaskDescriptorValue.ActionPreferredProducerPlacementSlotId);
 }
 
 }  // namespace sc2
