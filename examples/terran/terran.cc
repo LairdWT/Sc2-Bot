@@ -1,6 +1,7 @@
 #include "terran.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <unordered_map>
 
@@ -912,7 +913,6 @@ void TerranAgent::OnGameStart()
     RecentProductionRallyCounterWindowStartStep = 0U;
     RecentProductionRallyApplyCount = 0U;
     LastBlockerReliefMoveCount = 0U;
-    LastRelocationTaskCount = 0U;
     LastUnitExecutionReplanCount = 0U;
     LastActiveIndexedExecutionOrderCount = 0U;
     LastTerminalCompactionStep = 0U;
@@ -923,6 +923,7 @@ void TerranAgent::OnGameStart()
     InitializeRampWallDescriptor(Frame);
     InitializeMainBaseLayoutDescriptor(Frame);
     RebuildObservedGameStateDescriptor(Frame);
+    RebuildEnemyObservationDescriptor(Frame);
     RebuildForecastState();
     RebuildExecutionPressureDescriptor(Frame);
     UpdateStrategicAndPlanningState();
@@ -955,6 +956,7 @@ void TerranAgent::OnStep()
 
     PhaseStartTimeValue = FSteadyClock::now();
     RebuildObservedGameStateDescriptor(Frame);
+    RebuildEnemyObservationDescriptor(Frame);
     RebuildForecastState();
     RebuildExecutionPressureDescriptor(Frame);
     UpdateStrategicAndPlanningState();
@@ -978,6 +980,7 @@ void TerranAgent::OnStep()
     PhaseStartTimeValue = FSteadyClock::now();
     ExecuteResolvedIntents(Frame, ResolvedIntents);
     ExecuteProductionRallyIntents();
+    ExecuteOrbitalAbilities(Frame);
     PhaseEndTimeValue = FSteadyClock::now();
     LastIntentExecutionMicroseconds = GetElapsedMicroseconds(PhaseStartTimeValue, PhaseEndTimeValue);
 
@@ -1087,6 +1090,17 @@ void TerranAgent::RebuildObservedGameStateDescriptor(const FFrameContext& Frame)
         GameStateDescriptor.CurrentStep = CurrentStep;
         GameStateDescriptor.CurrentGameLoop = Frame.GameLoop;
     }
+}
+
+void TerranAgent::RebuildEnemyObservationDescriptor(const FFrameContext& Frame)
+{
+    if (EnemyObservationBuilder == nullptr || Frame.Observation == nullptr)
+    {
+        return;
+    }
+
+    EnemyObservationBuilder->RebuildEnemyObservation(*Frame.Observation, Frame.GameLoop,
+                                                      GameStateDescriptor.EnemyObservation);
 }
 
 void TerranAgent::RebuildForecastState()
@@ -1522,7 +1536,6 @@ void TerranAgent::PrintAgentState()
               << " | ProductionRally (" << ProductionRallyPoint.x << ", " << ProductionRallyPoint.y << ")"
               << " | RallyAppliesRecent " << RecentProductionRallyApplyCount
               << " | BlockerReliefMoves " << LastBlockerReliefMoveCount
-              << " | Relocations " << LastRelocationTaskCount
               << " | UnitReplans " << LastUnitExecutionReplanCount
               << " | IndexedExecution " << LastActiveIndexedExecutionOrderCount << "\n";
     PrintWallState();
@@ -1873,7 +1886,7 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
             RecoveryMoveIntentCountAfterValue >= RecoveryMoveIntentCountBeforeValue
                 ? (RecoveryMoveIntentCountAfterValue - RecoveryMoveIntentCountBeforeValue)
                 : 0U;
-        LastRelocationTaskCount = 0U;
+
         const FSteadyTimePoint EconomyPhaseEndTimeValue = FSteadyClock::now();
         LastSchedulerEconomyProcessingMicroseconds =
             GetElapsedMicroseconds(EconomyPhaseStartTimeValue, EconomyPhaseEndTimeValue);
@@ -1882,7 +1895,7 @@ void TerranAgent::ProduceSchedulerIntents(const FFrameContext& Frame)
     {
         LastSchedulerEconomyProcessingMicroseconds = 0U;
         LastBlockerReliefMoveCount = 0U;
-        LastRelocationTaskCount = 0U;
+
     }
 
     if (ArmyOrderExpander != nullptr)
@@ -1979,10 +1992,11 @@ void TerranAgent::ProduceWallGateIntents(const FFrameContext& Frame)
         ExecutionTelemetry.RecordWallThreatDetected(CurrentStep, Frame.GameLoop);
     }
 
+    // Always produce wall gate intents so newly built depots get lowered even when state is already Open
+    WallGateController->ProduceWallGateIntents(SelfUnitsValue, GameStateDescriptor.RampWallDescriptor,
+                                               DesiredWallGateStateValue, IntentBuffer);
     if (DesiredWallGateStateValue != CurrentWallGateState)
     {
-        WallGateController->ProduceWallGateIntents(SelfUnitsValue, GameStateDescriptor.RampWallDescriptor,
-                                                   DesiredWallGateStateValue, IntentBuffer);
         switch (DesiredWallGateStateValue)
         {
             case EWallGateState::Open:
@@ -2022,17 +2036,19 @@ void TerranAgent::ProduceWorkerHarvestIntents(const FFrameContext& Frame)
         }
 
         const int CommittedHarvesterCountValue =
-            GetCommittedHarvesterCountForRefinery(*Frame.Observation, AgentState, RefineryUnitValue->tag);
+            WorkerSelectionService->GetCommittedHarvesterCountForRefinery(*Frame.Observation, AgentState,
+                                                                          RefineryUnitValue->tag);
         const int EffectiveHarvesterCountValue =
             std::max(RefineryUnitValue->assigned_harvesters, CommittedHarvesterCountValue) +
-            GetPlannedHarvesterDeltaForRefinery(PlannedFillCountsByRefineryTagValue,
-                                                PlannedReliefCountsByRefineryTagValue, RefineryUnitValue->tag);
+            WorkerSelectionService->GetPlannedHarvesterDeltaForRefinery(PlannedFillCountsByRefineryTagValue,
+                                                                        PlannedReliefCountsByRefineryTagValue,
+                                                                        RefineryUnitValue->tag);
         const int MissingHarvesterCountValue =
             std::max(0, RefineryUnitValue->ideal_harvesters - EffectiveHarvesterCountValue);
         for (int MissingHarvesterIndexValue = 0; MissingHarvesterIndexValue < MissingHarvesterCountValue;
              ++MissingHarvesterIndexValue)
         {
-            const Unit* WorkerUnitValue = SelectWorkerForRefinery(
+            const Unit* WorkerUnitValue = WorkerSelectionService->SelectWorkerForRefinery(
                 *Frame.Observation, AgentState, GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,
                 *RefineryUnitValue, ReservedWorkerTagsValue);
             if (WorkerUnitValue == nullptr)
@@ -2057,17 +2073,19 @@ void TerranAgent::ProduceWorkerHarvestIntents(const FFrameContext& Frame)
         }
 
         const int CommittedHarvesterCountValue =
-            GetCommittedHarvesterCountForRefinery(*Frame.Observation, AgentState, RefineryUnitValue->tag);
+            WorkerSelectionService->GetCommittedHarvesterCountForRefinery(*Frame.Observation, AgentState,
+                                                                          RefineryUnitValue->tag);
         const int EffectiveHarvesterCountValue =
             std::max(RefineryUnitValue->assigned_harvesters, CommittedHarvesterCountValue) +
-            GetPlannedHarvesterDeltaForRefinery(PlannedFillCountsByRefineryTagValue,
-                                                PlannedReliefCountsByRefineryTagValue, RefineryUnitValue->tag);
+            WorkerSelectionService->GetPlannedHarvesterDeltaForRefinery(PlannedFillCountsByRefineryTagValue,
+                                                                        PlannedReliefCountsByRefineryTagValue,
+                                                                        RefineryUnitValue->tag);
         const int ExcessHarvesterCountValue =
             std::max(0, EffectiveHarvesterCountValue - RefineryUnitValue->ideal_harvesters);
         for (int ExcessHarvesterIndexValue = 0; ExcessHarvesterIndexValue < ExcessHarvesterCountValue;
              ++ExcessHarvesterIndexValue)
         {
-            const Unit* WorkerUnitValue = SelectWorkerForGasRelief(
+            const Unit* WorkerUnitValue = WorkerSelectionService->SelectWorkerForGasRelief(
                 *Frame.Observation, AgentState, GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,
                 *RefineryUnitValue, ReservedWorkerTagsValue);
             if (WorkerUnitValue == nullptr)
@@ -2134,9 +2152,9 @@ void TerranAgent::ProduceWorkerMineralRebalanceIntents(const FFrameContext& Fram
 
         const int EffectiveAssignedHarvesterCountValue =
             std::max(ReceiverTownHallUnitValue->assigned_harvesters, 0) +
-            GetPlannedHarvesterDeltaForTownHall(PlannedInboundCountsByTownHallTagValue,
-                                                PlannedOutboundCountsByTownHallTagValue,
-                                                ReceiverTownHallUnitValue->tag);
+            WorkerSelectionService->GetPlannedHarvesterDeltaForTownHall(PlannedInboundCountsByTownHallTagValue,
+                                                                      PlannedOutboundCountsByTownHallTagValue,
+                                                                      ReceiverTownHallUnitValue->tag);
         const int MissingHarvesterCountValue =
             std::max(0, ReceiverTownHallUnitValue->ideal_harvesters - EffectiveAssignedHarvesterCountValue);
         for (int MissingHarvesterIndexValue = 0; MissingHarvesterIndexValue < MissingHarvesterCountValue;
@@ -2147,7 +2165,7 @@ void TerranAgent::ProduceWorkerMineralRebalanceIntents(const FFrameContext& Fram
                 return;
             }
 
-            const Unit* WorkerUnitValue = SelectWorkerForMineralRebalance(
+            const Unit* WorkerUnitValue = WorkerSelectionService->SelectWorkerForMineralRebalance(
                 *Frame.Observation, AgentState, GameStateDescriptor.CommandAuthoritySchedulingState, IntentBuffer,
                 *ReceiverTownHallUnitValue, ReadyTownHallUnitsValue, ReservedWorkerTagsValue,
                 PlannedInboundCountsByTownHallTagValue, PlannedOutboundCountsByTownHallTagValue);
@@ -2271,12 +2289,81 @@ void TerranAgent::ExecuteProductionRallyIntents()
     PendingProductionRallyIntents.clear();
 }
 
+void TerranAgent::ExecuteOrbitalAbilities(const FFrameContext& Frame)
+{
+    if (Frame.Observation == nullptr)
+    {
+        return;
+    }
+
+    static constexpr float MuleEnergyCostValue = 50.0f;
+
+    const Units OrbitalCommandUnitsValue =
+        Frame.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_ORBITALCOMMAND));
+
+    for (const Unit* OrbitalUnitValue : OrbitalCommandUnitsValue)
+    {
+        if (OrbitalUnitValue == nullptr ||
+            OrbitalUnitValue->build_progress < 1.0f ||
+            OrbitalUnitValue->energy < MuleEnergyCostValue)
+        {
+            continue;
+        }
+
+        const Unit* NearestMineralPatchValue = FindNearestMineralPatchForTownHall(Point2D(OrbitalUnitValue->pos));
+        if (NearestMineralPatchValue == nullptr)
+        {
+            continue;
+        }
+
+        Actions()->UnitCommand(OrbitalUnitValue, ABILITY_ID::EFFECT_CALLDOWNMULE,
+                               NearestMineralPatchValue);
+    }
+}
+
+
 void TerranAgent::ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents)
 {
     (void)Frame;
 
     for (const FUnitIntent& Intent : Intents)
     {
+#if _DEBUG
+        if (Intent.Ability == ABILITY_ID::BUILD_REACTOR_BARRACKS ||
+            Intent.Ability == ABILITY_ID::BUILD_TECHLAB_BARRACKS)
+        {
+            const Unit* AddonActorValue = Observation()->GetUnit(Intent.ActorTag);
+            const Point2D AddonCenterValue(
+                AddonActorValue ? (AddonActorValue->pos.x + 2.5f) : 0.0f,
+                AddonActorValue ? (AddonActorValue->pos.y - 0.5f) : 0.0f);
+            const bool PlacementQueryResultValue = AddonActorValue
+                ? Query()->Placement(Intent.Ability, AddonCenterValue, AddonActorValue)
+                : false;
+            const bool PlacementQueryAtBarracksValue = AddonActorValue
+                ? Query()->Placement(Intent.Ability, Point2D(AddonActorValue->pos), AddonActorValue)
+                : false;
+            std::cout << "[INTENT_EXEC] Ability=" << static_cast<int>(Intent.Ability)
+                      << " ActorTag=" << Intent.ActorTag
+                      << " TargetKind=" << static_cast<int>(Intent.TargetKind)
+                      << " Queued=" << Intent.Queued
+                      << " PlacementAtAddon=" << PlacementQueryResultValue
+                      << " PlacementAtBarracks=" << PlacementQueryAtBarracksValue;
+            if (AddonActorValue)
+            {
+                std::cout << " ActorPos=(" << AddonActorValue->pos.x << "," << AddonActorValue->pos.y << ")"
+                          << " Orders=" << AddonActorValue->orders.size()
+                          << " AddOnTag=" << AddonActorValue->add_on_tag
+                          << " Flying=" << static_cast<int>(AddonActorValue->is_flying);
+                for (size_t OrderIndex = 0U; OrderIndex < AddonActorValue->orders.size(); ++OrderIndex)
+                {
+                    std::cout << " Order[" << OrderIndex << "]=(ability="
+                              << static_cast<int>(AddonActorValue->orders[OrderIndex].ability_id)
+                              << " progress=" << AddonActorValue->orders[OrderIndex].progress << ")";
+                }
+            }
+            std::cout << std::endl;
+        }
+#endif
         switch (Intent.TargetKind)
         {
             case EIntentTargetKind::None:

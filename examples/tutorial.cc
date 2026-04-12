@@ -60,8 +60,26 @@ int main(int argc, char* argv[])
     coordinator.SetFeatureLayers(settings);
     coordinator.SetPortStart(PortStartOverrideValue > 0U ? static_cast<int>(PortStartOverrideValue) : 16680);
     coordinator.SetTimeoutMS(TimeoutOverrideValue > 0U ? TimeoutOverrideValue : 300000U);
-    coordinator.SetParticipants(
-        {CreateParticipant(sc2::Race::Terran, &agent), CreateComputer(sc2::Race::Random, sc2::Difficulty::Medium)});
+    const bool MirrorMatchEnabledValue =
+        (std::getenv("SC2_TUTORIAL_MIRROR_MATCH") != nullptr &&
+         std::string(std::getenv("SC2_TUTORIAL_MIRROR_MATCH")) == "1");
+
+    sc2::TerranAgent MirrorAgentValue;
+
+    if (MirrorMatchEnabledValue)
+    {
+        coordinator.SetMultithreaded(true);
+        coordinator.SetParticipants(
+            {CreateParticipant(sc2::Race::Terran, &agent),
+             CreateParticipant(sc2::Race::Terran, &MirrorAgentValue)});
+    }
+    else
+    {
+        coordinator.SetParticipants(
+            {CreateParticipant(sc2::Race::Terran, &agent),
+             CreateComputer(sc2::Race::Random, sc2::Difficulty::Medium)});
+    }
+
     coordinator.LaunchStarcraft();
     coordinator.StartGame(sc2::kMapBelShirVestigeLE);
     while (coordinator.Update())

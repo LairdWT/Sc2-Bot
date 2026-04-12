@@ -218,6 +218,21 @@ void PopulateBelShirUpperLeftProductionSlots(FMainBaseLayoutDescriptor& OutMainB
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
         Point2D(21.7782f, 160.222f),
         2U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        Point2D(15.7782f, 160.222f),
+        3U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        Point2D(31.7782f, 165.222f),
+        4U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        Point2D(27.7782f, 166.222f),
+        5U));
     OutMainBaseLayoutDescriptorValue.BarracksWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainBarracksWithAddon,
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
@@ -252,6 +267,21 @@ void PopulateBelShirLowerRightProductionSlots(FMainBaseLayoutDescriptor& OutMain
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
         Point2D(177.222f, 38.7782f),
         2U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        Point2D(183.222f, 38.7782f),
+        3U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        Point2D(166.222f, 34.7782f),
+        4U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        Point2D(171.222f, 32.7782f),
+        5U));
     OutMainBaseLayoutDescriptorValue.BarracksWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainBarracksWithAddon,
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,

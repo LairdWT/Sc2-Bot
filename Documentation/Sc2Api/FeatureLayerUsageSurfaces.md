@@ -204,6 +204,26 @@ If any load fails, `Reset()` is called and `Valid` remains false.
   - `TerranAgent` scheduler and intent execution in `examples\terran\terran.cc` do not currently consume `ConvertWorldToMinimap(...)` or `ConvertWorldToCamera(...)`.
   - Parity risk is currently latent for Terran command authority, but active for any future owner that relies on those conversion helpers as decision input.
 
+
+## Feature-Layer Validity Versus Setup Usability Boundary
+
+- Selected topic: SC2-API-FEATURE-LAYER-VALIDITY-SETUP-USABILITY-BOUNDARY
+- Source-proven validity gate in FAgentSpatialChannels::Update(const FFrameContext& Frame) (examples\common\agent_framework.h):
+  - Valid becomes 	rue after payload presence checks and successful channel loads for:
+    - MapPlayerRelative
+    - MinimapPlayerRelative
+    - MinimapHeightMap
+  - the gate does not require nonzero FeatureLayerSetup resolution fields and does not assert setup-to-payload dimension parity.
+- Source-proven setup dependency in conversion helpers (examples\common\agent_framework.h):
+  - ConvertWorldToMinimap(...) returns Point2DI() when FeatureLayerSetup.minimap_resolution_x <= 0 or FeatureLayerSetup.minimap_resolution_y <= 0.
+  - ConvertWorldToCamera(...) returns Point2DI() when FeatureLayerSetup.camera_width <= 0.0f or map setup dimensions are nonpositive.
+- Setup provenance boundary:
+  - ControlImp::RequestJoinGame(...) writes requested setup into RequestJoinGame.options.feature_layer (src\sc2api\sc2_client.cc).
+  - ObservationImp::GetGameInfo() copies response options into GameInfo::options.feature_layer through Convert(const SC2APIProtocol::InterfaceOptions&, InterfaceOptions&) and Convert(const SC2APIProtocol::SpatialCameraSetup&, SpatialSetup&) (src\sc2api\sc2_proto_to_pods.cc).
+- Boundary conclusion:
+  - channel payload validity and setup usability are currently separate contracts.
+  - a frame can be channel-valid while conversion helpers are unusable or dimension-mismatched relative to loaded payloads.
+  - this is still a latent boundary for TerranAgent command authority because no current Terran scheduler or execution path consumes conversion helpers.
 ## Feature-Layer Conversion Test Matrix Coverage Boundary
 
 - Selected topic: `SC2-API-FEATURE-LAYER-CONVERSION-TEST-MATRIX-COVERAGE-BOUNDARY`
@@ -241,4 +261,5 @@ If any load fails, `Reset()` is called and `Valid` remains false.
   - `ConvertWorldToMinimap(...)` and `ConvertWorldToCamera(...)` scale by setup resolution fields, not loaded channel dimensions.
   - No source-proven parity check currently verifies setup dimensions against loaded `MapPlayerRelative` and `MinimapPlayerRelative` dimensions before conversion helpers are used.
   - Follow-up needed: add a setup-to-payload dimension parity guard in `FAgentSpatialChannels::Update(...)` or define explicit precedence when setup and payload dimensions diverge.
+
 

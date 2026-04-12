@@ -67,3 +67,9 @@ If the same narrow topic family repeats enough times to justify reusable instruc
 
 
 | `SC2-API-SCHEDULER-CONSTRUCTION-CONFIRMATION-POLICY-BOUNDARY` | `ApiSchedulerLifecycle` | `L:\Sc2_Bot\Documentation\Sc2Api\SchedulerIntentLifecycleAndDispatchCapture.md` | `Completed` | `2026-03-15T17:42:29Z` | No open ledger topics were suitable, so one new scheduler topic was discovered. Documented source-backed confirmation policy split between producer-confirmed and observed-construction-confirmed dispatched orders, including timeout selection and actor-loss abort precedence. No finding closed; FL-001, FL-003, FL-004, and FL-005 remain open. Repetition penalty: `0` (`TopicId +0`, `Domain +0`, `TargetPath +0`). |
+
+| SC2-API-QUERY-FAILURE-SENTINEL-INTENT-VALIDATION-BOUNDARY | ApiFrameAcquisition | L:\Sc2_Bot\Documentation\Sc2Api\ObservationAndFrameContext.md | Completed | 2026-03-25T16:59:14Z | No open ledger topics were suitable, so one new coordinator-surface topic was discovered. Documented source-backed QueryImp failure sentinel contract (Placement false vector, PathingDistance zero vector) and FIntentArbiter::ValidateAndNormalize(...) rejection boundary. No finding closed; FL-001, FL-003, FL-004, and FL-005 remain open. Repetition penalty: 0 (TopicId +0, Domain +0, TargetPath +0). |
+
+| SC2-API-FEATURE-LAYER-VALIDITY-SETUP-USABILITY-BOUNDARY | FeatureLayers | L:\Sc2_Bot\Documentation\Sc2Api\FeatureLayerUsageSurfaces.md | Completed | 2026-03-25T17:00:32Z | No open ledger topics were suitable, so one new feature-layer topic was discovered. Documented source-backed contract split where FAgentSpatialChannels::Valid can be true without a setup usability/parity guard while conversion helpers depend on setup resolution fields; no finding closed; FL-001, FL-003, FL-004, and FL-005 remain open. Repetition penalty: 60 (TopicId +0, Domain +40, TargetPath +20). |
+
+

@@ -140,7 +140,7 @@ EWallGateState FTerranRampWallController::EvaluateDesiredWallGateState(
 
     const Unit* LeftDepotUnitValue = FindWallDepotForSlot(SelfUnitsValue, RampWallDescriptorValue.LeftDepotSlot);
     const Unit* RightDepotUnitValue = FindWallDepotForSlot(SelfUnitsValue, RampWallDescriptorValue.RightDepotSlot);
-    if (LeftDepotUnitValue == nullptr || RightDepotUnitValue == nullptr)
+    if (LeftDepotUnitValue == nullptr && RightDepotUnitValue == nullptr)
     {
         return EWallGateState::Unavailable;
     }
@@ -163,6 +163,7 @@ void FTerranRampWallController::ProduceWallGateIntents(const Units& SelfUnitsVal
     const ABILITY_ID DesiredAbilityIdValue =
         DesiredWallGateStateValue == EWallGateState::Open ? ABILITY_ID::MORPH_SUPPLYDEPOT_LOWER
                                                           : ABILITY_ID::MORPH_SUPPLYDEPOT_RAISE;
+
     const std::array<FBuildPlacementSlot, 2> WallDepotSlotsValue =
     {{
         RampWallDescriptorValue.LeftDepotSlot,
@@ -181,6 +182,41 @@ void FTerranRampWallController::ProduceWallGateIntents(const Units& SelfUnitsVal
 
         IntentBufferValue.Add(FUnitIntent::CreateNoTarget(DepotUnitValue->tag, DesiredAbilityIdValue, 40,
                                                           EIntentDomain::StructureControl));
+    }
+
+    // Ensure any non-wall supply depots that are raised get lowered to avoid blocking placement.
+    // This catches depots built outside the wall that default to raised state.
+    if (DesiredWallGateStateValue == EWallGateState::Open)
+    {
+        for (const Unit* SelfUnitValue : SelfUnitsValue)
+        {
+            if (SelfUnitValue == nullptr || SelfUnitValue->build_progress < 1.0f ||
+                SelfUnitValue->unit_type.ToType() != UNIT_TYPEID::TERRAN_SUPPLYDEPOT)
+            {
+                continue;
+            }
+
+            // Skip depots that are part of the wall (already handled above)
+            const float LeftDistanceSquaredValue =
+                DistanceSquared2D(Point2D(SelfUnitValue->pos), RampWallDescriptorValue.LeftDepotSlot.BuildPoint);
+            const float RightDistanceSquaredValue =
+                DistanceSquared2D(Point2D(SelfUnitValue->pos), RampWallDescriptorValue.RightDepotSlot.BuildPoint);
+            if (LeftDistanceSquaredValue <= WallStructureMatchRadiusSquaredValue ||
+                RightDistanceSquaredValue <= WallStructureMatchRadiusSquaredValue)
+            {
+                continue;
+            }
+
+            if (HasMatchingMorphOrder(*SelfUnitValue, ABILITY_ID::MORPH_SUPPLYDEPOT_LOWER) ||
+                IntentBufferValue.HasIntentForActor(SelfUnitValue->tag))
+            {
+                continue;
+            }
+
+            IntentBufferValue.Add(FUnitIntent::CreateNoTarget(SelfUnitValue->tag,
+                                                              ABILITY_ID::MORPH_SUPPLYDEPOT_LOWER, 30,
+                                                              EIntentDomain::StructureControl));
+        }
     }
 }
 

@@ -1,8 +1,11 @@
 #pragma once
 
 #include <algorithm>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "common/logging.h"
 #include "sc2api/sc2_unit.h"
 #include "terran_models.h"
 
@@ -86,6 +89,7 @@ struct FTerranUnitContainer
     std::vector<Tag> AddonTag;
     std::vector<int> AssignedHarvisters;
     std::vector<int> IdealHarvesters;
+    std::unordered_map<Tag, size_t> TagToIndexMap;
 
     FTerranUnitContainer() = default;
 
@@ -159,6 +163,8 @@ struct FTerranUnitContainer
         }
 
         FilteredUnits.resize(ControlledUnits.size(), false);
+        TagToIndexMap[NewUnit->tag] = ControlledUnits.size() - 1U;
+        AssertSynchronizedSizes();
     }
 
     void AddUnits(const std::vector<const Unit*>& NewUnits)
@@ -199,6 +205,8 @@ struct FTerranUnitContainer
         AddonTag.clear();
         AssignedHarvisters.clear();
         IdealHarvesters.clear();
+        TagToIndexMap.clear();
+        AssertSynchronizedSizes();
     }
 
     void SetUnits(const std::vector<const Unit*>& NewUnits)
@@ -233,6 +241,7 @@ struct FTerranUnitContainer
         AddonTag.reserve(NewUnits.size());
         AssignedHarvisters.reserve(NewUnits.size());
         IdealHarvesters.reserve(NewUnits.size());
+        TagToIndexMap.reserve(NewUnits.size());
 
         AddUnits(NewUnits);
     }
@@ -250,7 +259,7 @@ struct FTerranUnitContainer
                EngagedTargetTag.size() == ExpectedSize && Passengers.size() == ExpectedSize &&
                CargoSpaceOccupied.size() == ExpectedSize && CargoSpaceMax.size() == ExpectedSize &&
                AddonTag.size() == ExpectedSize && AssignedHarvisters.size() == ExpectedSize &&
-               IdealHarvesters.size() == ExpectedSize;
+               IdealHarvesters.size() == ExpectedSize && TagToIndexMap.size() == ExpectedSize;
     }
 
     void ResetFilteredUnits()
@@ -774,16 +783,25 @@ struct FTerranUnitContainer
         return GetSelectedUnits();
     }
 
-    const Unit* GetUnitByTag(Tag UnitTag) const
+    const Unit* GetUnitByTag(const Tag UnitTagValue) const
     {
-        for (const Unit* UnitPtr : ControlledUnits)
+        const std::unordered_map<Tag, size_t>::const_iterator FoundIndexIterator = TagToIndexMap.find(UnitTagValue);
+        if (FoundIndexIterator == TagToIndexMap.end() || FoundIndexIterator->second >= ControlledUnits.size())
         {
-            if (UnitPtr->tag == UnitTag)
-            {
-                return UnitPtr;
-            }
+            return nullptr;
         }
-        return nullptr;
+        return ControlledUnits[FoundIndexIterator->second];
+    }
+
+    bool TryGetUnitIndexByTag(const Tag UnitTagValue, size_t& OutIndexValue) const
+    {
+        const std::unordered_map<Tag, size_t>::const_iterator FoundIndexIterator = TagToIndexMap.find(UnitTagValue);
+        if (FoundIndexIterator == TagToIndexMap.end() || FoundIndexIterator->second >= ControlledUnits.size())
+        {
+            return false;
+        }
+        OutIndexValue = FoundIndexIterator->second;
+        return true;
     }
 
     const Unit* GetBuildingByTag(Tag BuildingTag) const
@@ -844,6 +862,17 @@ struct FTerranUnitContainer
             }
         }
         return nullptr;
+    }
+
+private:
+    void AssertSynchronizedSizes() const
+    {
+        if (!HasSynchronizedSizes())
+        {
+            SCLOG(LoggingVerbosity::error,
+                  "INVARIANT VIOLATION: FTerranUnitContainer vector sizes desynchronized at UnitCount=" +
+                      std::to_string(ControlledUnits.size()));
+        }
     }
 };
 

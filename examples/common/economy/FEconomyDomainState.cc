@@ -1,9 +1,11 @@
 #include "common/economy/FEconomyDomainState.h"
 
 #include <algorithm>
+#include <string>
 
 #include "common/bot_status_models.h"
 #include "common/economic_models.h"
+#include "common/logging.h"
 
 namespace sc2
 {
@@ -337,6 +339,27 @@ size_t FEconomyDomainState::GetSampleCount() const
     return SampleGameLoops.size();
 }
 
+bool FEconomyDomainState::HasSynchronizedSampleSizes() const
+{
+    const size_t ExpectedSizeValue = SampleGameLoops.size();
+    return SampleMineralBanks.size() == ExpectedSizeValue &&
+           SampleVespeneBanks.size() == ExpectedSizeValue &&
+           SampleCumulativeGrossMineralIncome.size() == ExpectedSizeValue &&
+           SampleCumulativeGrossVespeneIncome.size() == ExpectedSizeValue &&
+           SampleCumulativeUnitCompletionCounts.size() == ExpectedSizeValue &&
+           SampleCumulativeBuildingCompletionCounts.size() == ExpectedSizeValue;
+}
+
+void FEconomyDomainState::AssertSynchronizedSampleSizes() const
+{
+    if (!HasSynchronizedSampleSizes())
+    {
+        SCLOG(LoggingVerbosity::error,
+              "INVARIANT VIOLATION: FEconomyDomainState sample vector sizes desynchronized at SampleCount=" +
+                  std::to_string(SampleGameLoops.size()));
+    }
+}
+
 uint64_t FEconomyDomainState::GetElapsedGameLoopsForHorizon(const size_t HorizonIndexValue) const
 {
     if (HorizonIndexValue >= ForecastHorizonCountValue || SampleGameLoops.empty())
@@ -473,6 +496,19 @@ void FEconomyDomainState::TrimHistory()
         SampleCumulativeUnitCompletionCounts.erase(SampleCumulativeUnitCompletionCounts.begin());
         SampleCumulativeBuildingCompletionCounts.erase(SampleCumulativeBuildingCompletionCounts.begin());
     }
+
+    while (SampleGameLoops.size() > MaxSampleHistoryCountValue)
+    {
+        SampleGameLoops.erase(SampleGameLoops.begin());
+        SampleMineralBanks.erase(SampleMineralBanks.begin());
+        SampleVespeneBanks.erase(SampleVespeneBanks.begin());
+        SampleCumulativeGrossMineralIncome.erase(SampleCumulativeGrossMineralIncome.begin());
+        SampleCumulativeGrossVespeneIncome.erase(SampleCumulativeGrossVespeneIncome.begin());
+        SampleCumulativeUnitCompletionCounts.erase(SampleCumulativeUnitCompletionCounts.begin());
+        SampleCumulativeBuildingCompletionCounts.erase(SampleCumulativeBuildingCompletionCounts.begin());
+    }
+
+    AssertSynchronizedSampleSizes();
 }
 
 void FEconomyDomainState::RecordCurrentSample(const uint32_t CurrentMineralsValue, const uint32_t CurrentVespeneValue)
@@ -495,6 +531,7 @@ void FEconomyDomainState::RecordCurrentSample(const uint32_t CurrentMineralsValu
     SampleCumulativeGrossVespeneIncome.push_back(CumulativeGrossVespeneIncome);
     SampleCumulativeUnitCompletionCounts.push_back(CumulativeUnitCompletionCounts);
     SampleCumulativeBuildingCompletionCounts.push_back(CumulativeBuildingCompletionCounts);
+    AssertSynchronizedSampleSizes();
 }
 
 }  // namespace sc2

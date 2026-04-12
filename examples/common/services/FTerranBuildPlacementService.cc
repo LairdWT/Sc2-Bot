@@ -7,6 +7,7 @@
 
 #include "common/terran_models.h"
 #include "common/services/FTerranMainBaseLayoutRegistry.h"
+#include "sc2api/sc2_map_info.h"
 #include "sc2api/sc2_unit_filters.h"
 
 namespace sc2
@@ -34,6 +35,7 @@ struct FResolvedLayoutPlacementSlot
 
 bool DoesStructureAbilityRequireAddonClearance(const ABILITY_ID StructureAbilityIdValue);
 Point2D GetAddonFootprintCenter(const Point2D& StructureBuildPointValue);
+bool DoesAddonFootprintSupportTerrain(const GameInfo& GameInfoValue, const Point2D& StructureBuildPointValue);
 bool IsPlacementCandidateValid(const FFrameContext& FrameValue, const ABILITY_ID StructureAbilityIdValue,
                                const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
                                const Point2D& CandidatePointValue,
@@ -967,20 +969,20 @@ Point2D GetSpawnVerticalMainBaseStepForBuildPlacement(
 
     if (IsLeftSideValue && IsUpperSideValue)
     {
-        return Point2D(0.0f, 4.0f);
+        return Point2D(0.0f, 6.0f);
     }
 
     if (!IsLeftSideValue && !IsUpperSideValue)
     {
-        return Point2D(0.0f, -4.0f);
+        return Point2D(0.0f, -6.0f);
     }
 
     if (!IsLeftSideValue && IsUpperSideValue)
     {
-        return Point2D(0.0f, 4.0f);
+        return Point2D(0.0f, 6.0f);
     }
 
-    return Point2D(0.0f, -4.0f);
+    return Point2D(0.0f, -6.0f);
 }
 
 void AppendResolvedPlacementSlotToLayoutDescriptor(
@@ -1033,7 +1035,7 @@ bool TryResolveChainedPlacementSlotFromReference(
                                          StructureAbilityIdValue,
                                          ResolvedLayoutPlacementSlotsValue,
                                          OutResolvedBuildPlacementSlotValue,
-                                         EPlacementCandidateValidationMode::StaticLayout))
+                                         EPlacementCandidateValidationMode::RuntimeQuery))
         {
             return true;
         }
@@ -1386,7 +1388,7 @@ bool TryResolveProductionLayoutAnchorPoint(
             EBuildPlacementSlotType::MainStarportWithAddon,
             EBuildPlacementFootprintPolicy::RequiresAddonClearance,
             ProjectOffsetToWorld(CandidateLayoutAnchorPointValue, MainBaseDepthDirectionValue,
-                                 MainBaseLateralDirectionValue, {0.0f, 16.0f}),
+                                 MainBaseLateralDirectionValue, {4.0f, 14.0f}),
             0U);
         FBuildPlacementSlot ResolvedMainStarportPlacementSlotValue;
         if (!TryResolveExactPlacementSlot(FrameValue, BuildPlacementContextValue, MainStarportPlacementSlotValue,
@@ -1564,6 +1566,8 @@ bool TryResolveProductionRailPivotSlot(
         OutResolvedLayoutPlacementSlotsValue.push_back(ResolvedLayoutPlacementSlotValue);
     }
 
+    size_t LastResolvedSlotIndexValue = PivotSlotIndexValue;
+
     for (size_t SlotIndexValue = PivotSlotIndexValue + 1U;
          SlotIndexValue < TemplateBuildPlacementSlotsValue.size();
          ++SlotIndexValue)
@@ -1586,13 +1590,12 @@ bool TryResolveProductionRailPivotSlot(
                                           ResolvedBuildPlacementSlotValue,
                                           EPlacementCandidateValidationMode::StaticLayout))
         {
-            OutResolvedBuildPlacementSlotsValue.clear();
-            OutResolvedLayoutPlacementSlotsValue.clear();
-            return false;
+            break;
         }
 
         ResolvedBuildPlacementSlotValue.SlotId = CurrentTemplateBuildPlacementSlotValue.SlotId;
         OutResolvedBuildPlacementSlotsValue[SlotIndexValue] = ResolvedBuildPlacementSlotValue;
+        LastResolvedSlotIndexValue = SlotIndexValue;
 
         FResolvedLayoutPlacementSlot ResolvedLayoutPlacementSlotValue;
         ResolvedLayoutPlacementSlotValue.BuildPlacementSlot = ResolvedBuildPlacementSlotValue;
@@ -1600,7 +1603,8 @@ bool TryResolveProductionRailPivotSlot(
         OutResolvedLayoutPlacementSlotsValue.push_back(ResolvedLayoutPlacementSlotValue);
     }
 
-    return true;
+    OutResolvedBuildPlacementSlotsValue.resize(LastResolvedSlotIndexValue + 1U);
+    return !OutResolvedBuildPlacementSlotsValue.empty();
 }
 
 bool RemoveResolvedLayoutPlacementSlotById(
@@ -1963,6 +1967,17 @@ bool DoesAddonFootprintSupportTerrain(const GameInfo& GameInfoValue, const Point
     return true;
 }
 
+bool DoesAddonFootprintOverlapDepot(const Point2D& BarracksPositionValue, const Point2D& DepotPositionValue)
+{
+    const Point2D AddonCenterValue = GetAddonFootprintCenter(BarracksPositionValue);
+    static constexpr float AddonHalfExtentValue = 1.0f;
+    static constexpr float DepotHalfExtentValue = 1.0f;
+    const float DeltaXValue = std::abs(AddonCenterValue.x - DepotPositionValue.x);
+    const float DeltaYValue = std::abs(AddonCenterValue.y - DepotPositionValue.y);
+    return DeltaXValue <= (AddonHalfExtentValue + DepotHalfExtentValue) &&
+           DeltaYValue <= (AddonHalfExtentValue + DepotHalfExtentValue);
+}
+
 bool DoesStructureFootprintSupportTerrain(const GameInfo& GameInfoValue, const ABILITY_ID StructureAbilityIdValue,
                                           const Point2D& StructureBuildPointValue)
 {
@@ -1993,7 +2008,9 @@ bool DoesStructureFootprintSupportTerrain(const GameInfo& GameInfoValue, const A
 
 bool DoesPointSatisfyFootprintPolicy(const FFrameContext& FrameValue, const Point2D& BuildPointValue,
                                      const ABILITY_ID StructureAbilityIdValue,
-                                     const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue)
+                                     const EBuildPlacementFootprintPolicy BuildPlacementFootprintPolicyValue,
+                                     const EPlacementCandidateValidationMode ValidationModeValue =
+                                         EPlacementCandidateValidationMode::RuntimeQuery)
 {
     if (FrameValue.GameInfo == nullptr ||
         !DoesStructureFootprintSupportTerrain(*FrameValue.GameInfo, StructureAbilityIdValue, BuildPointValue))
@@ -2009,6 +2026,11 @@ bool DoesPointSatisfyFootprintPolicy(const FFrameContext& FrameValue, const Poin
             if (FrameValue.GameInfo == nullptr || !DoesStructureAbilityRequireAddonClearance(StructureAbilityIdValue))
             {
                 return false;
+            }
+
+            if (ValidationModeValue == EPlacementCandidateValidationMode::StaticLayout)
+            {
+                return true;
             }
 
             return DoesAddonFootprintSupportTerrain(*FrameValue.GameInfo, BuildPointValue);
@@ -2289,7 +2311,7 @@ bool IsPlacementCandidateValid(const FFrameContext& FrameValue, const ABILITY_ID
 
     const Point2D ClampedCandidatePointValue = ClampToPlayable(*FrameValue.GameInfo, CandidatePointValue);
     if (!DoesPointSatisfyFootprintPolicy(FrameValue, ClampedCandidatePointValue, StructureAbilityIdValue,
-                                         BuildPlacementFootprintPolicyValue))
+                                         BuildPlacementFootprintPolicyValue, ValidationModeValue))
     {
         return false;
     }
@@ -2392,6 +2414,7 @@ bool TrySelectMainRampTileGroup(const FBuildPlacementContext& BuildPlacementCont
 
 bool TryCreateRampWallCandidatePointsFromTileGroup(const std::vector<Point2DI>& RampTileGroupValue,
                                                    const HeightMap& HeightMapValue,
+                                                   const GameInfo* GameInfoPtrValue,
                                                    Point2D& OutWallCenterPointValue,
                                                    Point2D& OutInsideStagingPointValue,
                                                    Point2D& OutOutsideStagingPointValue,
@@ -2452,10 +2475,48 @@ bool TryCreateRampWallCandidatePointsFromTileGroup(const std::vector<Point2DI>& 
         return false;
     }
 
-    const float MaximumDepotXValue = std::max(CornerDepotPointOneValue.x, CornerDepotPointTwoValue.x);
-    if ((BarracksBuildPointValue.x + 1.0f) <= MaximumDepotXValue)
+    // Validate addon clearance for the barracks position. The addon footprint is at
+    // (+2.5, -0.5) from the barracks center. Try the barracks-in-middle position first,
+    // then shifted candidates if addon terrain is blocked.
+    if (GameInfoPtrValue != nullptr)
     {
-        BarracksBuildPointValue = BarracksBuildPointValue + Point2D(-2.0f, 0.0f);
+        const Point2D BarracksInMiddleValue = BarracksBuildPointValue;
+        static constexpr float BarracksAddonShiftDistanceValue = 2.0f;
+        const std::array<Point2D, 3> BarracksCandidatePositionsValue =
+        {{
+            BarracksInMiddleValue,
+            BarracksInMiddleValue + Point2D(-BarracksAddonShiftDistanceValue, 0.0f),
+            BarracksInMiddleValue + Point2D(BarracksAddonShiftDistanceValue, 0.0f),
+        }};
+
+        bool FoundValidBarracksPositionValue = false;
+        for (const Point2D& BarracksCandidateValue : BarracksCandidatePositionsValue)
+        {
+            if (DoesAddonFootprintSupportTerrain(*GameInfoPtrValue, BarracksCandidateValue))
+            {
+                BarracksBuildPointValue = BarracksCandidateValue;
+                FoundValidBarracksPositionValue = true;
+                break;
+            }
+        }
+
+        if (!FoundValidBarracksPositionValue)
+        {
+            // No addon-terrain-valid position exists. Place the barracks at the
+            // original wall position anyway; the addon will need to be built on a
+            // production rail barracks instead.
+            BarracksBuildPointValue = BarracksInMiddleValue;
+        }
+    }
+    else
+    {
+        // Fallback when GameInfo is unavailable: use the python-sc2 X-axis heuristic.
+        const float MaximumDepotXValue =
+            std::max(CornerDepotPointOneValue.x, CornerDepotPointTwoValue.x);
+        if ((BarracksBuildPointValue.x + 1.0f) <= MaximumDepotXValue)
+        {
+            BarracksBuildPointValue = BarracksBuildPointValue + Point2D(-2.0f, 0.0f);
+        }
     }
 
     const Point2D RampDirectionValue =
@@ -2552,6 +2613,7 @@ FRampWallDescriptor CreateDiscoveredRampWallDescriptor(const FFrameContext& Fram
     Point2D BarracksBuildPointValue;
     Point2D RightDepotBuildPointValue;
     if (!TryCreateRampWallCandidatePointsFromTileGroup(SelectedRampTileGroupValue, HeightMapValue,
+                                                       FrameValue.GameInfo,
                                                        WallCenterPointValue, InsideStagingPointValue,
                                                        OutsideStagingPointValue, LeftDepotBuildPointValue,
                                                        BarracksBuildPointValue, RightDepotBuildPointValue))
@@ -2575,6 +2637,151 @@ FRampWallDescriptor CreateDiscoveredRampWallDescriptor(const FFrameContext& Fram
         return InvalidRampWallDescriptorValue;
     }
 
+    // Validate addon position at the barracks using Query->Placement as ground truth.
+    // Use BUILD_SUPPLYDEPOT (2x2, same as addon) at the addon center as a proxy,
+    // since the actual barracks unit does not yet exist for a direct addon query.
+    bool IsAddonPositionValidValue = false;
+    if (FrameValue.Query != nullptr)
+    {
+        const Point2D OriginalAddonCenterValue = GetAddonFootprintCenter(BarracksBuildPointValue);
+        IsAddonPositionValidValue =
+            FrameValue.Query->Placement(ABILITY_ID::BUILD_SUPPLYDEPOT, OriginalAddonCenterValue);
+
+        if (!IsAddonPositionValidValue)
+        {
+            // The addon position is rejected by the game engine. Scan shifted barracks positions
+            // along the wall lateral axis to find one where the addon lands on valid terrain.
+            const Point2D RampDirectionValue =
+                GetNormalizedDirection(OutsideStagingPointValue - InsideStagingPointValue);
+            const Point2D WallLateralDirectionValue = GetLateralDirection(RampDirectionValue);
+
+            // Collect batch placement queries for shifted candidates.
+            // Test shifts along the lateral axis, depth axis, and diagonal combinations.
+            struct FBarracksCandidateEntry
+            {
+                Point2D BarracksPointValue;
+                Point2D AddonCenterPointValue;
+            };
+
+            std::vector<FBarracksCandidateEntry> BarracksCandidateEntriesValue;
+            static constexpr float LateralShiftValues[] = {-1.0f, 1.0f, -2.0f, 2.0f, -3.0f, 3.0f};
+            static constexpr float DepthShiftValues[] = {0.0f, -1.0f, 1.0f};
+
+            for (const float DepthShiftValue : DepthShiftValues)
+            {
+                for (const float LateralShiftValue : LateralShiftValues)
+                {
+                    const Point2D ShiftedBarracksPointValue =
+                        BarracksBuildPointValue +
+                        (WallLateralDirectionValue * LateralShiftValue) +
+                        (RampDirectionValue * DepthShiftValue);
+                    const Point2D ShiftedAddonCenterValue =
+                        GetAddonFootprintCenter(ShiftedBarracksPointValue);
+
+                    FBarracksCandidateEntry CandidateEntryValue;
+                    CandidateEntryValue.BarracksPointValue = ShiftedBarracksPointValue;
+                    CandidateEntryValue.AddonCenterPointValue = ShiftedAddonCenterValue;
+                    BarracksCandidateEntriesValue.push_back(CandidateEntryValue);
+                }
+            }
+
+            // Build batch placement queries: for each candidate, test both the barracks
+            // position and the addon position (via BUILD_SUPPLYDEPOT proxy).
+            std::vector<QueryInterface::PlacementQuery> BatchPlacementQueriesValue;
+            BatchPlacementQueriesValue.reserve(BarracksCandidateEntriesValue.size() * 2U);
+            for (const FBarracksCandidateEntry& CandidateEntryValue : BarracksCandidateEntriesValue)
+            {
+                BatchPlacementQueriesValue.emplace_back(
+                    ABILITY_ID::BUILD_BARRACKS, CandidateEntryValue.BarracksPointValue);
+                BatchPlacementQueriesValue.emplace_back(
+                    ABILITY_ID::BUILD_SUPPLYDEPOT, CandidateEntryValue.AddonCenterPointValue);
+            }
+
+            const std::vector<bool> BatchPlacementResultsValue =
+                FrameValue.Query->Placement(BatchPlacementQueriesValue);
+
+            // Find the first candidate where both barracks and addon positions are valid.
+            for (size_t CandidateIndexValue = 0U;
+                 CandidateIndexValue < BarracksCandidateEntriesValue.size(); ++CandidateIndexValue)
+            {
+                const size_t BarracksQueryIndexValue = CandidateIndexValue * 2U;
+                const size_t AddonQueryIndexValue = BarracksQueryIndexValue + 1U;
+
+                if (BarracksQueryIndexValue >= BatchPlacementResultsValue.size() ||
+                    AddonQueryIndexValue >= BatchPlacementResultsValue.size())
+                {
+                    break;
+                }
+
+                if (BatchPlacementResultsValue[BarracksQueryIndexValue] &&
+                    BatchPlacementResultsValue[AddonQueryIndexValue])
+                {
+                    BarracksBuildPointValue =
+                        BarracksCandidateEntriesValue[CandidateIndexValue].BarracksPointValue;
+                    IsAddonPositionValidValue = true;
+
+#if _DEBUG
+                    std::cout << "[WALL_ADDON_FIX] Shifted barracks to ("
+                              << BarracksBuildPointValue.x << "," << BarracksBuildPointValue.y
+                              << ") addon=("
+                              << BarracksCandidateEntriesValue[CandidateIndexValue].AddonCenterPointValue.x
+                              << ","
+                              << BarracksCandidateEntriesValue[CandidateIndexValue].AddonCenterPointValue.y
+                              << ")" << std::endl;
+#endif
+                    break;
+                }
+            }
+
+#if _DEBUG
+            if (!IsAddonPositionValidValue)
+            {
+                std::cout << "[WALL_ADDON_SCAN] No addon-valid barracks position found in "
+                          << BarracksCandidateEntriesValue.size() << " candidates. "
+                          << "Original barracks=(" << BarracksBuildPointValue.x << ","
+                          << BarracksBuildPointValue.y << ") addon=("
+                          << OriginalAddonCenterValue.x << "," << OriginalAddonCenterValue.y
+                          << ")" << std::endl;
+
+                // Log all candidate results for hardcoding reference.
+                for (size_t DiagIndexValue = 0U;
+                     DiagIndexValue < BarracksCandidateEntriesValue.size(); ++DiagIndexValue)
+                {
+                    const size_t BarracksResultIndexValue = DiagIndexValue * 2U;
+                    const size_t AddonResultIndexValue = BarracksResultIndexValue + 1U;
+                    if (AddonResultIndexValue >= BatchPlacementResultsValue.size())
+                    {
+                        break;
+                    }
+
+                    std::cout << "[WALL_ADDON_SCAN]   Candidate " << DiagIndexValue
+                              << " barracks=("
+                              << BarracksCandidateEntriesValue[DiagIndexValue].BarracksPointValue.x
+                              << ","
+                              << BarracksCandidateEntriesValue[DiagIndexValue].BarracksPointValue.y
+                              << ") addon=("
+                              << BarracksCandidateEntriesValue[DiagIndexValue].AddonCenterPointValue.x
+                              << ","
+                              << BarracksCandidateEntriesValue[DiagIndexValue].AddonCenterPointValue.y
+                              << ") barracksOk="
+                              << BatchPlacementResultsValue[BarracksResultIndexValue]
+                              << " addonOk="
+                              << BatchPlacementResultsValue[AddonResultIndexValue]
+                              << std::endl;
+                }
+            }
+#endif
+        }
+    }
+
+    // Re-validate barracks placement after potential shift.
+    if (!IsPlacementCandidateValid(FrameValue, ABILITY_ID::BUILD_BARRACKS,
+                                   EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+                                   BarracksBuildPointValue))
+    {
+        return InvalidRampWallDescriptorValue;
+    }
+
     FRampWallDescriptor RampWallDescriptorValue;
     RampWallDescriptorValue.bIsValid = true;
     RampWallDescriptorValue.WallCenterPoint = WallCenterPointValue;
@@ -2589,6 +2796,25 @@ FRampWallDescriptor CreateDiscoveredRampWallDescriptor(const FFrameContext& Fram
     RampWallDescriptorValue.RightDepotSlot = CreatePlacementSlot(
         EBuildPlacementSlotType::MainRampDepotRight, EBuildPlacementFootprintPolicy::StructureOnly,
         RightDepotBuildPointValue, 0U);
+
+#if _DEBUG
+    {
+        const Point2D AddonCenterValue = GetAddonFootprintCenter(BarracksBuildPointValue);
+        std::cout << "[WALL_POSITIONS] LeftDepot=(" << LeftDepotBuildPointValue.x << ","
+                  << LeftDepotBuildPointValue.y << ") Barracks=(" << BarracksBuildPointValue.x << ","
+                  << BarracksBuildPointValue.y << ") RightDepot=(" << RightDepotBuildPointValue.x << ","
+                  << RightDepotBuildPointValue.y << ") AddonCenter=(" << AddonCenterValue.x << ","
+                  << AddonCenterValue.y << ") WallCenter=(" << WallCenterPointValue.x << ","
+                  << WallCenterPointValue.y << ") AddonValid=" << IsAddonPositionValidValue
+                  << std::endl;
+
+        std::cout << "[WALL_SPAWN] BaseLocation=("
+                  << BuildPlacementContextValue.BaseLocation.x << ","
+                  << BuildPlacementContextValue.BaseLocation.y << ") MapName="
+                  << BuildPlacementContextValue.MapName << std::endl;
+    }
+#endif
+
     return RampWallDescriptorValue;
 }
 
@@ -2831,12 +3057,15 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
                                           ABILITY_ID::BUILD_SUPPLYDEPOT,
                                           MainBaseLayoutDescriptorValue.PeripheralDepotSlots,
                                           ResolvedLayoutPlacementSlotsValue);
+    const bool AllowBarracksTemplateSearchValue = AllowProductionTemplateSearchValue ||
+        (MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() &&
+         MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty());
     AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
                                           MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
                                           MainBaseDepthDirectionValue,
                                           MainBaseLateralDirectionValue,
                                           BarracksOffsetValues,
-                                          AllowProductionTemplateSearchValue,
+                                          AllowBarracksTemplateSearchValue,
                                           EBuildPlacementSlotType::MainBarracksWithAddon,
                                           EBuildPlacementFootprintPolicy::RequiresAddonClearance,
                                           ABILITY_ID::BUILD_BARRACKS,

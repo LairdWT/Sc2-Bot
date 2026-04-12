@@ -15,7 +15,8 @@ namespace sc2
 namespace
 {
 
-constexpr float BaseThreatDistanceSquaredValue = 625.0f;
+constexpr float BaseThreatDistanceSquaredValue = 1225.0f;
+constexpr float BaseProximityThreatDistanceSquaredValue = 400.0f;
 constexpr float OutsideFriendlyTerritoryDistanceSquaredValue = 900.0f;
 constexpr float SweepObjectiveRadiusValue = 10.0f;
 constexpr float PressureObjectiveRadiusValue = 12.0f;
@@ -62,6 +63,11 @@ bool IsEnemyCombatThreat(const Unit& EnemyUnitValue)
 {
     return EnemyUnitValue.build_progress >= 1.0f && !EnemyUnitValue.is_building &&
            !IsWorkerUnitType(EnemyUnitValue.unit_type.ToType());
+}
+
+bool IsEnemyBaseProximityThreat(const Unit& EnemyUnitValue)
+{
+    return EnemyUnitValue.build_progress >= 1.0f && !EnemyUnitValue.is_building;
 }
 
 Point2D ComputeArmyCenterPoint(const FAgentState& AgentStateValue, const Point2D& RallyPointValue)
@@ -126,17 +132,28 @@ bool TryFindThreatenedBase(const Units& SelfTownHallUnitsValue, const Units& Ene
             continue;
         }
 
+        const Point2D TownHallPointValue = Point2D(SelfTownHallUnitPtrValue->pos);
         for (const Unit* EnemyUnitPtrValue : EnemyUnitsValue)
         {
-            if (EnemyUnitPtrValue == nullptr || !IsEnemyCombatThreat(*EnemyUnitPtrValue))
+            if (EnemyUnitPtrValue == nullptr)
             {
                 continue;
             }
 
-            if (DistanceSquared2D(Point2D(SelfTownHallUnitPtrValue->pos), Point2D(EnemyUnitPtrValue->pos)) <=
-                BaseThreatDistanceSquaredValue)
+            const float DistanceSquaredValue =
+                DistanceSquared2D(TownHallPointValue, Point2D(EnemyUnitPtrValue->pos));
+
+            if (IsEnemyCombatThreat(*EnemyUnitPtrValue) &&
+                DistanceSquaredValue <= BaseThreatDistanceSquaredValue)
             {
-                OutObjectivePointValue = Point2D(SelfTownHallUnitPtrValue->pos);
+                OutObjectivePointValue = TownHallPointValue;
+                return true;
+            }
+
+            if (IsEnemyBaseProximityThreat(*EnemyUnitPtrValue) &&
+                DistanceSquaredValue <= BaseProximityThreatDistanceSquaredValue)
+            {
+                OutObjectivePointValue = TownHallPointValue;
                 return true;
             }
         }

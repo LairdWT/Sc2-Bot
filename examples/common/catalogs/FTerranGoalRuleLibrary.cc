@@ -93,10 +93,10 @@ uint32_t GetCappedScheduledSupplyUsageDelta(const FGameStateDescriptor& GameStat
             MaximumScheduledSupplyUsageDeltaValue = 2U;
             break;
         case EMacroPhase::MidGame:
-            MaximumScheduledSupplyUsageDeltaValue = 4U;
+            MaximumScheduledSupplyUsageDeltaValue = 8U;
             break;
         case EMacroPhase::LateGame:
-            MaximumScheduledSupplyUsageDeltaValue = 6U;
+            MaximumScheduledSupplyUsageDeltaValue = 12U;
             break;
         default:
             break;
@@ -116,8 +116,9 @@ uint32_t GetSupplyBufferForMacroPhase(const EMacroPhase MacroPhaseValue)
         case EMacroPhase::EarlyGame:
             return 4U;
         case EMacroPhase::MidGame:
+            return 16U;
         case EMacroPhase::LateGame:
-            return 8U;
+            return 24U;
         default:
             return 4U;
     }
@@ -692,6 +693,13 @@ EProductionFocus FTerranGoalRuleLibrary::DeterminePrimaryProductionFocus(
 
     if (HasSustainedMineralFloatValue)
     {
+        if (ExecutionPressureDescriptorValue.CurrentMineralBankAmount >= 800U &&
+            ExecutionPressureDescriptorValue.MineralBankDurationGameLoops >=
+                ForecastHorizonGameLoopsValue[MediumForecastHorizonIndexValue])
+        {
+            return EProductionFocus::Army;
+        }
+
         if (ShouldPrioritizeUpgrades(GameStateDescriptorValue))
         {
             return EProductionFocus::Upgrades;

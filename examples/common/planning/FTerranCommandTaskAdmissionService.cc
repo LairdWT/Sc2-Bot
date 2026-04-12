@@ -16,12 +16,14 @@ namespace sc2
 namespace
 {
 
-constexpr uint32_t MaxActiveArmyOrdersValue = 8U;
-constexpr uint32_t MaxActiveSquadOrdersValue = 16U;
-constexpr uint64_t NoProducerRetryDelayGameLoopsValue = 224U;
-constexpr uint64_t InsufficientResourcesRetryDelayGameLoopsValue = 16U;
-constexpr uint64_t PlacementRetryDelayGameLoopsValue = 32U;
+constexpr uint32_t MaxActiveArmyOrdersValue = 2048U;
+constexpr uint32_t MaxActiveSquadOrdersValue = 1024U;
+constexpr uint64_t NoProducerRetryDelayGameLoopsValue = 56U;
+constexpr uint64_t InsufficientResourcesRetryDelayGameLoopsValue = 48U;
+constexpr uint64_t PlacementRetryDelayGameLoopsValue = 112U;
 constexpr uint64_t ProducerBusyRetryDelayGameLoopsValue = 24U;
+constexpr uint64_t FailedReactivationBaseDelayGameLoopsValue = 56U;
+constexpr uint64_t FailedReactivationMaxDelayGameLoopsValue = 336U;
 
 struct FCommandResourceCost
 {
@@ -397,6 +399,10 @@ bool ShouldBypassFlexibleBudgetGate(const FCommandOrderRecord& CommandOrderRecor
         case ECommandTaskType::Supply:
         case ECommandTaskType::Expansion:
         case ECommandTaskType::Recovery:
+        case ECommandTaskType::AddOn:
+        case ECommandTaskType::ProductionStructure:
+        case ECommandTaskType::UnitProduction:
+        case ECommandTaskType::Refinery:
             return true;
         default:
             return false;
@@ -539,17 +545,31 @@ FBlockedTaskRecord CreateBlockedTaskRecord(const FCommandOrderRecord& CommandOrd
     return BlockedTaskRecordValue;
 }
 
+bool IsGoalDrivenContinuousProductionOrder(const FCommandOrderRecord& CommandOrderRecordValue)
+{
+    return CommandOrderRecordValue.Origin == ECommandTaskOrigin::GoalMacro &&
+           (CommandOrderRecordValue.TaskType == ECommandTaskType::UnitProduction ||
+            CommandOrderRecordValue.TaskType == ECommandTaskType::AddOn ||
+            CommandOrderRecordValue.TaskType == ECommandTaskType::ProductionStructure);
+}
+
 bool ShouldParkDeferredOrder(const FCommandOrderRecord& CommandOrderRecordValue)
 {
     switch (CommandOrderRecordValue.LastDeferralReason)
     {
         case ECommandOrderDeferralReason::NoProducer:
+            return !IsGoalDrivenContinuousProductionOrder(CommandOrderRecordValue);
         case ECommandOrderDeferralReason::InsufficientResources:
+            return !IsGoalDrivenContinuousProductionOrder(CommandOrderRecordValue);
         case ECommandOrderDeferralReason::NoValidPlacement:
         case ECommandOrderDeferralReason::ReservedSlotOccupied:
         case ECommandOrderDeferralReason::ReservedSlotInvalidated:
             return true;
         case ECommandOrderDeferralReason::ProducerBusy:
+            if (IsGoalDrivenContinuousProductionOrder(CommandOrderRecordValue))
+            {
+                return false;
+            }
             return CommandOrderRecordValue.ConsecutiveDeferralCount >= 3U;
         default:
             return false;
@@ -758,11 +778,16 @@ void FTerranCommandTaskAdmissionService::ReactivateBlockedTasks(FGameStateDescri
         if (!CanAdmitOrder(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue, ReactivatedOrderValue))
         {
             FBlockedTaskRecord DeferredBlockedTaskRecordValue = BlockedTaskRecordValue;
+            ++DeferredBlockedTaskRecordValue.RetryCount;
             DeferredBlockedTaskRecordValue.LastSeenStimulusRevision = GetStimulusRevisionForWakeKind(
                 CommandAuthoritySchedulingStateValue.SchedulerStimulusState, BlockedTaskRecordValue.WakeKind);
+            const uint64_t BackoffDelayValue = std::min<uint64_t>(
+                FailedReactivationBaseDelayGameLoopsValue *
+                    (1ULL + static_cast<uint64_t>(DeferredBlockedTaskRecordValue.RetryCount)),
+                FailedReactivationMaxDelayGameLoopsValue);
             DeferredBlockedTaskRecordValue.NextEligibleGameLoop =
                 std::max<uint64_t>(DeferredBlockedTaskRecordValue.NextEligibleGameLoop,
-                                   GameStateDescriptorValue.CurrentGameLoop + 8U);
+                                   GameStateDescriptorValue.CurrentGameLoop + BackoffDelayValue);
             FBlockedTaskRingBuffer& BlockedTaskRingBufferValue =
                 IsStrategicBufferLayer(BlockedTaskRecordValue.SourceLayer)
                     ? CommandAuthoritySchedulingStateValue.BlockedStrategicTasks
@@ -822,9 +847,17 @@ bool FTerranCommandTaskAdmissionService::TryAdmitGoalDrivenOrder(
     FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue =
         GameStateDescriptorValue.CommandAuthoritySchedulingState;
 
-    if (DoesHotOrderMatchOrderSignature(CommandAuthoritySchedulingStateValue, CommandOrderRecordValue) ||
-        HasEquivalentBlockedTask(CommandAuthoritySchedulingStateValue, CommandOrderRecordValue) ||
-        !CanAdmitOrder(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue, CommandOrderRecordValue))
+    const bool HotSignatureMatchValue =
+        DoesHotOrderMatchOrderSignature(CommandAuthoritySchedulingStateValue, CommandOrderRecordValue);
+    const bool IsGoalDrivenContinuousValue =
+        IsGoalDrivenContinuousProductionOrder(CommandOrderRecordValue);
+    const bool BlockedTaskMatchValue =
+        !IsGoalDrivenContinuousValue &&
+        HasEquivalentBlockedTask(CommandAuthoritySchedulingStateValue, CommandOrderRecordValue);
+    const bool CanAdmitValue =
+        CanAdmitOrder(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue, CommandOrderRecordValue);
+
+    if (HotSignatureMatchValue || BlockedTaskMatchValue || !CanAdmitValue)
     {
         return false;
     }

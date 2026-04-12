@@ -28,6 +28,7 @@ void FGameStateDescriptor::Reset()
     MainBaseLayoutDescriptor.Reset();
     ObservedPlacementSlotState.Reset();
     ObservedRampWallState.Reset();
+    EnemyObservation.Reset();
 }
 
 }  // namespace sc2

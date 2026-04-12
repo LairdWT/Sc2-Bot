@@ -107,9 +107,12 @@ set(sc2_terran_bot_common_sources
     services/FTerranMainBaseLayoutRegistry.cc
     services/FTerranBuildPlacementService.cc
     services/FTerranEconomicService.cc
+    services/FTerranWorkerSelectionService.cc
     services/IBuildPlacementService.cc
     services/IExpansionSelectionService.cc
     services/ISpatialFieldBuilder.cc
+    descriptors/FEnemyObservationDescriptor.cc
+    descriptors/FTerranEnemyObservationBuilder.cc
     spatial/FSpatialFieldSet.cc)
 
 add_library(sc2_terran_bot_common STATIC ${sc2_terran_bot_common_sources})

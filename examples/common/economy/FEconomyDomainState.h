@@ -16,11 +16,14 @@ struct FAgentState;
 struct FEconomyDomainState
 {
 public:
+    static constexpr size_t MaxSampleHistoryCountValue = 2048U;
+
     FEconomyDomainState();
 
     void Reset();
     void Update(const FAgentState& AgentStateValue, uint64_t CurrentGameLoopValue);
     size_t GetSampleCount() const;
+    bool HasSynchronizedSampleSizes() const;
     uint64_t GetElapsedGameLoopsForHorizon(size_t HorizonIndexValue) const;
     uint64_t GetGrossMineralIncomeForHorizon(size_t HorizonIndexValue) const;
     uint64_t GetGrossVespeneIncomeForHorizon(size_t HorizonIndexValue) const;
@@ -56,6 +59,7 @@ private:
     size_t GetSampleIndexForHorizon(size_t HorizonIndexValue) const;
     void TrimHistory();
     void RecordCurrentSample(uint32_t CurrentMineralsValue, uint32_t CurrentVespeneValue);
+    void AssertSynchronizedSampleSizes() const;
 };
 
 }  // namespace sc2

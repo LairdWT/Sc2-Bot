@@ -610,6 +610,50 @@ uint32_t CountActiveUnitProductionSchedulerOrdersForActor(
     return OrderCountValue;
 }
 
+bool HasPendingMorphOrderForActor(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const Tag ActorTagValue,
+    const ABILITY_ID MorphAbilityIdValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != ActorTagValue ||
+            IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        if (CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue] == MorphAbilityIdValue)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+uint32_t CountPendingMorphOrders(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+    const ABILITY_ID MorphAbilityIdValue)
+{
+    uint32_t PendingMorphOrderCountValue = 0U;
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        if (CommandAuthoritySchedulingStateValue.AbilityIds[OrderIndexValue] == MorphAbilityIdValue)
+        {
+            ++PendingMorphOrderCountValue;
+        }
+    }
+
+    return PendingMorphOrderCountValue;
+}
+
 bool HasConflictingSchedulerOrderForProductionActor(
     const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const Tag ActorTagValue)
 {
@@ -624,6 +668,12 @@ bool HasConflictingSchedulerOrderForProductionActor(
 
         if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] == ECommandAuthorityLayer::UnitExecution &&
             CommandAuthoritySchedulingStateValue.IntentDomains[OrderIndexValue] == EIntentDomain::UnitProduction)
+        {
+            continue;
+        }
+
+        if (CommandAuthoritySchedulingStateValue.IntentDomains[OrderIndexValue] == EIntentDomain::StructureBuild &&
+            CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue] != EOrderLifecycleState::Dispatched)
         {
             continue;
         }
@@ -997,11 +1047,39 @@ EProductionBlockerKind ClassifyAddonFootprintBlocker(const FFrameContext& FrameV
     const Units AllUnitsValue = FrameValue.Observation->GetUnits();
     for (const Unit* CandidateUnitValue : AllUnitsValue)
     {
-        if (CandidateUnitValue == nullptr || CandidateUnitValue->tag == ProducerTagValue ||
-            !DoesUnitOverlapFootprint(*CandidateUnitValue, AddonFootprintCenterValue, AddonHalfExtentsValue))
+        if (CandidateUnitValue == nullptr || CandidateUnitValue->tag == ProducerTagValue)
         {
             continue;
         }
+
+        // For buildings, use the structure footprint half extents (grid-aligned) instead of
+        // the unit radius (circular collision), which is typically larger and causes false
+        // positives for edge-adjacent buildings like ramp wall depots.
+        const bool IsOverlappingValue = CandidateUnitValue->is_building
+            ? DoAxisAlignedFootprintsOverlap(
+                  Point2D(CandidateUnitValue->pos),
+                  GetStructureFootprintHalfExtentsForUnitType(CandidateUnitValue->unit_type.ToType()),
+                  AddonFootprintCenterValue, AddonHalfExtentsValue)
+            : DoesUnitOverlapFootprint(*CandidateUnitValue, AddonFootprintCenterValue, AddonHalfExtentsValue);
+
+        if (!IsOverlappingValue)
+        {
+            continue;
+        }
+
+#if _DEBUG
+        if (FrameValue.GameLoop % 224U == 0U)
+        {
+            std::cout << "[ADDON_BLOCKER] producer_pos=(" << StructureBuildPointValue.x << ","
+                      << StructureBuildPointValue.y << ") addon_center=(" << AddonFootprintCenterValue.x << ","
+                      << AddonFootprintCenterValue.y << ") blocker_tag=" << CandidateUnitValue->tag
+                      << " blocker_type=" << static_cast<int>(CandidateUnitValue->unit_type)
+                      << " blocker_pos=(" << CandidateUnitValue->pos.x << "," << CandidateUnitValue->pos.y << ")"
+                      << " is_building=" << CandidateUnitValue->is_building
+                      << " alliance=" << static_cast<int>(CandidateUnitValue->alliance)
+                      << " loop=" << FrameValue.GameLoop << std::endl;
+        }
+#endif
 
         switch (CandidateUnitValue->alliance)
         {
@@ -1036,22 +1114,57 @@ uint32_t AddFriendlyBlockerReliefIntentsForFootprint(const FFrameContext& FrameV
     const Units SelfUnitsValue = FrameValue.Observation->GetUnits(Unit::Alliance::Self);
     for (const Unit* SelfUnitValue : SelfUnitsValue)
     {
-        if (SelfUnitValue == nullptr || !IsFriendlyMovableBlockerUnit(*SelfUnitValue, IgnoredActorTagValue) ||
-            !DoesUnitOverlapFootprint(*SelfUnitValue, FootprintCenterValue, FootprintHalfExtentsValue) ||
-            IntentBufferValue.HasIntentForActor(SelfUnitValue->tag))
+        if (SelfUnitValue == nullptr)
         {
             continue;
         }
 
+        const bool IsFriendlyMovableValue = IsFriendlyMovableBlockerUnit(*SelfUnitValue, IgnoredActorTagValue);
+        const bool IsOverlappingValue = DoesUnitOverlapFootprint(*SelfUnitValue, FootprintCenterValue,
+                                                                  FootprintHalfExtentsValue);
+        const bool HasExistingIntentValue = IntentBufferValue.HasIntentForActor(SelfUnitValue->tag);
+
+        if (!IsFriendlyMovableValue || !IsOverlappingValue || HasExistingIntentValue)
+        {
+#if _DEBUG
+            if (IsOverlappingValue && IsFriendlyMovableValue && HasExistingIntentValue &&
+                FrameValue.GameLoop % 224U == 0U)
+            {
+                std::cout << "[RELIEF_DIAG] SkippedDueToExistingIntent tag=" << SelfUnitValue->tag
+                          << " type=" << static_cast<int>(SelfUnitValue->unit_type.ToType())
+                          << " pos=(" << SelfUnitValue->pos.x << "," << SelfUnitValue->pos.y << ")"
+                          << " loop=" << FrameValue.GameLoop << std::endl;
+            }
+#endif
+            continue;
+        }
+
         Point2D DisplacementTargetPointValue;
-        const bool bFoundReliefTargetValue =
+        const bool bFoundPreferredValue =
             TryFindPreferredBlockerReliefTargetPoint(FrameValue, *SelfUnitValue, FootprintCenterValue,
                                                      FootprintHalfExtentsValue, PreferredTargetPointValue,
-                                                     DisplacementTargetPointValue) ||
+                                                     DisplacementTargetPointValue);
+        const bool bFoundDisplacementValue = !bFoundPreferredValue &&
             TryFindDisplacementTargetPoint(FrameValue, *SelfUnitValue, FootprintCenterValue,
                                            FootprintHalfExtentsValue, DisplacementTargetPointValue);
-        if (!bFoundReliefTargetValue ||
-            DoesUnitAlreadyHaveMoveOrderNearPoint(*SelfUnitValue, DisplacementTargetPointValue))
+        const bool bFoundReliefTargetValue = bFoundPreferredValue || bFoundDisplacementValue;
+        const bool bAlreadyMovingValue = bFoundReliefTargetValue &&
+            DoesUnitAlreadyHaveMoveOrderNearPoint(*SelfUnitValue, DisplacementTargetPointValue);
+
+#if _DEBUG
+        if (FrameValue.GameLoop % 224U == 0U)
+        {
+            std::cout << "[RELIEF_DIAG] tag=" << SelfUnitValue->tag
+                      << " type=" << static_cast<int>(SelfUnitValue->unit_type.ToType())
+                      << " pos=(" << SelfUnitValue->pos.x << "," << SelfUnitValue->pos.y << ")"
+                      << " FoundPreferred=" << bFoundPreferredValue
+                      << " FoundDisplacement=" << bFoundDisplacementValue
+                      << " AlreadyMoving=" << bAlreadyMovingValue
+                      << " loop=" << FrameValue.GameLoop << std::endl;
+        }
+#endif
+
+        if (!bFoundReliefTargetValue || bAlreadyMovingValue)
         {
             continue;
         }
@@ -1166,6 +1279,37 @@ bool HasPlacementSlotBeenAttempted(const std::vector<FBuildPlacementSlotId>& Att
                      BuildPlacementSlotIdValue) != AttemptedPlacementSlotIdsValue.end();
 }
 
+bool IsUnitTrainingAbility(const ABILITY_ID AbilityIdValue)
+{
+    switch (AbilityIdValue)
+    {
+        case ABILITY_ID::TRAIN_MARINE:
+        case ABILITY_ID::TRAIN_MARAUDER:
+        case ABILITY_ID::TRAIN_HELLION:
+        case ABILITY_ID::TRAIN_CYCLONE:
+        case ABILITY_ID::TRAIN_MEDIVAC:
+        case ABILITY_ID::TRAIN_LIBERATOR:
+        case ABILITY_ID::TRAIN_SIEGETANK:
+        case ABILITY_ID::TRAIN_WIDOWMINE:
+        case ABILITY_ID::TRAIN_VIKINGFIGHTER:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool AreAllOrdersUnitTraining(const Unit& ProducerUnitValue)
+{
+    for (const UnitOrder& OrderValue : ProducerUnitValue.orders)
+    {
+        if (!IsUnitTrainingAbility(OrderValue.ability_id))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
                                 const FGameStateDescriptor& GameStateDescriptorValue,
                                 const IBuildPlacementService& BuildPlacementServiceValue,
@@ -1202,6 +1346,17 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
                                              EconomyOrderValue.PreferredProducerPlacementSlotId,
                                              PreferredProducerPlacementSlotValue, PreferredProducerUnitValue))
         {
+#if _DEBUG
+            if (FrameValue.GameLoop % 224U == 0U)
+            {
+                std::cout << "[ADDON_DIAG] PreferredProducerResolveFailed SlotType="
+                          << static_cast<int>(EconomyOrderValue.PreferredProducerPlacementSlotId.SlotType)
+                          << " SlotOrdinal=" << static_cast<int>(EconomyOrderValue.PreferredProducerPlacementSlotId.Ordinal)
+                          << " ProducerType=" << static_cast<int>(ProducerUnitTypeIdValue)
+                          << " OrderId=" << EconomyOrderValue.OrderId
+                          << " loop=" << FrameValue.GameLoop << std::endl;
+            }
+#endif
             OutDeferralReasonValue = ECommandOrderDeferralReason::NoProducer;
             return false;
         }
@@ -1226,10 +1381,50 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
             continue;
         }
 
-        if (CandidateProducerUnitValue->build_progress < 1.0f || !CandidateProducerUnitValue->orders.empty() ||
-            IntentBufferValue.HasIntentForActor(CandidateProducerUnitValue->tag) ||
-            HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue, CandidateProducerUnitValue->tag))
+        if (CandidateProducerUnitValue->build_progress < 1.0f ||
+            IntentBufferValue.HasIntentForActor(CandidateProducerUnitValue->tag))
         {
+#if _DEBUG
+            if (FrameValue.GameLoop % 224U == 0U)
+            {
+                std::cout << "[ADDON_DIAG] tag=" << CandidateProducerUnitValue->tag
+                          << " SKIP_PROGRESS_OR_INTENT bp=" << CandidateProducerUnitValue->build_progress
+                          << " intent=" << IntentBufferValue.HasIntentForActor(CandidateProducerUnitValue->tag)
+                          << " loop=" << FrameValue.GameLoop << std::endl;
+            }
+#endif
+            HasBusyProducerWithoutAddonValue = true;
+            continue;
+        }
+
+        // A barracks currently training units (marines, etc.) is still eligible for addon
+        // construction. The addon build will cancel the training queue. Only skip if the
+        // barracks has non-training orders (e.g. already building an addon or lifting).
+        if (!CandidateProducerUnitValue->orders.empty() &&
+            !AreAllOrdersUnitTraining(*CandidateProducerUnitValue))
+        {
+#if _DEBUG
+            if (FrameValue.GameLoop % 224U == 0U)
+            {
+                std::cout << "[ADDON_DIAG] tag=" << CandidateProducerUnitValue->tag
+                          << " SKIP_NON_TRAIN_ORDERS orders=" << CandidateProducerUnitValue->orders.size()
+                          << " loop=" << FrameValue.GameLoop << std::endl;
+            }
+#endif
+            HasBusyProducerWithoutAddonValue = true;
+            continue;
+        }
+
+        // Skip if a scheduler order already targets this barracks for an addon build
+        if (HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue, CandidateProducerUnitValue->tag))
+        {
+#if _DEBUG
+            if (FrameValue.GameLoop % 224U == 0U)
+            {
+                std::cout << "[ADDON_DIAG] tag=" << CandidateProducerUnitValue->tag
+                          << " SKIP_HAS_SCHED_ORDER loop=" << FrameValue.GameLoop << std::endl;
+            }
+#endif
             HasBusyProducerWithoutAddonValue = true;
             continue;
         }
@@ -1237,8 +1432,41 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
         const Point2D ProducerBuildPointValue = Point2D(CandidateProducerUnitValue->pos);
         const EProductionBlockerKind ProductionBlockerKindValue =
             ClassifyAddonFootprintBlocker(FrameValue, CandidateProducerUnitValue->tag, ProducerBuildPointValue);
+#if _DEBUG
+        if (FrameValue.GameLoop % 224U == 0U)
+        {
+            std::cout << "[ADDON_DIAG] tag=" << CandidateProducerUnitValue->tag
+                      << " pos=(" << ProducerBuildPointValue.x << "," << ProducerBuildPointValue.y << ")"
+                      << " BLOCKER=" << static_cast<int>(ProductionBlockerKindValue)
+                      << " loop=" << FrameValue.GameLoop << std::endl;
+        }
+#endif
         if (ProductionBlockerKindValue == EProductionBlockerKind::None)
         {
+            // Verify addon placement with the game engine's runtime query.
+            // Static grid checks may pass but the game may still reject addon builds
+            // on certain terrain (e.g. ramp positions).
+            if (FrameValue.Query != nullptr)
+            {
+                const Point2D AddonQueryPointValue = GetAddonFootprintCenter(ProducerBuildPointValue);
+                if (!FrameValue.Query->Placement(EconomyOrderValue.AbilityId, AddonQueryPointValue,
+                                                  CandidateProducerUnitValue))
+                {
+#if _DEBUG
+                    if (FrameValue.GameLoop % 224U == 0U)
+                    {
+                        std::cout << "[ADDON_DIAG] tag=" << CandidateProducerUnitValue->tag
+                                  << " REJECT_PLACEMENT_QUERY pos=(" << ProducerBuildPointValue.x
+                                  << "," << ProducerBuildPointValue.y << ")"
+                                  << " addonCenter=(" << AddonQueryPointValue.x << "," << AddonQueryPointValue.y << ")"
+                                  << " loop=" << FrameValue.GameLoop << std::endl;
+                    }
+#endif
+                    HasHardBlockedProducerValue = true;
+                    continue;
+                }
+            }
+
             ProductionBlockerResolutionValue.Reset();
             OutProducerUnitValue = CandidateProducerUnitValue;
             return true;
@@ -1578,6 +1806,17 @@ bool TryResolvePreferredProducerUnit(
     if (!TryFindPlacementSlotById(ProducerPlacementSlotsValue, PreferredProducerPlacementSlotIdValue,
                                   OutProducerPlacementSlotValue))
     {
+#if _DEBUG
+        if (FrameValue.GameLoop % 224U == 0U)
+        {
+            std::cout << "[RESOLVE_DIAG] SlotNotFound SlotType="
+                      << static_cast<int>(PreferredProducerPlacementSlotIdValue.SlotType)
+                      << " Ordinal=" << static_cast<int>(PreferredProducerPlacementSlotIdValue.Ordinal)
+                      << " TotalSlots=" << ProducerPlacementSlotsValue.size()
+                      << " WallValid=" << GameStateDescriptorValue.RampWallDescriptor.bIsValid
+                      << " loop=" << FrameValue.GameLoop << std::endl;
+        }
+#endif
         return false;
     }
 
@@ -1586,6 +1825,41 @@ bool TryResolvePreferredProducerUnit(
                                                                        OutProducerPlacementSlotValue);
     if (OutProducerUnitValue == nullptr || OutProducerUnitValue->unit_type.ToType() != ProducerUnitTypeIdValue)
     {
+#if _DEBUG
+        if (FrameValue.GameLoop % 224U == 0U)
+        {
+            std::cout << "[RESOLVE_DIAG] UnitNotFound SlotBuildPoint=("
+                      << OutProducerPlacementSlotValue.BuildPoint.x << ","
+                      << OutProducerPlacementSlotValue.BuildPoint.y << ")"
+                      << " FoundUnit=" << (OutProducerUnitValue != nullptr)
+                      << " FoundType=" << (OutProducerUnitValue != nullptr
+                             ? static_cast<int>(OutProducerUnitValue->unit_type.ToType()) : -1)
+                      << " ExpectedType=" << static_cast<int>(ProducerUnitTypeIdValue)
+                      << " loop=" << FrameValue.GameLoop;
+            if (OutProducerUnitValue != nullptr)
+            {
+                std::cout << " unit_pos=(" << OutProducerUnitValue->pos.x << ","
+                          << OutProducerUnitValue->pos.y << ")"
+                          << " is_flying=" << OutProducerUnitValue->is_flying;
+            }
+            const Units AllBarracksValue = FrameValue.Observation->GetUnits(Unit::Alliance::Self,
+                IsUnit(ProducerUnitTypeIdValue));
+            const Units FlyingBarracksValue = FrameValue.Observation->GetUnits(Unit::Alliance::Self,
+                IsUnit(UNIT_TYPEID::TERRAN_BARRACKSFLYING));
+            std::cout << " GroundBarracksCount=" << AllBarracksValue.size()
+                      << " FlyingBarracksCount=" << FlyingBarracksValue.size();
+            for (const Unit* BarracksUnitValue : AllBarracksValue)
+            {
+                if (BarracksUnitValue != nullptr)
+                {
+                    std::cout << " BB=(" << BarracksUnitValue->pos.x << "," << BarracksUnitValue->pos.y
+                              << " bp=" << BarracksUnitValue->build_progress
+                              << " fly=" << BarracksUnitValue->is_flying << ")";
+                }
+            }
+            std::cout << std::endl;
+        }
+#endif
         OutProducerUnitValue = nullptr;
         return false;
     }
@@ -1655,6 +1929,8 @@ bool DoesMandatoryOpeningAddonReserveProducer(
     const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue, const Unit& ProducerUnitValue,
     const uint32_t IgnoredOrderIdValue)
 {
+    static constexpr uint32_t MaxAddonReservationDeferralCountValue = 48U;
+
     const auto DoesAddonTaskRequireExclusiveProducerReservationValue =
         [](const ECommandTaskOrigin TaskOriginValue, const ECommandCommitmentClass CommitmentClassValue,
            const ECommandTaskExecutionGuarantee ExecutionGuaranteeValue) -> bool
@@ -1693,6 +1969,13 @@ bool DoesMandatoryOpeningAddonReserveProducer(
                 CommandAuthoritySchedulingStateValue.TaskOrigins[OrderIndexValue],
                 CommandAuthoritySchedulingStateValue.CommitmentClasses[OrderIndexValue],
                 CommandAuthoritySchedulingStateValue.ExecutionGuarantees[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        if (CommandAuthoritySchedulingStateValue.ConsecutiveDeferralCounts[OrderIndexValue] > MaxAddonReservationDeferralCountValue &&
+            CommandAuthoritySchedulingStateValue.LastDeferralReasons[OrderIndexValue] ==
+                ECommandOrderDeferralReason::InsufficientResources)
         {
             continue;
         }
@@ -1754,6 +2037,12 @@ bool DoesMandatoryOpeningAddonReserveProducer(
                 continue;
             }
 
+            if (BlockedTaskRecordPtrValue->RetryCount > MaxAddonReservationDeferralCountValue &&
+                BlockedTaskRecordPtrValue->BlockingReason == ECommandOrderDeferralReason::InsufficientResources)
+            {
+                continue;
+            }
+
             FBuildPlacementSlot ReservedProducerPlacementSlotValue;
             const Unit* ReservedProducerUnitValue = nullptr;
             if (!TryResolvePreferredProducerUnit(FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
@@ -1773,6 +2062,64 @@ bool DoesMandatoryOpeningAddonReserveProducer(
     }
 
     return false;
+}
+
+uint32_t CountPendingAddonOrdersForProducerType(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+    const UNIT_TYPEID ProducerUnitTypeIdValue)
+{
+    uint32_t PendingAddonOrderCountValue = 0U;
+
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        if (CommandAuthoritySchedulingStateValue.TaskTypes[OrderIndexValue] != ECommandTaskType::AddOn)
+        {
+            continue;
+        }
+
+        if (CommandAuthoritySchedulingStateValue.ProducerUnitTypeIds[OrderIndexValue] == ProducerUnitTypeIdValue)
+        {
+            ++PendingAddonOrderCountValue;
+        }
+    }
+
+    const std::array<const FBlockedTaskRingBuffer*, 2U> BlockedTaskBuffersValue =
+    {
+        &CommandAuthoritySchedulingStateValue.BlockedStrategicTasks,
+        &CommandAuthoritySchedulingStateValue.BlockedPlanningTasks,
+    };
+    for (const FBlockedTaskRingBuffer* BlockedTaskRingBufferPtrValue : BlockedTaskBuffersValue)
+    {
+        if (BlockedTaskRingBufferPtrValue == nullptr)
+        {
+            continue;
+        }
+
+        const size_t BlockedTaskCountValue = BlockedTaskRingBufferPtrValue->GetCount();
+        for (size_t OrderedIndexValue = 0U; OrderedIndexValue < BlockedTaskCountValue; ++OrderedIndexValue)
+        {
+            const FBlockedTaskRecord* BlockedTaskRecordPtrValue =
+                BlockedTaskRingBufferPtrValue->GetRecordAtOrderedIndex(OrderedIndexValue);
+            if (BlockedTaskRecordPtrValue == nullptr ||
+                BlockedTaskRecordPtrValue->TaskType != ECommandTaskType::AddOn)
+            {
+                continue;
+            }
+
+            if (BlockedTaskRecordPtrValue->ProducerUnitTypeId == ProducerUnitTypeIdValue)
+            {
+                ++PendingAddonOrderCountValue;
+            }
+        }
+    }
+
+    return PendingAddonOrderCountValue;
 }
 
 bool IsSupplyPressureActiveForDepotFallback(const FGameStateDescriptor& GameStateDescriptorValue)
@@ -2399,9 +2746,14 @@ bool DoesPlacementSlotSatisfyFootprintPolicy(const FFrameContext& FrameValue,
                 return false;
             }
 
-            return DoesAddonFootprintSupportTerrain(*FrameValue.GameInfo, BuildPlacementSlotValue.BuildPoint) &&
-                   DoesAddonFootprintAvoidObservedStructures(*FrameValue.Observation,
-                                                             BuildPlacementSlotValue.BuildPoint);
+            {
+                const bool bTerrainSupportedValue =
+                    DoesAddonFootprintSupportTerrain(*FrameValue.GameInfo, BuildPlacementSlotValue.BuildPoint);
+                const bool bStructureAvoidedValue =
+                    DoesAddonFootprintAvoidObservedStructures(*FrameValue.Observation,
+                                                              BuildPlacementSlotValue.BuildPoint);
+                return bTerrainSupportedValue && bStructureAvoidedValue;
+            }
         default:
             return false;
     }
@@ -2679,6 +3031,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                                     PlanningOrderIndicesValue, ProductionClearancePointValue,
                                     ProductionBlockerResolutions, IntentBufferValue);
 
+    bool bBarracksDispatchedThisCycleValue = false;
+
     for (const size_t PlanningOrderIndexValue : PlanningOrderIndicesValue)
     {
         const FCommandOrderRecord EconomyOrderValue =
@@ -2703,10 +3057,8 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
         const bool IsUnitProductionOrderValue = IsUnitProductionAbility(EconomyOrderValue.AbilityId);
         const uint32_t ActiveUnitExecutionChildCountValue =
             CountActiveUnitExecutionChildrenForParent(CommandAuthoritySchedulingStateValue, EconomyOrderValue.OrderId);
-        if ((!IsUnitProductionOrderValue &&
-             HasActiveUnitExecutionChild(CommandAuthoritySchedulingStateValue, EconomyOrderValue.OrderId)) ||
-            (IsUnitProductionOrderValue &&
-             ActiveUnitExecutionChildCountValue >= std::max(EconomyOrderValue.RequestedQueueCount, 1U)))
+        if (!IsUnitProductionOrderValue &&
+            HasActiveUnitExecutionChild(CommandAuthoritySchedulingStateValue, EconomyOrderValue.OrderId))
         {
             CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
                 EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion, CurrentStepValue,
@@ -2749,10 +3101,15 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
             }
         }
 
-        const uint32_t ProjectedCountValue =
-            GetProjectedCountForOrderExcludingSelf(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue,
-                                                   EconomyOrderValue) +
-            CountPendingIntentsForAbility(IntentBufferValue, EconomyOrderValue.AbilityId);
+        const bool IsUnitProductionProjectedCheckValue = IsUnitProductionAbility(EconomyOrderValue.AbilityId) &&
+            EconomyOrderValue.ResultUnitTypeId != UNIT_TYPEID::INVALID;
+        const uint32_t ProjectedCountValue = IsUnitProductionProjectedCheckValue
+            ? GameStateDescriptorValue.ProductionState.GetObservedAndInProgressUnitCount(
+                  EconomyOrderValue.ResultUnitTypeId) +
+                  CountPendingIntentsForAbility(IntentBufferValue, EconomyOrderValue.AbilityId)
+            : GetProjectedCountForOrderExcludingSelf(GameStateDescriptorValue, CommandAuthoritySchedulingStateValue,
+                                                     EconomyOrderValue) +
+                  CountPendingIntentsForAbility(IntentBufferValue, EconomyOrderValue.AbilityId);
         if (ProjectedCountValue >= EconomyOrderValue.TargetCount)
         {
             CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
@@ -2816,6 +3173,10 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                                                                                    SelectedBuildPlacementSlotValue.SlotId);
                 UnitExecutionOrderValue.ReservedPlacementSlotId = SelectedBuildPlacementSlotValue.SlotId;
                 CreatedOrderValue = true;
+                if (EconomyOrderValue.AbilityId == ABILITY_ID::BUILD_BARRACKS)
+                {
+                    bBarracksDispatchedThisCycleValue = true;
+                }
                 break;
             }
             case ABILITY_ID::BUILD_REFINERY:
@@ -2824,6 +3185,19 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                 {
                     DeferralReasonValue = ECommandOrderDeferralReason::NoValidPlacement;
                     break;
+                }
+
+                // Guard: Do not build a refinery until at least one barracks exists, is under construction,
+                // or was dispatched in this economy cycle. The cycle-local flag avoids a timing gap where
+                // the barracks SCV is en route but the building does not yet exist as a game unit.
+                {
+                    const Units ExistingBarracksUnitsValue =
+                        FrameValue.Observation->GetUnits(Unit::Alliance::Self, IsUnit(UNIT_TYPEID::TERRAN_BARRACKS));
+                    if (ExistingBarracksUnitsValue.empty() && !bBarracksDispatchedThisCycleValue)
+                    {
+                        DeferralReasonValue = ECommandOrderDeferralReason::AwaitingObservedCompletion;
+                        break;
+                    }
                 }
 
                 if (!TryReserveStructureCost(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
@@ -3058,6 +3432,19 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
+                // Addon builds require an idle producer. SC2 silently ignores addon
+                // commands sent to a barracks that is training. Defer until idle.
+                // The mandatory opening reservation prevents new marines from being
+                // dispatched to this barracks, so the in-progress marine will finish
+                // and the barracks will become idle.
+                if (!BarracksUnitValue->orders.empty())
+                {
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             MineralsCostValue, VespeneCostValue, 0U);
+                    DeferralReasonValue = ECommandOrderDeferralReason::ProducerBusy;
+                    break;
+                }
+
                 UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
                     ECommandAuthorityLayer::UnitExecution, BarracksUnitValue->tag, EconomyOrderValue.AbilityId,
                     EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
@@ -3093,12 +3480,22 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
-                    ECommandAuthorityLayer::UnitExecution, FactoryUnitValue->tag, EconomyOrderValue.AbilityId,
-                    EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
-                    GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
-                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
-                CreatedOrderValue = true;
+                if (!FactoryUnitValue->orders.empty())
+                {
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             MineralsCostValue, VespeneCostValue, 0U);
+                    DeferralReasonValue = ECommandOrderDeferralReason::ProducerBusy;
+                    break;
+                }
+
+                {
+                    UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
+                        ECommandAuthorityLayer::UnitExecution, FactoryUnitValue->tag, EconomyOrderValue.AbilityId,
+                        EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
+                        GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                    CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
+                    CreatedOrderValue = true;
+                }
                 break;
             }
             case ABILITY_ID::BUILD_REACTOR_STARPORT:
@@ -3127,12 +3524,22 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
-                    ECommandAuthorityLayer::UnitExecution, StarportUnitValue->tag, EconomyOrderValue.AbilityId,
-                    EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
-                    GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
-                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
-                CreatedOrderValue = true;
+                if (!StarportUnitValue->orders.empty())
+                {
+                    ReleaseReservedResources(GameStateDescriptorValue.BuildPlanning, EconomyOrderValue.CommitmentClass,
+                                             MineralsCostValue, VespeneCostValue, 0U);
+                    DeferralReasonValue = ECommandOrderDeferralReason::ProducerBusy;
+                    break;
+                }
+
+                {
+                    UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
+                        ECommandAuthorityLayer::UnitExecution, StarportUnitValue->tag, EconomyOrderValue.AbilityId,
+                        EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
+                        GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
+                    CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
+                    CreatedOrderValue = true;
+                }
                 break;
             }
             case ABILITY_ID::TRAIN_SCV:
@@ -3185,6 +3592,10 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                     bool HasBusyProducerValue = false;
                     uint32_t CreatedChildCountValue = 0U;
+                    const uint32_t PendingOrbitalMorphCountValue =
+                        CountPendingMorphOrders(CommandAuthoritySchedulingStateValue,
+                                                ABILITY_ID::MORPH_ORBITALCOMMAND);
+                    uint32_t OrbitalMorphReservationsAppliedCountValue = 0U;
                     for (const Unit* ProducerUnitValue : ProducerUnitsValue)
                     {
                         if (ProducerUnitValue == nullptr)
@@ -3192,17 +3603,34 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                             continue;
                         }
 
-                        if (DoesMandatoryOpeningAddonReserveProducer(
-                                FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
-                                ExpansionLocationsValue, CommandAuthoritySchedulingStateValue, *ProducerUnitValue,
-                                EconomyOrderValue.OrderId))
+                        if (ProducerUnitValue->build_progress < 1.0f)
                         {
                             HasBusyProducerValue = true;
                             continue;
                         }
 
-                        if (ProducerUnitValue->build_progress < 1.0f ||
-                            IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
+                        if (ProducerUnitValue->unit_type.ToType() == UNIT_TYPEID::TERRAN_COMMANDCENTER &&
+                            ProducerUnitValue->orders.empty() &&
+                            OrbitalMorphReservationsAppliedCountValue < PendingOrbitalMorphCountValue)
+                        {
+                            ++OrbitalMorphReservationsAppliedCountValue;
+                            HasBusyProducerValue = true;
+                            continue;
+                        }
+
+                        {
+                            const bool IsReservedForAddonValue = DoesMandatoryOpeningAddonReserveProducer(
+                                FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
+                                ExpansionLocationsValue, CommandAuthoritySchedulingStateValue, *ProducerUnitValue,
+                                EconomyOrderValue.OrderId);
+                            if (IsReservedForAddonValue && ProducerUnitValue->orders.empty())
+                            {
+                                HasBusyProducerValue = true;
+                                continue;
+                            }
+                        }
+
+                        if (IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
                             HasConflictingSchedulerOrderForProductionActor(CommandAuthoritySchedulingStateValue,
                                                                            ProducerUnitValue->tag))
                         {
@@ -3269,42 +3697,35 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                 if (!IsResearchUpgradeValue)
                 {
-                    const uint32_t RequestedQueueCountValue =
-                        std::max<uint32_t>(1U, EconomyOrderValue.RequestedQueueCount);
-                    const uint32_t AdditionalChildOrderBudgetValue =
-                        RequestedQueueCountValue > ActiveUnitExecutionChildCountValue
-                            ? (RequestedQueueCountValue - ActiveUnitExecutionChildCountValue)
-                            : 0U;
-                    if (AdditionalChildOrderBudgetValue == 0U)
-                    {
-                        CommandAuthoritySchedulingStateValue.SetOrderDeferralState(
-                            EconomyOrderValue.OrderId, ECommandOrderDeferralReason::AwaitingObservedCompletion,
-                            CurrentStepValue, CurrentGameLoopValue);
-                        continue;
-                    }
-
                     bool HasBusyProducerValue = false;
                     uint32_t CreatedChildCountValue = 0U;
-                for (const Unit* ProducerUnitValue : ProducerUnitsValue)
-                {
-                    if (ProducerUnitValue == nullptr)
+                    for (const Unit* ProducerUnitValue : ProducerUnitsValue)
                     {
-                        continue;
-                    }
+                        if (ProducerUnitValue == nullptr)
+                        {
+                            continue;
+                        }
 
-                    if (DoesMandatoryOpeningAddonReserveProducer(
+                        if (ProducerUnitValue->build_progress < 1.0f)
+                        {
+                            HasBusyProducerValue = true;
+                            continue;
+                        }
+
+                        const bool IsReservedForAddonValue = DoesMandatoryOpeningAddonReserveProducer(
                             FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
                             ExpansionLocationsValue, CommandAuthoritySchedulingStateValue, *ProducerUnitValue,
-                            EconomyOrderValue.OrderId))
-                    {
-                        HasBusyProducerValue = true;
-                        continue;
-                    }
+                            EconomyOrderValue.OrderId);
+                        if (IsReservedForAddonValue && ProducerUnitValue->orders.empty())
+                        {
+                            HasBusyProducerValue = true;
+                            continue;
+                        }
 
-                    if (ProducerUnitValue->build_progress < 1.0f ||
-                        IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag) ||
-                            HasConflictingSchedulerOrderForProductionActor(CommandAuthoritySchedulingStateValue,
-                                                                           ProducerUnitValue->tag))
+                        const bool HasIntentValue = IntentBufferValue.HasIntentForActor(ProducerUnitValue->tag);
+                        const bool HasConflictingOrderValue = HasConflictingSchedulerOrderForProductionActor(
+                            CommandAuthoritySchedulingStateValue, ProducerUnitValue->tag);
+                        if (HasIntentValue || HasConflictingOrderValue)
                         {
                             HasBusyProducerValue = true;
                             continue;
@@ -3346,11 +3767,6 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         ProducedUnitExecutionOrderValue.UpgradeId = EconomyOrderValue.UpgradeId;
                         CommandAuthoritySchedulingStateValue.EnqueueOrder(ProducedUnitExecutionOrderValue);
                         ++CreatedChildCountValue;
-
-                        if (CreatedChildCountValue >= AdditionalChildOrderBudgetValue)
-                        {
-                            break;
-                        }
                     }
 
                     if (CreatedChildCountValue > 0U)

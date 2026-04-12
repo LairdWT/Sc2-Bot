@@ -2,10 +2,10 @@
 
 ## Run Summary
 
-- RunTimeUtc: 2026-03-15T17:42:29Z
-- CompletedTopicId: SC2-API-SCHEDULER-CONSTRUCTION-CONFIRMATION-POLICY-BOUNDARY
+- RunTimeUtc: 2026-03-25T16:59:14Z
+- CompletedTopicId: SC2-API-QUERY-FAILURE-SENTINEL-INTENT-VALIDATION-BOUNDARY
 - UpdatedSurface:
-  - L:\Sc2_Bot\Documentation\Sc2Api\SchedulerIntentLifecycleAndDispatchCapture.md
+  - L:\Sc2_Bot\Documentation\Sc2Api\ObservationAndFrameContext.md
 - ChangeSurface: Sc2ApiDoc
 - ClosedFindingIds: []
 
@@ -18,6 +18,6 @@
 
 ## Notes
 
-- Candidate set contained no open ledger topics; this run selected one newly discovered scheduler topic per run rules.
+- Candidate set contained no open ledger topics; this run selected one newly discovered coordinator-surface topic per run rules.
 - Repetition penalty for selected topic: 0 (`TopicId +0`, `Domain +0`, `TargetPath +0`).
 - No skill folder changes were made in this run.

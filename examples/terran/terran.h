@@ -35,8 +35,12 @@
 #include "common/planning/IStrategicDirector.h"
 #include "common/planning/IUnitExecutionPlanner.h"
 #include "common/render_settings.h"
+#include "common/descriptors/FTerranEnemyObservationBuilder.h"
+#include "common/descriptors/IEnemyObservationBuilder.h"
 #include "common/services/FTerranBuildPlacementService.h"
+#include "common/services/FTerranWorkerSelectionService.h"
 #include "common/services/IBuildPlacementService.h"
+#include "common/services/IWorkerSelectionService.h"
 #include "common/telemetry/FAgentExecutionTelemetry.h"
 
 #include "sc2api/sc2_api.h"
@@ -65,6 +69,7 @@ public:
     void InitializeRampWallDescriptor(const FFrameContext& Frame);
     void InitializeMainBaseLayoutDescriptor(const FFrameContext& Frame);
     void RebuildObservedGameStateDescriptor(const FFrameContext& Frame);
+    void RebuildEnemyObservationDescriptor(const FFrameContext& Frame);
     void RebuildForecastState();
     void RebuildExecutionPressureDescriptor(const FFrameContext& Frame);
     void UpdateStrategicAndPlanningState();
@@ -81,6 +86,7 @@ public:
     void ExecuteProductionRallyIntents();
     void UpdateExecutionTelemetry(const FFrameContext& Frame);
     void ExecuteResolvedIntents(const FFrameContext& Frame, const std::vector<FUnitIntent>& Intents);
+    void ExecuteOrbitalAbilities(const FFrameContext& Frame);
     void UpdateDispatchedSchedulerOrders(const FFrameContext& Frame);
     void CaptureNewlyDispatchedSchedulerOrders(const FFrameContext& Frame);
 
@@ -157,6 +163,10 @@ private:
     const IWallGateController* WallGateController{&DefaultWallGateController};
     FTerranBuildPlacementService DefaultBuildPlacementService;
     const IBuildPlacementService* BuildPlacementService{&DefaultBuildPlacementService};
+    FTerranWorkerSelectionService DefaultWorkerSelectionService;
+    const IWorkerSelectionService* WorkerSelectionService{&DefaultWorkerSelectionService};
+    FTerranEnemyObservationBuilder DefaultEnemyObservationBuilder;
+    const IEnemyObservationBuilder* EnemyObservationBuilder{&DefaultEnemyObservationBuilder};
     FIntentSchedulingService IntentSchedulingService;
     std::vector<Point2D> ExpansionLocations;
     std::unordered_map<Tag, FProductionRallyState> ProductionRallyStates;
@@ -181,7 +191,6 @@ private:
     uint64_t RecentProductionRallyCounterWindowStartStep{0U};
     uint32_t RecentProductionRallyApplyCount{0U};
     uint32_t LastBlockerReliefMoveCount{0U};
-    uint32_t LastRelocationTaskCount{0U};
     uint32_t LastUnitExecutionReplanCount{0U};
     uint32_t LastActiveIndexedExecutionOrderCount{0U};
     uint64_t LastTerminalCompactionStep{0U};

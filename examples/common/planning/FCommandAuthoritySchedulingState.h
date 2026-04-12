@@ -63,6 +63,7 @@ public:
     bool CompactTerminalOrders(const FOpeningPlanExecutionState* OpeningPlanExecutionStatePtrValue = nullptr);
     void RebuildDerivedQueues();
     size_t GetActiveOrderCountForLayer(ECommandAuthorityLayer SourceLayerValue) const;
+    bool HasSynchronizedSizes() const;
 
 public:
     uint32_t NextOrderId;
@@ -175,6 +176,7 @@ private:
     void RebuildPlaybackState();
     void AppendQueuedOrderIndex(size_t OrderIndexValue);
     void SortDerivedQueues();
+    void AssertSynchronizedSizes() const;
 };
 
 }  // namespace sc2

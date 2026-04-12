@@ -273,7 +273,9 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
             StepsValue.push_back(CreateOpeningPlanStep(7U, 2330U, 87, ABILITY_ID::BUILD_REACTOR_BARRACKS,
                                                        UNIT_TYPEID::TERRAN_BARRACKS,
                                                        UNIT_TYPEID::TERRAN_BARRACKSREACTOR, 1U, 1U, 20U, {2U},
-                                                       EBuildPlacementSlotType::Unknown, FBuildPlacementSlotId(),
+                                                       EBuildPlacementSlotType::MainRampBarracksWithAddon,
+                                                       CreatePlacementSlotId(
+                                                           EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U),
                                                        CreatePlacementSlotId(
                                                            EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(8U, 2464U, 86, ABILITY_ID::BUILD_SUPPLYDEPOT,

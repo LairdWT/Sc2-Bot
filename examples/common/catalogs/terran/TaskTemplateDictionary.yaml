@@ -124,7 +124,7 @@ TaskTemplates:
     CommitmentClass: FlexibleMacro
     ExecutionGuarantee: Preferred
     RetentionPolicy: BufferedRetry
-    BlockedTaskWakeKind: Placement
+    BlockedTaskWakeKind: ProducerAvailability
     ActionAbilityId: BUILD_REACTOR_BARRACKS
     ActionProducerUnitTypeId: TERRAN_BARRACKS
     ActionResultUnitTypeId: TERRAN_BARRACKSREACTOR
@@ -200,7 +200,7 @@ TaskTemplates:
     CommitmentClass: FlexibleMacro
     ExecutionGuarantee: Preferred
     RetentionPolicy: BufferedRetry
-    BlockedTaskWakeKind: Placement
+    BlockedTaskWakeKind: ProducerAvailability
     ActionAbilityId: BUILD_TECHLAB_FACTORY
     ActionProducerUnitTypeId: TERRAN_FACTORY
     ActionResultUnitTypeId: TERRAN_FACTORYTECHLAB
@@ -333,7 +333,7 @@ TaskTemplates:
     CommitmentClass: FlexibleMacro
     ExecutionGuarantee: Preferred
     RetentionPolicy: BufferedRetry
-    BlockedTaskWakeKind: Placement
+    BlockedTaskWakeKind: ProducerAvailability
     ActionAbilityId: BUILD_REACTOR_STARPORT
     ActionProducerUnitTypeId: TERRAN_STARPORT
     ActionResultUnitTypeId: TERRAN_STARPORTREACTOR
@@ -371,7 +371,7 @@ TaskTemplates:
     CommitmentClass: FlexibleMacro
     ExecutionGuarantee: Preferred
     RetentionPolicy: BufferedRetry
-    BlockedTaskWakeKind: Placement
+    BlockedTaskWakeKind: ProducerAvailability
     ActionAbilityId: BUILD_REACTOR_FACTORY
     ActionProducerUnitTypeId: TERRAN_FACTORY
     ActionResultUnitTypeId: TERRAN_FACTORYREACTOR
@@ -504,7 +504,7 @@ TaskTemplates:
     CommitmentClass: FlexibleMacro
     ExecutionGuarantee: Preferred
     RetentionPolicy: BufferedRetry
-    BlockedTaskWakeKind: Placement
+    BlockedTaskWakeKind: ProducerAvailability
     ActionAbilityId: BUILD_TECHLAB_BARRACKS
     ActionProducerUnitTypeId: TERRAN_BARRACKS
     ActionResultUnitTypeId: TERRAN_BARRACKSTECHLAB

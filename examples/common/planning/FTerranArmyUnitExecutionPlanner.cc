@@ -1105,6 +1105,50 @@ uint32_t FTerranArmyUnitExecutionPlanner::ExpandUnitExecutionOrders(
         }
     }
 
+    if (SquadOrderIndicesValue.empty())
+    {
+        for (const Unit* ControlledUnitPtrValue : AgentStateValue.UnitContainer.ControlledUnits)
+        {
+            if (CreatedExecutionOrderCountValue >= CommandAuthoritySchedulingStateValue.MaxUnitIntentsPerStep)
+            {
+                break;
+            }
+
+            if (ControlledUnitPtrValue == nullptr || ControlledUnitPtrValue->build_progress < 1.0f ||
+                !IsTerranCombatUnitType(ControlledUnitPtrValue->unit_type.ToType()))
+            {
+                continue;
+            }
+
+            ActiveCombatUnitTagsValue.insert(ControlledUnitPtrValue->tag);
+
+            size_t ExistingFallbackExecutionOrderIndexValue = 0U;
+            if (CommandAuthoritySchedulingStateValue.TryGetActiveExecutionOrderIndexForActor(
+                    ControlledUnitPtrValue->tag, ExistingFallbackExecutionOrderIndexValue))
+            {
+                continue;
+            }
+
+            if (ActiveUnitExecutionOrderCountValue >=
+                CommandAuthoritySchedulingStateValue.MaxActiveUnitExecutionOrders)
+            {
+                break;
+            }
+
+            FCommandOrderRecord FallbackExecutionOrderValue = FCommandOrderRecord::CreatePointTarget(
+                ECommandAuthorityLayer::UnitExecution, ControlledUnitPtrValue->tag,
+                ABILITY_ID::ATTACK_ATTACK, RallyPointValue,
+                100, EIntentDomain::ArmyCombat,
+                FrameValue.GameLoop, 0U, 0U, 0, 0, true, false, false);
+            FallbackExecutionOrderValue.TaskType = ECommandTaskType::ArmyMission;
+            FallbackExecutionOrderValue.Origin = ECommandTaskOrigin::GoalMacro;
+            FallbackExecutionOrderValue.LifecycleState = EOrderLifecycleState::Ready;
+            CommandAuthoritySchedulingStateValue.EnqueueOrder(FallbackExecutionOrderValue);
+            ++ActiveUnitExecutionOrderCountValue;
+            ++CreatedExecutionOrderCountValue;
+        }
+    }
+
     for (std::unordered_map<Tag, FUnitExecutionCacheEntry>::iterator CacheIteratorValue = UnitExecutionCacheEntries.begin();
          CacheIteratorValue != UnitExecutionCacheEntries.end();)
     {

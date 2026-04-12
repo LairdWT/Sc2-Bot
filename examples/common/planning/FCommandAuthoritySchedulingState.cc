@@ -1,8 +1,10 @@
 #include "common/planning/FCommandAuthoritySchedulingState.h"
 
 #include <algorithm>
+#include <string>
 
 #include "common/build_orders/FOpeningPlanExecutionState.h"
+#include "common/logging.h"
 
 namespace sc2
 {
@@ -140,13 +142,13 @@ void FCommandAuthoritySchedulingState::Reset()
     NextOrderId = 1U;
     ProcessorState = EPlanningProcessorState::Idle;
     PlaybackState = EIntentPlaybackState::Idle;
-    MaxStrategicOrdersPerStep = 4U;
-    MaxArmyOrdersPerStep = 8U;
-    MaxSquadOrdersPerStep = 16U;
-    MaxUnitIntentsPerStep = 32U;
-    MaxActiveStrategicOrders = 24U;
-    MaxActivePlanningOrders = 32U;
-    MaxActiveUnitExecutionOrders = 128U;
+    MaxStrategicOrdersPerStep = 64U;
+    MaxArmyOrdersPerStep = 1024U;
+    MaxSquadOrdersPerStep = 1024U;
+    MaxUnitIntentsPerStep = 2048U;
+    MaxActiveStrategicOrders = 4096U;
+    MaxActivePlanningOrders = 4096U;
+    MaxActiveUnitExecutionOrders = 4096U;
     MaxBlockedStrategicTasks = 128U;
     MaxBlockedPlanningTasks = 192U;
     MutationBatchDepth = 0U;
@@ -258,6 +260,53 @@ void FCommandAuthoritySchedulingState::Reset()
     ActiveTaskSignatureCounts.clear();
     ActiveChildOrderIndexByParentAndLayer.clear();
     ActiveOrderCountsByLayer.fill(0U);
+    AssertSynchronizedSizes();
+}
+
+bool FCommandAuthoritySchedulingState::HasSynchronizedSizes() const
+{
+    const size_t ExpectedSizeValue = OrderIds.size();
+    return ParentOrderIds.size() == ExpectedSizeValue && SourceGoalIds.size() == ExpectedSizeValue &&
+           SourceLayers.size() == ExpectedSizeValue && LifecycleStates.size() == ExpectedSizeValue &&
+           TaskPackageKinds.size() == ExpectedSizeValue && TaskNeedKinds.size() == ExpectedSizeValue &&
+           TaskTypes.size() == ExpectedSizeValue && TaskOrigins.size() == ExpectedSizeValue &&
+           CommitmentClasses.size() == ExpectedSizeValue && ExecutionGuarantees.size() == ExpectedSizeValue &&
+           RetentionPolicies.size() == ExpectedSizeValue && BlockedTaskWakeKinds.size() == ExpectedSizeValue &&
+           BasePriorityValues.size() == ExpectedSizeValue && EffectivePriorityValues.size() == ExpectedSizeValue &&
+           PriorityTiers.size() == ExpectedSizeValue && IntentDomains.size() == ExpectedSizeValue &&
+           CreationSteps.size() == ExpectedSizeValue && DeadlineSteps.size() == ExpectedSizeValue &&
+           OwningArmyIndices.size() == ExpectedSizeValue && OwningSquadIndices.size() == ExpectedSizeValue &&
+           ActorTags.size() == ExpectedSizeValue && AbilityIds.size() == ExpectedSizeValue &&
+           TargetKinds.size() == ExpectedSizeValue && TargetPoints.size() == ExpectedSizeValue &&
+           TargetUnitTags.size() == ExpectedSizeValue && QueuedValues.size() == ExpectedSizeValue &&
+           RequiresPlacementValidationValues.size() == ExpectedSizeValue &&
+           RequiresPathingValidationValues.size() == ExpectedSizeValue &&
+           PlanStepIds.size() == ExpectedSizeValue && TargetCounts.size() == ExpectedSizeValue &&
+           RequestedQueueCounts.size() == ExpectedSizeValue && ProducerUnitTypeIds.size() == ExpectedSizeValue &&
+           ResultUnitTypeIds.size() == ExpectedSizeValue && UpgradeIds.size() == ExpectedSizeValue &&
+           PreferredPlacementSlotTypes.size() == ExpectedSizeValue &&
+           PreferredPlacementSlotIdTypes.size() == ExpectedSizeValue &&
+           PreferredPlacementSlotIdOrdinals.size() == ExpectedSizeValue &&
+           PreferredProducerPlacementSlotIdTypes.size() == ExpectedSizeValue &&
+           PreferredProducerPlacementSlotIdOrdinals.size() == ExpectedSizeValue &&
+           ReservedPlacementSlotTypes.size() == ExpectedSizeValue &&
+           ReservedPlacementSlotOrdinals.size() == ExpectedSizeValue &&
+           LastDeferralReasons.size() == ExpectedSizeValue && LastDeferralSteps.size() == ExpectedSizeValue &&
+           LastDeferralGameLoops.size() == ExpectedSizeValue &&
+           ConsecutiveDeferralCounts.size() == ExpectedSizeValue && DispatchSteps.size() == ExpectedSizeValue &&
+           DispatchGameLoops.size() == ExpectedSizeValue && ObservedCountsAtDispatch.size() == ExpectedSizeValue &&
+           ObservedInConstructionCountsAtDispatch.size() == ExpectedSizeValue &&
+           DispatchAttemptCounts.size() == ExpectedSizeValue;
+}
+
+void FCommandAuthoritySchedulingState::AssertSynchronizedSizes() const
+{
+    if (!HasSynchronizedSizes())
+    {
+        SCLOG(LoggingVerbosity::error,
+              "INVARIANT VIOLATION: FCommandAuthoritySchedulingState vector sizes desynchronized at OrderCount=" +
+                  std::to_string(OrderIds.size()));
+    }
 }
 
 void FCommandAuthoritySchedulingState::AdvanceRecentBlockedTaskCounterWindow(const uint64_t CurrentStepValue)
@@ -291,6 +340,10 @@ void FCommandAuthoritySchedulingState::EndMutationBatch()
     if (MutationBatchDepth == 0U && bDerivedQueuesDirty)
     {
         RebuildDerivedQueues();
+    }
+    if (MutationBatchDepth == 0U)
+    {
+        AssertSynchronizedSizes();
     }
 }
 
@@ -417,6 +470,7 @@ uint32_t FCommandAuthoritySchedulingState::EnqueueOrder(const FCommandOrderRecor
     OrderIdToIndex[StoredOrderValue.OrderId] = OrderIndexValue;
 
     MarkDerivedQueuesDirty();
+    AssertSynchronizedSizes();
     return StoredOrderValue.OrderId;
 }
 
@@ -851,6 +905,7 @@ bool FCommandAuthoritySchedulingState::CompactTerminalOrders(
     }
 
     MarkDerivedQueuesDirty();
+    AssertSynchronizedSizes();
     return true;
 }
 

@@ -449,8 +449,9 @@ FBuildPlacementSlotId ResolvePreferredProducerPlacementSlotIdForGoalDescriptor(
             switch (GoalDescriptorValue.TargetUnitTypeId)
             {
                 case UNIT_TYPEID::TERRAN_BARRACKSREACTOR:
-                    PreferredProducerPlacementSlotIdValue.SlotType = EBuildPlacementSlotType::MainRampBarracksWithAddon;
-                    PreferredProducerPlacementSlotIdValue.Ordinal = 0U;
+                    // Do not bind to a specific barracks slot. The dispatch system
+                    // will find the first available barracks where the addon can
+                    // actually be built (validated via Query->Placement at runtime).
                     return PreferredProducerPlacementSlotIdValue;
                 case UNIT_TYPEID::TERRAN_BARRACKSTECHLAB:
                     PreferredProducerPlacementSlotIdValue.SlotType = EBuildPlacementSlotType::MainBarracksWithAddon;
@@ -589,9 +590,16 @@ bool HasActiveStrategicOrderForGoal(const FCommandAuthoritySchedulingState& Comm
     return CommandAuthoritySchedulingStateValue.HasActiveStrategicOrderForGoalId(GoalDescriptorValue.GoalId);
 }
 
+static constexpr uint64_t MaxOpeningPlanCoverageGuardGameLoops = 4480U;
+
 bool DoesRemainingOpeningPlanCoverOrder(const FGameStateDescriptor& GameStateDescriptorValue,
                                         const FCommandOrderRecord& CommandOrderRecordValue)
 {
+    if (GameStateDescriptorValue.CurrentGameLoop > MaxOpeningPlanCoverageGuardGameLoops)
+    {
+        return false;
+    }
+
     switch (CommandOrderRecordValue.TaskType)
     {
         case ECommandTaskType::WorkerProduction:
@@ -1047,6 +1055,30 @@ bool HasAnyIncompleteMandatoryOpeningSequenceTask(const FOpeningPlanExecutionSta
     return false;
 }
 
+bool HasIncompleteMandatoryOpeningTaskForAbility(const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue,
+                                                  const FOpeningPlanDescriptor& OpeningPlanDescriptorValue,
+                                                  const AbilityID AbilityIdValue)
+{
+    for (const FOpeningPlanStep& OpeningPlanStepValue : OpeningPlanDescriptorValue.Steps)
+    {
+        const FCommandTaskDescriptor OpeningTaskDescriptorValue = ResolveEffectiveOpeningTaskDescriptor(
+            OpeningPlanExecutionStateValue, OpeningPlanStepValue.TaskDescriptor);
+        if (OpeningPlanExecutionStateValue.IsStepCompleted(OpeningTaskDescriptorValue.TaskId))
+        {
+            continue;
+        }
+        if (!IsMandatoryExactOpeningStructureTask(OpeningTaskDescriptorValue))
+        {
+            continue;
+        }
+        if (OpeningTaskDescriptorValue.ActionAbilityId == AbilityIdValue)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(const FGameStateDescriptor& GameStateDescriptorValue,
                                                             const FCommandOrderRecord& CommandOrderRecordValue)
 {
@@ -1056,30 +1088,36 @@ bool DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(const FGameStateDesc
         return false;
     }
 
-    switch (CommandOrderRecordValue.TaskType)
-    {
-        case ECommandTaskType::Supply:
-            break;
-        default:
-            return false;
-    }
-
     const FOpeningPlanExecutionState& OpeningPlanExecutionStateValue = GameStateDescriptorValue.OpeningPlanExecutionState;
     const FOpeningPlanDescriptor& OpeningPlanDescriptorValue =
         FOpeningPlanRegistry::GetOpeningPlanDescriptor(OpeningPlanExecutionStateValue.ActivePlanId);
-    if (!HasAnyIncompleteMandatoryOpeningSequenceTask(OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue))
-    {
-        return false;
-    }
 
-    if (CommandOrderRecordValue.TaskType == ECommandTaskType::Supply)
+    switch (CommandOrderRecordValue.TaskType)
     {
-        return OpeningPlanExecutionStateValue.WallChainState == EOpeningWallChainState::RampActive &&
-               !AreAllMandatoryOpeningDepotTasksComplete(OpeningPlanExecutionStateValue, OpeningPlanDescriptorValue);
+        case ECommandTaskType::Supply:
+        {
+            if (!HasAnyIncompleteMandatoryOpeningSequenceTask(OpeningPlanExecutionStateValue,
+                                                              OpeningPlanDescriptorValue))
+            {
+                return false;
+            }
+            return OpeningPlanExecutionStateValue.WallChainState == EOpeningWallChainState::RampActive &&
+                   !AreAllMandatoryOpeningDepotTasksComplete(OpeningPlanExecutionStateValue,
+                                                             OpeningPlanDescriptorValue);
+        }
+        case ECommandTaskType::ProductionStructure:
+        case ECommandTaskType::TechStructure:
+        {
+            return HasIncompleteMandatoryOpeningTaskForAbility(OpeningPlanExecutionStateValue,
+                                                               OpeningPlanDescriptorValue,
+                                                               CommandOrderRecordValue.AbilityId);
+        }
+        default:
+            return false;
     }
-
-    return false;
 }
+
+static constexpr uint64_t MaxOpeningProducerFamilyGuardGameLoops = 4480U;
 
 bool DoesIncompleteOpeningProducerFamilyGuardBlockOrder(const FGameStateDescriptor& GameStateDescriptorValue,
                                                         const FCommandOrderRecord& CommandOrderRecordValue)
@@ -1087,6 +1125,11 @@ bool DoesIncompleteOpeningProducerFamilyGuardBlockOrder(const FGameStateDescript
     if (!IsOpeningIncomplete(GameStateDescriptorValue) ||
         CommandOrderRecordValue.Origin != ECommandTaskOrigin::GoalMacro ||
         !DoesGoalDrivenOrderParticipateInProducerFamilyGuard(CommandOrderRecordValue))
+    {
+        return false;
+    }
+
+    if (GameStateDescriptorValue.CurrentGameLoop > MaxOpeningProducerFamilyGuardGameLoops)
     {
         return false;
     }
@@ -1388,6 +1431,25 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(
                                                                  ArmyMissionOrderIdValue);
     }
 
+    if (IsOpeningIncomplete(GameStateDescriptorValue) &&
+        GameStateDescriptorValue.CurrentGameLoop > MaxOpeningPlanCoverageGuardGameLoops)
+    {
+        for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+             ++OrderIndexValue)
+        {
+            if (CommandAuthoritySchedulingStateValue.SourceLayers[OrderIndexValue] !=
+                    ECommandAuthorityLayer::StrategicDirector ||
+                CommandAuthoritySchedulingStateValue.TaskOrigins[OrderIndexValue] != ECommandTaskOrigin::Opening ||
+                IsTerminalLifecycleState(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+            {
+                continue;
+            }
+
+            const uint32_t OrderIdValue = CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue];
+            CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(OrderIdValue, EOrderLifecycleState::Expired);
+        }
+    }
+
     const std::array<const std::vector<FGoalDescriptor>*, 3U> GoalListsValue = {
         &GameStateDescriptorValue.GoalSet.ImmediateGoals,
         &GameStateDescriptorValue.GoalSet.NearTermGoals,
@@ -1402,8 +1464,11 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(
 
         for (const FGoalDescriptor& GoalDescriptorValue : *GoalListValue)
         {
-            if (!IsGoalEligibleForStrategicSeeding(GoalDescriptorValue) ||
-                HasActiveStrategicOrderForGoal(CommandAuthoritySchedulingStateValue, GoalDescriptorValue))
+            const bool IsEligibleValue = IsGoalEligibleForStrategicSeeding(GoalDescriptorValue);
+            const bool HasActiveOrderValue =
+                HasActiveStrategicOrderForGoal(CommandAuthoritySchedulingStateValue, GoalDescriptorValue);
+
+            if (!IsEligibleValue || HasActiveOrderValue)
             {
                 continue;
             }
@@ -1416,21 +1481,22 @@ void FCommandAuthorityProcessor::SeedGoalDrivenStrategicOrders(
             }
 
             GoalOrderValue.SourceGoalId = GoalDescriptorValue.GoalId;
-            if (DoesRemainingOpeningPlanCoverOrder(GameStateDescriptorValue, GoalOrderValue))
+
+            const bool Guard1Value = DoesRemainingOpeningPlanCoverOrder(GameStateDescriptorValue, GoalOrderValue);
+            const bool Guard2Value =
+                DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(GameStateDescriptorValue, GoalOrderValue);
+            const bool Guard3Value =
+                DoesIncompleteOpeningProducerFamilyGuardBlockOrder(GameStateDescriptorValue, GoalOrderValue);
+
+            if (Guard1Value || Guard2Value || Guard3Value)
             {
                 continue;
             }
-            if (DoesIncompleteMandatoryOpeningStructureGuardBlockOrder(GameStateDescriptorValue, GoalOrderValue))
-            {
-                continue;
-            }
-            if (DoesIncompleteOpeningProducerFamilyGuardBlockOrder(GameStateDescriptorValue, GoalOrderValue))
-            {
-                continue;
-            }
+
             uint32_t GoalOrderIdValue = 0U;
-            CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(GameStateDescriptorValue, GoalOrderValue,
-                                                                     GoalOrderIdValue);
+            const bool AdmittedValue = CommandTaskAdmissionServiceValue.TryAdmitGoalDrivenOrder(
+                GameStateDescriptorValue, GoalOrderValue, GoalOrderIdValue);
+
         }
     }
 }

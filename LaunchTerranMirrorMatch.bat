@@ -6,11 +6,8 @@ if "%RepositoryRoot:~-1%"=="\" set "RepositoryRoot=%RepositoryRoot:~0,-1%"
 
 set "BuildScript=%RepositoryRoot%\Build.bat"
 set "BuildConfiguration=Debug"
-set "RequestedBuildDirectory="
-set "BuildDirectory="
 set "SkipBuild=0"
-set "TutorialExecutablePath="
-set "TutorialExecutableDirectory="
+set "MaxGameLoop=0"
 
 :ParseArguments
 if "%~1"=="" goto AfterParseArguments
@@ -29,19 +26,19 @@ if /I "%~1"=="--config" (
     goto ParseArguments
 )
 
-if /I "%~1"=="--build-dir" (
-    if "%~2"=="" (
-        echo Missing directory value after --build-dir.
-        exit /b 1
-    )
-    set "RequestedBuildDirectory=%~2"
-    shift
+if /I "%~1"=="--skip-build" (
+    set "SkipBuild=1"
     shift
     goto ParseArguments
 )
 
-if /I "%~1"=="--skip-build" (
-    set "SkipBuild=1"
+if /I "%~1"=="--max-loop" (
+    if "%~2"=="" (
+        echo Missing value after --max-loop.
+        exit /b 1
+    )
+    set "MaxGameLoop=%~2"
+    shift
     shift
     goto ParseArguments
 )
@@ -56,28 +53,14 @@ if not exist "%BuildScript%" (
 )
 
 if "%SkipBuild%"=="0" (
-    if defined RequestedBuildDirectory (
-        call "%BuildScript%" --config %BuildConfiguration% --build-dir "%RequestedBuildDirectory%" --target tutorial
-    ) else (
-        call "%BuildScript%" --config %BuildConfiguration% --target tutorial
-    )
+    call "%BuildScript%" --config %BuildConfiguration% --target tutorial
     if errorlevel 1 (
         echo Build step failed.
         exit /b %ERRORLEVEL%
     )
 )
 
-if defined RequestedBuildDirectory (
-    for %%I in ("%RequestedBuildDirectory%") do set "BuildDirectory=%%~fI"
-) else (
-    set "BuildDirectory=%RepositoryRoot%\out\build\codex-x64-Debug"
-)
-
-if not defined BuildDirectory (
-    echo Could not find a build directory containing tutorial.exe under "%RepositoryRoot%\out\build".
-    exit /b 1
-)
-
+set "BuildDirectory=%RepositoryRoot%\out\build\codex-x64-Debug"
 set "TutorialExecutablePath=%BuildDirectory%\bin\tutorial.exe"
 set "TutorialExecutableDirectory=%BuildDirectory%\bin"
 
@@ -90,7 +73,14 @@ echo Cleaning up stale StarCraft II processes before launch...
 taskkill /IM SC2_x64.exe /T /F >nul 2>&1
 timeout /t 1 /nobreak >nul
 
-echo Launching visible Terran match versus Medium computer from: "%TutorialExecutablePath%"
+echo Launching Terran mirror match (agent on both sides) from: "%TutorialExecutablePath%"
+
+set "SC2_TUTORIAL_MIRROR_MATCH=1"
+if not "%MaxGameLoop%"=="0" (
+    set "SC2_TUTORIAL_MAX_GAME_LOOP=%MaxGameLoop%"
+    echo Max game loop override: %MaxGameLoop%
+)
+
 pushd "%TutorialExecutableDirectory%" >nul
 "%TutorialExecutablePath%"
 set "ExitCode=%ERRORLEVEL%"
@@ -104,8 +94,8 @@ exit /b %ExitCode%
 
 :ShowUsage
 echo Usage:
-echo   LaunchTerranEasyComputerMatch.bat
-echo   LaunchTerranEasyComputerMatch.bat --skip-build
-echo   LaunchTerranEasyComputerMatch.bat --config Release
-echo   LaunchTerranEasyComputerMatch.bat --build-dir "L:\Sc2_Bot\out\build\codex-x64-Debug-20260311"
+echo   LaunchTerranMirrorMatch.bat
+echo   LaunchTerranMirrorMatch.bat --skip-build
+echo   LaunchTerranMirrorMatch.bat --config Release
+echo   LaunchTerranMirrorMatch.bat --max-loop 6000
 exit /b 0

@@ -7,6 +7,7 @@
 #include "common/build_planning/FBuildPlanningState.h"
 #include "common/descriptors/FEconomyStateDescriptor.h"
 #include "common/descriptors/FEconomicCommitmentLedgerDescriptor.h"
+#include "common/descriptors/FEnemyObservationDescriptor.h"
 #include "common/descriptors/FExecutionPressureDescriptor.h"
 #include "common/descriptors/FObservedPlacementSlotState.h"
 #include "common/descriptors/FObservedRampWallState.h"
@@ -42,6 +43,7 @@ struct FGameStateDescriptor
     FMainBaseLayoutDescriptor MainBaseLayoutDescriptor;
     FObservedPlacementSlotState ObservedPlacementSlotState;
     FObservedRampWallState ObservedRampWallState;
+    FEnemyObservationDescriptor EnemyObservation;
 
     FGameStateDescriptor();
 

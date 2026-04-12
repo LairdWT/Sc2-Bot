@@ -124,6 +124,26 @@ Frame-distributed usage:
 - `FTerranBuildPlacementService.cc`
   - runtime placement validation path uses `FrameValue.Query->Placement(...)` when query mode is active
 
+## Query Failure Sentinel Boundary In Intent Validation
+
+- Selected topic: `SC2-API-QUERY-FAILURE-SENTINEL-INTENT-VALIDATION-BOUNDARY`
+- Source-proven failure return contract in `QueryImp` (`src\sc2api\sc2_client.cc`):
+  - `QueryImp::Placement(const std::vector<PlacementQuery>&)` returns `std::vector<bool>(queries.size(), false)` when:
+    - `proto_.SendRequest(request)` fails
+    - `SET_MESSAGE_RESPONSE(..., query)` reports errors
+    - response placement count does not match request count
+  - `QueryImp::PathingDistance(const std::vector<PathingQuery>&)` returns `std::vector<float>(queries.size(), 0.0F)` under the same failure classes (send failure, response errors, size mismatch).
+- Source-proven arbiter consumption in `FIntentArbiter::ValidateAndNormalize(...)` (`examples\common\agent_framework.h`):
+  - placement-required intents are rejected when `Frame.Query == nullptr` or `Frame.Query->Placement(...) == false`
+  - pathing-required, non-flying intents are rejected when:
+    - `Frame.Query == nullptr`
+    - or `IsGroundPathingResultValid(...)` returns false for the `PathingDistance(...)` result
+- Source-proven pathing validity predicate:
+  - `IsGroundPathingResultValid(...)` rejects non-finite and negative distances
+  - it also rejects `PathingDistance <= 0.0f` when target is not effectively the same point (direct-distance tolerance gate)
+- Owned integration implication:
+  - query transport/protocol failure sentinels (`false` placement, `0.0f` pathing distance) collapse into the same validation rejection outcome as genuinely invalid placement or no-ground-path for that callback pass.
+
 ## Frame Step Ordinal Vs Engine Game Loop Boundary
 
 Source-backed boundary across coordinator, client, and owned Terran code:
