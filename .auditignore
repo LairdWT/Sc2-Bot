@@ -1,0 +1,4 @@
+src/
+out/
+examples/common/bot_examples.cc
+examples/common/bot_examples.h

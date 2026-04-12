@@ -607,7 +607,7 @@ struct FIntentArbiter
                 continue;
             }
 
-            auto FoundWinner = WinningIntents.find(IntentValue.ActorTag);
+            std::unordered_map<Tag, FUnitIntent>::iterator FoundWinner = WinningIntents.find(IntentValue.ActorTag);
             if (FoundWinner == WinningIntents.end() || ShouldReplaceWinner(IntentValue, FoundWinner->second))
             {
                 WinningIntents[IntentValue.ActorTag] = IntentValue;
@@ -621,7 +621,7 @@ struct FIntentArbiter
         std::unordered_set<Tag> ReservedBuildActors;
         for (const FUnitIntent& OriginalIntent : BufferValue.Intents)
         {
-            auto FoundWinner = WinningIntents.find(OriginalIntent.ActorTag);
+            std::unordered_map<Tag, FUnitIntent>::iterator FoundWinner = WinningIntents.find(OriginalIntent.ActorTag);
             if (FoundWinner == WinningIntents.end())
             {
                 continue;
