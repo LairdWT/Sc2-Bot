@@ -92,8 +92,8 @@ const std::vector<FMapDescriptor> GMapDescriptors = {
                     Point2D(46.0f, 133.0f), Point2D(43.0f, 130.0f), true},
                 FMapProductionColumnLayout{3, -1},
                 FMapNaturalWallLayout{
-                    Point2D(53.0f, 126.5f), Point2D(49.5f, 128.5f),
-                    Point2D(46.0f, 130.5f), Point2D(49.5f, 131.0f)}},
+                    Point2D(45.0f, 126.5f), Point2D(47.5f, 128.5f),
+                    Point2D(50.0f, 130.5f), Point2D(47.5f, 131.0f)}},
 
             // SE spawn (bottom-right, NW-facing ramp)
             FMapSpawnLayout{
@@ -105,8 +105,8 @@ const std::vector<FMapDescriptor> GMapDescriptors = {
                     Point2D(98.0f, 27.0f), Point2D(101.0f, 30.0f), true},
                 FMapProductionColumnLayout{-3, 1},
                 FMapNaturalWallLayout{
-                    Point2D(91.0f, 33.5f), Point2D(94.5f, 31.5f),
-                    Point2D(98.0f, 29.5f), Point2D(94.5f, 29.0f)}},
+                    Point2D(99.0f, 33.5f), Point2D(96.5f, 31.5f),
+                    Point2D(94.0f, 29.5f), Point2D(96.5f, 29.0f)}},
         },
     },
 };

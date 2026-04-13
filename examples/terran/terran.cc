@@ -937,6 +937,95 @@ void TerranAgent::OnGameStart()
     UpdateAgentState(Frame);
     InitializeRampWallDescriptor(Frame);
     InitializeMainBaseLayoutDescriptor(Frame);
+
+    // Find natural choke: scan every row between ramp Y and natural Y,
+    // count contiguous pathable tiles per row, find narrowest row.
+    if (Frame.GameInfo != nullptr && OwnSpawnLayoutPtrValue != nullptr && MapDescriptorPtrValue != nullptr)
+    {
+        const PathingGrid PathingGridValue(*Frame.GameInfo);
+        const Point2D RampValue = GameStateDescriptor.RampWallDescriptor.WallCenterPoint;
+        const Point2D NaturalValue = MapDescriptorPtrValue->Bases[OwnSpawnLayoutPtrValue->NaturalBaseIndex].Location;
+
+        const int MinYValue = static_cast<int>(std::min(RampValue.y, NaturalValue.y)) + 2;
+        const int MaxYValue = static_cast<int>(std::max(RampValue.y, NaturalValue.y)) - 2;
+        const int ScanMinXValue = static_cast<int>(std::min(RampValue.x, NaturalValue.x)) - 20;
+        const int ScanMaxXValue = static_cast<int>(std::max(RampValue.x, NaturalValue.x)) + 20;
+
+        int BestRowYValue = 0;
+        int BestWidthValue = 999;
+        int BestMinXValue = 0;
+        int BestMaxXValue = 0;
+
+        for (int RowYValue = MinYValue; RowYValue <= MaxYValue; ++RowYValue)
+        {
+            // Find contiguous pathable run nearest to the ramp-natural X midpoint
+            const int MidXValue = static_cast<int>((RampValue.x + NaturalValue.x) * 0.5f);
+            int RunStartValue = -1;
+            int RunEndValue = -1;
+            int BestRunStartValue = -1;
+            int BestRunEndValue = -1;
+            int BestRunDistValue = 999;
+
+            for (int TileXValue = ScanMinXValue; TileXValue <= ScanMaxXValue; ++TileXValue)
+            {
+                if (PathingGridValue.IsPathable(Point2DI(TileXValue, RowYValue)))
+                {
+                    if (RunStartValue < 0) RunStartValue = TileXValue;
+                    RunEndValue = TileXValue;
+                }
+                else
+                {
+                    if (RunStartValue >= 0)
+                    {
+                        const int RunMidValue = (RunStartValue + RunEndValue) / 2;
+                        const int RunDistValue = std::abs(RunMidValue - MidXValue);
+                        const int RunWidthValue = RunEndValue - RunStartValue + 1;
+                        if (RunWidthValue >= 3 && RunDistValue < BestRunDistValue)
+                        {
+                            BestRunDistValue = RunDistValue;
+                            BestRunStartValue = RunStartValue;
+                            BestRunEndValue = RunEndValue;
+                        }
+                    }
+                    RunStartValue = -1;
+                }
+            }
+            // Handle last run
+            if (RunStartValue >= 0)
+            {
+                const int RunMidValue = (RunStartValue + RunEndValue) / 2;
+                const int RunDistValue = std::abs(RunMidValue - MidXValue);
+                const int RunWidthValue = RunEndValue - RunStartValue + 1;
+                if (RunWidthValue >= 3 && RunDistValue < BestRunDistValue)
+                {
+                    BestRunStartValue = RunStartValue;
+                    BestRunEndValue = RunEndValue;
+                }
+            }
+
+            if (BestRunStartValue >= 0)
+            {
+                const int RowWidthValue = BestRunEndValue - BestRunStartValue + 1;
+                if (RowWidthValue < BestWidthValue)
+                {
+                    BestWidthValue = RowWidthValue;
+                    BestRowYValue = RowYValue;
+                    BestMinXValue = BestRunStartValue;
+                    BestMaxXValue = BestRunEndValue;
+                }
+            }
+        }
+
+        const float ChokeCenterXValue = (BestMinXValue + BestMaxXValue) * 0.5f;
+        std::cout << "[NATURAL_CHOKE] Y=" << BestRowYValue
+                  << " X=" << BestMinXValue << "-" << BestMaxXValue
+                  << " Width=" << BestWidthValue
+                  << " Center=(" << ChokeCenterXValue << "," << BestRowYValue << ")"
+                  << " Ramp=(" << RampValue.x << "," << RampValue.y
+                  << ") Natural=(" << NaturalValue.x << "," << NaturalValue.y << ")"
+                  << std::endl;
+    }
+
     RebuildObservedGameStateDescriptor(Frame);
     RebuildEnemyObservationDescriptor(Frame);
     RebuildForecastState();
