@@ -277,6 +277,11 @@ EGoalStatus FTerranGoalRuleLibrary::EvaluateGoalStatus(const FTerranGoalDefiniti
                            DetermineDesiredLiberatorCount(GameStateDescriptorValue)
                        ? EGoalStatus::Active
                        : EGoalStatus::Satisfied;
+        case EGoalActivationRuleId::ProjectedOrbitalsBelowDesiredCount:
+            return GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_ORBITALCOMMAND) <
+                           DetermineDesiredOrbitalCount(GameStateDescriptorValue)
+                       ? EGoalStatus::Active
+                       : EGoalStatus::Satisfied;
         case EGoalActivationRuleId::Invalid:
         default:
             return EGoalStatus::Blocked;
@@ -318,6 +323,8 @@ uint32_t FTerranGoalRuleLibrary::EvaluateGoalTargetCount(const FTerranGoalDefini
             return DetermineDesiredMedivacCount(GameStateDescriptorValue);
         case EGoalTargetRuleId::DesiredLiberatorCount:
             return DetermineDesiredLiberatorCount(GameStateDescriptorValue);
+        case EGoalTargetRuleId::DesiredOrbitalCount:
+            return DetermineDesiredOrbitalCount(GameStateDescriptorValue);
         case EGoalTargetRuleId::Invalid:
         default:
             return TerranGoalDefinitionValue.DefaultTargetCount;
@@ -431,11 +438,6 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredBarracksCount(const FGameStateD
         case EMacroPhase::Opening:
             return 1U;
         case EMacroPhase::EarlyGame:
-            if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 3U ||
-                ShortHorizonDiscretionaryMineralsValue >= 650U)
-            {
-                return 4U;
-            }
             if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 2U &&
                 (ShortHorizonDiscretionaryMineralsValue >= 300U || HasSustainedMineralFloatValue))
             {
@@ -443,25 +445,20 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredBarracksCount(const FGameStateD
             }
             return 2U;
         case EMacroPhase::MidGame:
-            if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 4U ||
-                ShortHorizonDiscretionaryMineralsValue >= 900U)
-            {
-                return 6U;
-            }
             if (GameStateDescriptorValue.MacroState.ActiveBaseCount >= 3U ||
                 ShortHorizonDiscretionaryMineralsValue >= 500U ||
                 HasSustainedMineralFloatValue)
             {
                 return 5U;
             }
-            return 4U;
+            return 3U;
         case EMacroPhase::LateGame:
-            return 6U;
+            return 8U;
         case EMacroPhase::Recovery:
             return std::max<uint32_t>(1U, GetProjectedBuildingCount(GameStateDescriptorValue,
                                                                     UNIT_TYPEID::TERRAN_BARRACKS));
         default:
-            return 2U;
+            return 3U;
     }
 }
 
@@ -567,14 +564,15 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredSiegeTankCount(const FGameState
         case EMacroPhase::Opening:
             return 0U;
         case EMacroPhase::EarlyGame:
+            return 2U;
         case EMacroPhase::MidGame:
-            return 1U;
-        case EMacroPhase::LateGame:
             return 4U;
+        case EMacroPhase::LateGame:
+            return 8U;
         case EMacroPhase::Recovery:
             return 0U;
         default:
-            return 1U;
+            return 2U;
     }
 }
 
@@ -612,6 +610,15 @@ uint32_t FTerranGoalRuleLibrary::DetermineDesiredLiberatorCount(const FGameState
         default:
             return 1U;
     }
+}
+
+uint32_t FTerranGoalRuleLibrary::DetermineDesiredOrbitalCount(const FGameStateDescriptor& GameStateDescriptorValue)
+{
+    // Every completed CC should morph to orbital. The goal evaluates projected
+    // orbital count against projected CC count (including in-progress CCs).
+    const uint32_t ProjectedBaseCountValue =
+        GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_COMMANDCENTER);
+    return ProjectedBaseCountValue;
 }
 
 bool FTerranGoalRuleLibrary::ShouldPrioritizeUpgrades(const FGameStateDescriptor& GameStateDescriptorValue)

@@ -35,6 +35,7 @@ public:
     static uint32_t DetermineDesiredSiegeTankCount(const FGameStateDescriptor& GameStateDescriptorValue);
     static uint32_t DetermineDesiredMedivacCount(const FGameStateDescriptor& GameStateDescriptorValue);
     static uint32_t DetermineDesiredLiberatorCount(const FGameStateDescriptor& GameStateDescriptorValue);
+    static uint32_t DetermineDesiredOrbitalCount(const FGameStateDescriptor& GameStateDescriptorValue);
     static bool ShouldPrioritizeUpgrades(const FGameStateDescriptor& GameStateDescriptorValue);
     static EProductionFocus DeterminePrimaryProductionFocus(const FGameStateDescriptor& GameStateDescriptorValue);
     static EGamePlan DetermineGamePlan(const FGameStateDescriptor& GameStateDescriptorValue);

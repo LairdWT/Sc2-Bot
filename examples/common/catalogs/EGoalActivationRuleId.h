@@ -32,7 +32,8 @@ enum class EGoalActivationRuleId : uint8_t
     ProjectedCyclonesBelowTarget,
     ProjectedSiegeTanksBelowTarget,
     ProjectedMedivacsBelowTarget,
-    ProjectedLiberatorsBelowTarget
+    ProjectedLiberatorsBelowTarget,
+    ProjectedOrbitalsBelowDesiredCount
 };
 
 }  // namespace sc2

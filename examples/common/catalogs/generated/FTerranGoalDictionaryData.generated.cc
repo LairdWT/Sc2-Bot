@@ -32,6 +32,7 @@ const std::array<FTerranGoalDefinition, TerranGoalDefinitionCountValue> GTerranG
     FTerranGoalDefinition{ETerranGoalDefinitionId::PressureEnemy, 400U, "Pressure Enemy", EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::PressureEnemy, 125, EGoalActivationRuleId::AlwaysActive, EGoalTargetRuleId::None, 0U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::INVALID), ETerranTaskTemplateId::Invalid},
     FTerranGoalDefinition{ETerranGoalDefinitionId::ClearEnemyPresence, 410U, "Clear Enemy Presence", EGoalDomain::Army, EGoalHorizon::Strategic, EGoalType::ClearEnemyPresence, 120, EGoalActivationRuleId::AlwaysActive, EGoalTargetRuleId::None, 0U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::INVALID), ETerranTaskTemplateId::Invalid},
     FTerranGoalDefinition{ETerranGoalDefinitionId::ScoutExpansionLocations, 420U, "Scout Expansion Locations", EGoalDomain::Scouting, EGoalHorizon::Strategic, EGoalType::ScoutExpansionLocations, 110, EGoalActivationRuleId::AlwaysActive, EGoalTargetRuleId::None, 0U, UNIT_TYPEID::INVALID, UpgradeID(UPGRADE_ID::INVALID), ETerranTaskTemplateId::Invalid},
+    FTerranGoalDefinition{ETerranGoalDefinitionId::MorphOrbitalCommand, 205U, "Morph Orbital Command", EGoalDomain::Economy, EGoalHorizon::Immediate, EGoalType::BuildProductionCapacity, 235, EGoalActivationRuleId::ProjectedOrbitalsBelowDesiredCount, EGoalTargetRuleId::DesiredOrbitalCount, 0U, UNIT_TYPEID::TERRAN_ORBITALCOMMAND, UpgradeID(UPGRADE_ID::INVALID), ETerranTaskTemplateId::MorphOrbitalCommand},
 };
 
 }  // namespace sc2

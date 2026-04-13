@@ -22,7 +22,8 @@ enum class EGoalTargetRuleId : uint8_t
     DesiredCycloneCount,
     DesiredSiegeTankCount,
     DesiredMedivacCount,
-    DesiredLiberatorCount
+    DesiredLiberatorCount,
+    DesiredOrbitalCount
 };
 
 }  // namespace sc2

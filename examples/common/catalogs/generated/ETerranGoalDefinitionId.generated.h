@@ -36,6 +36,7 @@ enum class ETerranGoalDefinitionId : uint16_t
     PressureEnemy,
     ClearEnemyPresence,
     ScoutExpansionLocations,
+    MorphOrbitalCommand,
     Count
 };
 
