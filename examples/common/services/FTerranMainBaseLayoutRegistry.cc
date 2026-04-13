@@ -201,157 +201,91 @@ Point2D ComputeNaturalEntranceAssemblyAnchorPoint(const FBuildPlacementContext& 
            (NaturalEntranceDirectionValue * NaturalEntranceRallyForwardOffsetValue);
 }
 
-void PopulateBelShirUpperLeftProductionSlots(FMainBaseLayoutDescriptor& OutMainBaseLayoutDescriptorValue)
+void PopulateProductionSlotsFromRampWall(const FRampWallDescriptor& RampWallDescriptorValue,
+                                         const Point2D& DepthDirectionValue,
+                                         const Point2D& LateralDirectionValue,
+                                         FMainBaseLayoutDescriptor& OutMainBaseLayoutDescriptorValue)
 {
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(31.7782f, 159.222f),
-        0U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(27.7782f, 160.222f),
-        1U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(21.7782f, 160.222f),
-        2U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(15.7782f, 160.222f),
-        3U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(31.7782f, 165.222f),
-        4U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(27.7782f, 166.222f),
-        5U));
-    OutMainBaseLayoutDescriptorValue.BarracksWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainBarracksWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(31.7782f, 159.222f),
-        0U));
+    // Derive all production building positions from the ramp wall barracks.
+    // Layout: Column 1 = Barracks(wall) → Factory → Starport in depth.
+    //         Column 2 = 2nd Barracks → 3rd Barracks beside column 1.
+    //         Engineering bays deep in base.
+    // All buildings have addon clearance (addon extends +2.5 X from center).
+    // Lateral direction points away from addon side to avoid overlap between columns.
+    const Point2D BarracksPositionValue = RampWallDescriptorValue.BarracksSlot.BuildPoint;
+
+    // Column 1: Factory behind barracks, starport behind factory (4-unit spacing)
+    const Point2D FactoryPositionValue = Point2D(
+        BarracksPositionValue.x + (DepthDirectionValue.x * 4.0f),
+        BarracksPositionValue.y + (DepthDirectionValue.y * 4.0f));
+    const Point2D StarportPositionValue = Point2D(
+        BarracksPositionValue.x + (DepthDirectionValue.x * 8.0f),
+        BarracksPositionValue.y + (DepthDirectionValue.y * 8.0f));
+
+    // Column 2: 2nd and 3rd barracks offset 6 units lateral from column 1
+    const Point2D SecondBarracksPositionValue = Point2D(
+        BarracksPositionValue.x + (LateralDirectionValue.x * 6.0f),
+        BarracksPositionValue.y + (LateralDirectionValue.y * 6.0f));
+    const Point2D ThirdBarracksPositionValue = Point2D(
+        SecondBarracksPositionValue.x + (DepthDirectionValue.x * 4.0f),
+        SecondBarracksPositionValue.y + (DepthDirectionValue.y * 4.0f));
+
+    // Column 3: 4th and 5th production slots offset 6 more units lateral
+    const Point2D FourthProductionPositionValue = Point2D(
+        SecondBarracksPositionValue.x + (LateralDirectionValue.x * 6.0f),
+        SecondBarracksPositionValue.y + (LateralDirectionValue.y * 6.0f));
+    const Point2D FifthProductionPositionValue = Point2D(
+        FourthProductionPositionValue.x + (DepthDirectionValue.x * 4.0f),
+        FourthProductionPositionValue.y + (DepthDirectionValue.y * 4.0f));
+
+    // Engineering bays: deep in base behind starport
+    const Point2D FirstEngBayPositionValue = Point2D(
+        BarracksPositionValue.x + (DepthDirectionValue.x * 12.0f),
+        BarracksPositionValue.y + (DepthDirectionValue.y * 12.0f));
+    const Point2D SecondEngBayPositionValue = Point2D(
+        FirstEngBayPositionValue.x + (LateralDirectionValue.x * 4.0f),
+        FirstEngBayPositionValue.y + (LateralDirectionValue.y * 4.0f));
+
     OutMainBaseLayoutDescriptorValue.FactoryWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainFactoryWithAddon,
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(41.7782f, 167.222f),
-        0U));
+        FactoryPositionValue, 0U));
     OutMainBaseLayoutDescriptorValue.StarportWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainStarportWithAddon,
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(38.7782f, 170.222f),
-        0U));
-}
-
-void PopulateBelShirLowerRightProductionSlots(FMainBaseLayoutDescriptor& OutMainBaseLayoutDescriptorValue)
-{
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(166.222f, 40.7782f),
-        0U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(171.222f, 38.7782f),
-        1U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(177.222f, 38.7782f),
-        2U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(183.222f, 38.7782f),
-        3U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(166.222f, 34.7782f),
-        4U));
-    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainProductionWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(171.222f, 32.7782f),
-        5U));
+        StarportPositionValue, 0U));
     OutMainBaseLayoutDescriptorValue.BarracksWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainBarracksWithAddon,
         EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(166.222f, 40.7782f),
-        0U));
-    OutMainBaseLayoutDescriptorValue.FactoryWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainFactoryWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(155.222f, 29.7782f),
-        0U));
-    OutMainBaseLayoutDescriptorValue.StarportWithAddonSlots.push_back(CreatePlacementSlot(
-        EBuildPlacementSlotType::MainStarportWithAddon,
-        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-        Point2D(177.222f, 38.7782f),
-        0U));
-}
+        SecondBarracksPositionValue, 0U));
 
-void PopulateBelShirAuthoredProductionSlots(const EStartLocationBucket StartLocationBucketValue,
-                                            const Point2D& PlayableMinValue,
-                                            const Point2D& PlayableMaxValue,
-                                            FMainBaseLayoutDescriptor& OutMainBaseLayoutDescriptorValue)
-{
-    switch (StartLocationBucketValue)
-    {
-        case EStartLocationBucket::UpperLeft:
-            PopulateBelShirUpperLeftProductionSlots(OutMainBaseLayoutDescriptorValue);
-            return;
-        case EStartLocationBucket::LowerRight:
-            PopulateBelShirLowerRightProductionSlots(OutMainBaseLayoutDescriptorValue);
-            return;
-        case EStartLocationBucket::UpperRight:
-        {
-            FMainBaseLayoutDescriptor LowerRightTemplateValue;
-            PopulateBelShirLowerRightProductionSlots(LowerRightTemplateValue);
-            MirrorPlacementSlotsAcrossHorizontalBounds(LowerRightTemplateValue.ProductionRailWithAddonSlots,
-                                                       PlayableMinValue, PlayableMaxValue,
-                                                       OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots);
-            MirrorPlacementSlotsAcrossHorizontalBounds(LowerRightTemplateValue.BarracksWithAddonSlots,
-                                                       PlayableMinValue, PlayableMaxValue,
-                                                       OutMainBaseLayoutDescriptorValue.BarracksWithAddonSlots);
-            MirrorPlacementSlotsAcrossHorizontalBounds(LowerRightTemplateValue.FactoryWithAddonSlots,
-                                                       PlayableMinValue, PlayableMaxValue,
-                                                       OutMainBaseLayoutDescriptorValue.FactoryWithAddonSlots);
-            MirrorPlacementSlotsAcrossHorizontalBounds(LowerRightTemplateValue.StarportWithAddonSlots,
-                                                       PlayableMinValue, PlayableMaxValue,
-                                                       OutMainBaseLayoutDescriptorValue.StarportWithAddonSlots);
-            return;
-        }
-        case EStartLocationBucket::LowerLeft:
-        {
-            FMainBaseLayoutDescriptor UpperLeftTemplateValue;
-            PopulateBelShirUpperLeftProductionSlots(UpperLeftTemplateValue);
-            MirrorPlacementSlotsAcrossHorizontalBounds(UpperLeftTemplateValue.ProductionRailWithAddonSlots,
-                                                       PlayableMinValue, PlayableMaxValue,
-                                                       OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots);
-            MirrorPlacementSlotsAcrossHorizontalBounds(UpperLeftTemplateValue.BarracksWithAddonSlots,
-                                                       PlayableMinValue, PlayableMaxValue,
-                                                       OutMainBaseLayoutDescriptorValue.BarracksWithAddonSlots);
-            MirrorPlacementSlotsAcrossHorizontalBounds(UpperLeftTemplateValue.FactoryWithAddonSlots,
-                                                       PlayableMinValue, PlayableMaxValue,
-                                                       OutMainBaseLayoutDescriptorValue.FactoryWithAddonSlots);
-            MirrorPlacementSlotsAcrossHorizontalBounds(UpperLeftTemplateValue.StarportWithAddonSlots,
-                                                       PlayableMinValue, PlayableMaxValue,
-                                                       OutMainBaseLayoutDescriptorValue.StarportWithAddonSlots);
-            return;
-        }
-        case EStartLocationBucket::Unknown:
-        default:
-            return;
-    }
+    // Production rail: generic addon-cleared slots for additional barracks
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        SecondBarracksPositionValue, 0U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        ThirdBarracksPositionValue, 1U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        FourthProductionPositionValue, 2U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+        FifthProductionPositionValue, 3U));
+
+    // Engineering bay slots (structure-only, no addon)
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::StructureOnly,
+        FirstEngBayPositionValue, 4U));
+    OutMainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::MainProductionWithAddon,
+        EBuildPlacementFootprintPolicy::StructureOnly,
+        SecondEngBayPositionValue, 5U));
 }
 
 void PopulateNaturalEntranceLayout(const FBuildPlacementContext& BuildPlacementContextValue,
@@ -447,8 +381,9 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
         OutMainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint;
     OutMainBaseLayoutDescriptorValue.ProductionClearanceAnchorPoint =
         LayoutAnchorPointValue + (MainBaseDepthDirectionValue * 8.0f);
-    PopulateBelShirAuthoredProductionSlots(StartLocationBucketValue, PlayableMinValue, PlayableMaxValue,
-                                          OutMainBaseLayoutDescriptorValue);
+    PopulateProductionSlotsFromRampWall(BuildPlacementContextValue.RampWallDescriptor,
+                                         MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                         OutMainBaseLayoutDescriptorValue);
     OutMainBaseLayoutDescriptorValue.bIsValid = true;
     return true;
 }
