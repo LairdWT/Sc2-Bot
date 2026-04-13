@@ -214,13 +214,16 @@ void PopulateProductionSlotsFromRampWall(const FRampWallDescriptor& RampWallDesc
     const ERampOrientation RampOrientationValue = DetermineRampOrientation(
         RampWallDescriptorValue.WallCenterPoint, RampWallDescriptorValue.InsideStagingPoint);
     const float DepthStepValue = GetProductionColumnDepthStep(RampOrientationValue);
+    const float StaggerStepValue = GetProductionColumnStaggerStep(RampOrientationValue);
     constexpr float LateralStepValue = ProductionColumnLateralStepValue;
 
-    // Column 1: Barracks(wall) → Factory → Starport, touching vertically
+    // Column 1: Barracks(wall) → Factory → Starport, staggered 1 unit per row away from ramp
     const Point2D FactoryPositionValue = Point2D(
-        BarracksPositionValue.x, BarracksPositionValue.y + DepthStepValue);
+        BarracksPositionValue.x + StaggerStepValue,
+        BarracksPositionValue.y + DepthStepValue);
     const Point2D StarportPositionValue = Point2D(
-        BarracksPositionValue.x, BarracksPositionValue.y + (DepthStepValue * 2.0f));
+        BarracksPositionValue.x + (StaggerStepValue * 2.0f),
+        BarracksPositionValue.y + (DepthStepValue * 2.0f));
 
     // Column 2: 2nd Barracks → 3rd Barracks, offset -6 X from column 1
     const Point2D SecondBarracksPositionValue = Point2D(
@@ -238,9 +241,10 @@ void PopulateProductionSlotsFromRampWall(const FRampWallDescriptor& RampWallDesc
         FourthProductionPositionValue.x,
         FourthProductionPositionValue.y + DepthStepValue);
 
-    // Engineering bays: behind starport, deeper into base
+    // Engineering bays: behind starport, deeper into base, continuing stagger
     const Point2D FirstEngBayPositionValue = Point2D(
-        BarracksPositionValue.x, BarracksPositionValue.y + (DepthStepValue * 3.0f));
+        BarracksPositionValue.x + (StaggerStepValue * 3.0f),
+        BarracksPositionValue.y + (DepthStepValue * 3.0f));
     const Point2D SecondEngBayPositionValue = Point2D(
         FirstEngBayPositionValue.x + LateralStepValue,
         FirstEngBayPositionValue.y);

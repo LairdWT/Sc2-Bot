@@ -106,4 +106,25 @@ inline float GetProductionColumnDepthStep(const ERampOrientation RampOrientation
 // Lateral step for additional production columns. Always -X (away from addon at +2.5 X).
 constexpr float ProductionColumnLateralStepValue = -6.0f;
 
+// Per-row lateral stagger: each building in the column offsets 1 grid unit
+// AWAY from the ramp on the X-axis. This prevents a straight vertical line
+// and fits the natural diagonal of the ramp terrain.
+inline float GetProductionColumnStaggerStep(const ERampOrientation RampOrientationValue)
+{
+    switch (RampOrientationValue)
+    {
+        case ERampOrientation::NorthWest:
+        case ERampOrientation::SouthWest:
+            // Ramp faces west side → away from ramp = +X (east)
+            return 1.0f;
+        case ERampOrientation::NorthEast:
+        case ERampOrientation::SouthEast:
+            // Ramp faces east side → away from ramp = -X (west)
+            return -1.0f;
+        case ERampOrientation::Unknown:
+        default:
+            return 1.0f;
+    }
+}
+
 }  // namespace sc2
