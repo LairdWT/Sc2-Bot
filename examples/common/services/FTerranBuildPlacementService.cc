@@ -206,10 +206,14 @@ Point2D ComputeNaturalEntranceAssemblyAnchorPoint(const FBuildPlacementContext& 
 void PopulateNaturalEntranceLayoutDescriptor(const FBuildPlacementContext& BuildPlacementContextValue,
                                              FMainBaseLayoutDescriptor& MainBaseLayoutDescriptorValue)
 {
+    // Natural entrance wall: Depot-Bunker-Depot front row, Depot behind filling gap.
+    // Depot = 2x2, Bunker = 3x3. Lateral offset 3.5 fits depot beside bunker with contact.
     constexpr float NaturalEntranceWallForwardOffsetValue = 4.0f;
-    constexpr float NaturalEntranceWallLateralOffsetValue = 4.0f;
+    constexpr float NaturalEntranceDepotLateralOffsetValue = 3.5f;
+    constexpr float NaturalEntranceBackDepotForwardOffsetValue = -2.5f;
 
     MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.clear();
+    MainBaseLayoutDescriptorValue.NaturalEntranceBunkerSlots.clear();
     MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint = Point2D();
     if (!BuildPlacementContextValue.RampWallDescriptor.bIsValid)
     {
@@ -236,19 +240,40 @@ void PopulateNaturalEntranceLayoutDescriptor(const FBuildPlacementContext& Build
             (NaturalEntranceDirectionValue * NaturalEntranceWallForwardOffsetValue));
     MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint =
         ComputeNaturalEntranceAssemblyAnchorPoint(BuildPlacementContextValue);
+
+    // Front row: Left Depot — Bunker (center) — Right Depot
     MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::NaturalEntranceDepotLeft, EBuildPlacementFootprintPolicy::StructureOnly,
         ClampPointToPlayableBounds(
             BuildPlacementContextValue,
-            NaturalEntranceWallCenterPointValue +
-                (NaturalEntranceLateralDirectionValue * NaturalEntranceWallLateralOffsetValue)),
+            Point2D(NaturalEntranceWallCenterPointValue.x +
+                        (NaturalEntranceLateralDirectionValue.x * NaturalEntranceDepotLateralOffsetValue),
+                    NaturalEntranceWallCenterPointValue.y +
+                        (NaturalEntranceLateralDirectionValue.y * NaturalEntranceDepotLateralOffsetValue))),
+        0U));
+    MainBaseLayoutDescriptorValue.NaturalEntranceBunkerSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::NaturalEntranceBunker, EBuildPlacementFootprintPolicy::StructureOnly,
+        NaturalEntranceWallCenterPointValue,
         0U));
     MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::NaturalEntranceDepotRight, EBuildPlacementFootprintPolicy::StructureOnly,
         ClampPointToPlayableBounds(
             BuildPlacementContextValue,
-            NaturalEntranceWallCenterPointValue -
-                (NaturalEntranceLateralDirectionValue * NaturalEntranceWallLateralOffsetValue)),
+            Point2D(NaturalEntranceWallCenterPointValue.x -
+                        (NaturalEntranceLateralDirectionValue.x * NaturalEntranceDepotLateralOffsetValue),
+                    NaturalEntranceWallCenterPointValue.y -
+                        (NaturalEntranceLateralDirectionValue.y * NaturalEntranceDepotLateralOffsetValue))),
+        0U));
+
+    // Back row: Center Depot behind bunker, filling gap
+    MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.push_back(CreatePlacementSlot(
+        EBuildPlacementSlotType::NaturalEntranceDepotCenter, EBuildPlacementFootprintPolicy::StructureOnly,
+        ClampPointToPlayableBounds(
+            BuildPlacementContextValue,
+            Point2D(NaturalEntranceWallCenterPointValue.x +
+                        (NaturalEntranceDirectionValue.x * NaturalEntranceBackDepotForwardOffsetValue),
+                    NaturalEntranceWallCenterPointValue.y +
+                        (NaturalEntranceDirectionValue.y * NaturalEntranceBackDepotForwardOffsetValue))),
         0U));
 }
 
