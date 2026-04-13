@@ -3026,7 +3026,14 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
         MainBaseLayoutDescriptorValue.LayoutAnchorPoint = ResolvedLayoutAnchorPointValue;
     }
 
-    PopulateNaturalEntranceLayoutDescriptor(BuildPlacementContextValue, MainBaseLayoutDescriptorValue);
+    // Only populate natural entrance from discovery if the authored layout
+    // did not already provide natural entrance slots. The authored path sets
+    // depot + bunker slots; overwriting them loses that configuration.
+    if (MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.empty() &&
+        MainBaseLayoutDescriptorValue.NaturalEntranceBunkerSlots.empty())
+    {
+        PopulateNaturalEntranceLayoutDescriptor(BuildPlacementContextValue, MainBaseLayoutDescriptorValue);
+    }
     if (MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint.x != 0.0f ||
         MainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint.y != 0.0f)
     {
