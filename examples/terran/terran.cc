@@ -5,6 +5,7 @@
 #include <chrono>
 #include <unordered_map>
 
+#include "common/services/FTerranMainBaseLayoutRegistry.h"
 #include "sc2lib/sc2_search.h"
 
 namespace sc2
@@ -1086,6 +1087,17 @@ void TerranAgent::InitializeMainBaseLayoutDescriptor(const FFrameContext& Frame)
 
     FBuildPlacementContext BuildPlacementContextValue = CreateBuildPlacementContext();
     BuildPlacementContextValue.MainBaseLayoutDescriptor.Reset();
+
+    // Try authored layout first — bypasses entire discovery/template pipeline
+    FTerranMainBaseLayoutRegistry TerranMainBaseLayoutRegistryValue;
+    if (TerranMainBaseLayoutRegistryValue.TryGetAuthoredMainBaseLayout(
+            Frame.GameInfo, BuildPlacementContextValue,
+            GameStateDescriptor.MainBaseLayoutDescriptor))
+    {
+        return;
+    }
+
+    // Fall back to discovery path for unknown maps
     GameStateDescriptor.MainBaseLayoutDescriptor =
         BuildPlacementService->GetMainBaseLayoutDescriptor(Frame, BuildPlacementContextValue);
 }
