@@ -6,6 +6,7 @@
 
 #include "common/services/EBuildPlacementFootprintPolicy.h"
 #include "common/services/EBuildPlacementSlotType.h"
+#include "common/services/FRampOrientationConstants.h"
 #include "sc2api/sc2_map_info.h"
 
 namespace sc2
@@ -202,49 +203,47 @@ Point2D ComputeNaturalEntranceAssemblyAnchorPoint(const FBuildPlacementContext& 
 }
 
 void PopulateProductionSlotsFromRampWall(const FRampWallDescriptor& RampWallDescriptorValue,
-                                         const Point2D& DepthDirectionValue,
-                                         const Point2D& LateralDirectionValue,
+                                         const Point2D& BaseLocationValue,
                                          FMainBaseLayoutDescriptor& OutMainBaseLayoutDescriptorValue)
 {
-    // Derive all production building positions from the ramp wall barracks.
-    // Layout: Column 1 = Barracks(wall) → Factory → Starport in depth.
-    //         Column 2 = 2nd Barracks → 3rd Barracks beside column 1.
-    //         Engineering bays deep in base.
-    // All buildings have addon clearance (addon extends +2.5 X from center).
-    // Lateral direction points away from addon side to avoid overlap between columns.
+    // SC2 main→natural ramps only face 4 diagonal directions (NE/SE/SW/NW).
+    // See FRampOrientationConstants.h for canonical direction definitions.
+    // Production column extends along Y-axis into base, lateral in -X for addon clearance.
+
     const Point2D BarracksPositionValue = RampWallDescriptorValue.BarracksSlot.BuildPoint;
+    const ERampOrientation RampOrientationValue = DetermineRampOrientation(
+        RampWallDescriptorValue.WallCenterPoint, RampWallDescriptorValue.InsideStagingPoint);
+    const float DepthStepValue = GetProductionColumnDepthStep(RampOrientationValue);
+    constexpr float LateralStepValue = ProductionColumnLateralStepValue;
 
-    // Column 1: Factory behind barracks, starport behind factory (4-unit spacing)
+    // Column 1: Barracks(wall) → Factory → Starport, touching vertically
     const Point2D FactoryPositionValue = Point2D(
-        BarracksPositionValue.x + (DepthDirectionValue.x * 4.0f),
-        BarracksPositionValue.y + (DepthDirectionValue.y * 4.0f));
+        BarracksPositionValue.x, BarracksPositionValue.y + DepthStepValue);
     const Point2D StarportPositionValue = Point2D(
-        BarracksPositionValue.x + (DepthDirectionValue.x * 8.0f),
-        BarracksPositionValue.y + (DepthDirectionValue.y * 8.0f));
+        BarracksPositionValue.x, BarracksPositionValue.y + (DepthStepValue * 2.0f));
 
-    // Column 2: 2nd and 3rd barracks offset 6 units lateral from column 1
+    // Column 2: 2nd Barracks → 3rd Barracks, offset -6 X from column 1
     const Point2D SecondBarracksPositionValue = Point2D(
-        BarracksPositionValue.x + (LateralDirectionValue.x * 6.0f),
-        BarracksPositionValue.y + (LateralDirectionValue.y * 6.0f));
+        BarracksPositionValue.x + LateralStepValue,
+        BarracksPositionValue.y);
     const Point2D ThirdBarracksPositionValue = Point2D(
-        SecondBarracksPositionValue.x + (DepthDirectionValue.x * 4.0f),
-        SecondBarracksPositionValue.y + (DepthDirectionValue.y * 4.0f));
+        SecondBarracksPositionValue.x,
+        SecondBarracksPositionValue.y + DepthStepValue);
 
-    // Column 3: 4th and 5th production slots offset 6 more units lateral
+    // Column 3: 4th and 5th production, offset -6 X from column 2
     const Point2D FourthProductionPositionValue = Point2D(
-        SecondBarracksPositionValue.x + (LateralDirectionValue.x * 6.0f),
-        SecondBarracksPositionValue.y + (LateralDirectionValue.y * 6.0f));
+        SecondBarracksPositionValue.x + LateralStepValue,
+        BarracksPositionValue.y);
     const Point2D FifthProductionPositionValue = Point2D(
-        FourthProductionPositionValue.x + (DepthDirectionValue.x * 4.0f),
-        FourthProductionPositionValue.y + (DepthDirectionValue.y * 4.0f));
+        FourthProductionPositionValue.x,
+        FourthProductionPositionValue.y + DepthStepValue);
 
-    // Engineering bays: deep in base behind starport
+    // Engineering bays: behind starport, deeper into base
     const Point2D FirstEngBayPositionValue = Point2D(
-        BarracksPositionValue.x + (DepthDirectionValue.x * 12.0f),
-        BarracksPositionValue.y + (DepthDirectionValue.y * 12.0f));
+        BarracksPositionValue.x, BarracksPositionValue.y + (DepthStepValue * 3.0f));
     const Point2D SecondEngBayPositionValue = Point2D(
-        FirstEngBayPositionValue.x + (LateralDirectionValue.x * 4.0f),
-        FirstEngBayPositionValue.y + (LateralDirectionValue.y * 4.0f));
+        FirstEngBayPositionValue.x + LateralStepValue,
+        FirstEngBayPositionValue.y);
 
     OutMainBaseLayoutDescriptorValue.FactoryWithAddonSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::MainFactoryWithAddon,
@@ -382,7 +381,7 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
     OutMainBaseLayoutDescriptorValue.ProductionClearanceAnchorPoint =
         LayoutAnchorPointValue + (MainBaseDepthDirectionValue * 8.0f);
     PopulateProductionSlotsFromRampWall(BuildPlacementContextValue.RampWallDescriptor,
-                                         MainBaseDepthDirectionValue, MainBaseLateralDirectionValue,
+                                         BuildPlacementContextValue.BaseLocation,
                                          OutMainBaseLayoutDescriptorValue);
     OutMainBaseLayoutDescriptorValue.bIsValid = true;
     return true;
