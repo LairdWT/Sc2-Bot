@@ -1,0 +1,180 @@
+# Map Layout Dictionary
+# Source of truth for all per-map static data.
+# Processed by generate_sc2bot_dictionaries.py into C++ static arrays.
+#
+# All coordinates are exact SC2 world positions.
+# Mineral patches and geysers are individual unit positions.
+# Ramp tiles are exact grid tile positions.
+# Base indices define expansion ordering per spawn.
+
+Maps:
+  - MapId: BelShirVestige
+    NormalizedNames:
+      - belshirvestige
+      - belshirvestigele
+    PlayableBounds:
+      Min: [0, 0]
+      Max: [200, 176]
+    MapCenter: [100, 88]
+
+    Bases:
+      # Base 0: North-West main (top-left)
+      - BaseIndex: 0
+        Location: [29.5, 134.5]
+        IsStartLocation: true
+        MineralPatches:
+          - [24.0, 138.0]
+          - [24.5, 135.5]
+          - [25.0, 133.0]
+          - [27.0, 131.0]
+          - [22.0, 139.5]
+          - [23.5, 141.0]
+          - [26.0, 142.0]
+          - [28.5, 141.5]
+        Geysers:
+          - [25.5, 130.5]
+          - [22.5, 138.5]
+
+      # Base 1: NW natural expansion
+      - BaseIndex: 1
+        Location: [44.5, 112.5]
+        IsStartLocation: false
+        MineralPatches:
+          - [49.0, 114.0]
+          - [50.0, 111.5]
+          - [49.5, 109.0]
+          - [48.0, 107.0]
+          - [44.0, 116.5]
+          - [46.5, 117.0]
+          - [42.0, 115.0]
+          - [40.5, 113.5]
+        Geysers:
+          - [48.5, 116.5]
+          - [40.5, 108.5]
+
+      # Base 2: Center-left third
+      - BaseIndex: 2
+        Location: [29.5, 88.5]
+        IsStartLocation: false
+        MineralPatches: []
+        Geysers: []
+
+      # Base 3: Center-right third
+      - BaseIndex: 3
+        Location: [114.5, 88.5]
+        IsStartLocation: false
+        MineralPatches: []
+        Geysers: []
+
+      # Base 4: SE natural expansion
+      - BaseIndex: 4
+        Location: [96.5, 47.5]
+        IsStartLocation: false
+        MineralPatches: []
+        Geysers: []
+
+      # Base 5: South-East main (bottom-right)
+      - BaseIndex: 5
+        Location: [114.5, 25.5]
+        IsStartLocation: true
+        MineralPatches:
+          - [120.0, 22.0]
+          - [119.5, 24.5]
+          - [119.0, 27.0]
+          - [117.0, 29.0]
+          - [122.0, 20.5]
+          - [120.5, 19.0]
+          - [118.0, 18.0]
+          - [115.5, 18.5]
+        Geysers:
+          - [118.5, 29.5]
+          - [121.5, 21.5]
+
+    Ramps:
+      # Ramp 0: NW main to NW natural (SE-facing)
+      - RampIndex: 0
+        TopTiles:
+          - [43, 133]
+          - [44, 133]
+          - [45, 133]
+        BottomTiles:
+          - [43, 129]
+          - [44, 129]
+          - [45, 129]
+        TopCenter: [44.0, 133.0]
+        BottomCenter: [44.0, 129.0]
+        Orientation: SouthEast
+        Width: 3
+        ConnectsBaseIndices: [0, 1]
+
+      # Ramp 1: SE main to SE natural (NW-facing)
+      - RampIndex: 1
+        TopTiles:
+          - [99, 27]
+          - [100, 27]
+          - [101, 27]
+        BottomTiles:
+          - [99, 31]
+          - [100, 31]
+          - [101, 31]
+        TopCenter: [100.0, 27.0]
+        BottomCenter: [100.0, 31.0]
+        Orientation: NorthWest
+        Width: 3
+        ConnectsBaseIndices: [5, 4]
+
+    Watchtowers: []
+
+    DestructibleRocks: []
+
+    GroundDistances:
+      - [0, 1, 45.0]
+      - [0, 5, 160.0]
+      - [1, 4, 100.0]
+      - [1, 5, 130.0]
+      - [4, 5, 45.0]
+
+    Spawns:
+      # NW spawn (top-left, SE-facing ramp)
+      - SpawnId: NorthWest
+        MainBaseIndex: 0
+        NaturalBaseIndex: 1
+        MainRampIndex: 0
+        RampOrientation: SouthEast
+        EnemySpawnId: SouthEast
+        ExpansionOrder: [0, 1, 2, 3, 4, 5]
+        RampWall:
+          WallCenter: [44, 132]
+          BarracksPosition: [41.5, 132.5]
+          LeftDepotPosition: [46, 133]
+          RightDepotPosition: [43, 130]
+          AddonValid: true
+        ProductionColumn:
+          DepthStep: 3
+          StaggerStep: -1
+        NaturalWall:
+          ForwardOffset: 4.0
+          DepotLateralOffset: 3.5
+          BackDepotForwardOffset: -2.5
+
+      # SE spawn (bottom-right, NW-facing ramp)
+      - SpawnId: SouthEast
+        MainBaseIndex: 5
+        NaturalBaseIndex: 4
+        MainRampIndex: 1
+        RampOrientation: NorthWest
+        EnemySpawnId: NorthWest
+        ExpansionOrder: [5, 4, 3, 2, 1, 0]
+        RampWall:
+          WallCenter: [100, 28]
+          BarracksPosition: [100.5, 27.5]
+          LeftDepotPosition: [98, 27]
+          RightDepotPosition: [101, 30]
+          AddonValid: true
+        ProductionColumn:
+          DepthStep: -3
+          StaggerStep: 1
+        NaturalWall:
+          ForwardOffset: 4.0
+          DepotLateralOffset: 3.5
+          BackDepotForwardOffset: -2.5
