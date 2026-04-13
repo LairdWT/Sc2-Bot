@@ -3022,94 +3022,106 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
 
     const bool AllowProductionTemplateSearchValue = !HasResolvedProductionLayoutAnchorValue;
 
-    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
-                                          MainBaseDepthDirectionValue,
-                                          MainBaseLateralDirectionValue,
-                                          NaturalApproachDepotOffsetValues,
-                                          true,
-                                          EBuildPlacementSlotType::NaturalApproachDepot,
-                                          EBuildPlacementFootprintPolicy::StructureOnly,
-                                          ABILITY_ID::BUILD_SUPPLYDEPOT,
-                                          MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
-                                          ResolvedLayoutPlacementSlotsValue);
-    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
-                                          MainBaseDepthDirectionValue,
-                                          MainBaseLateralDirectionValue,
-                                          SupportDepotOffsetValues,
-                                          true,
-                                          EBuildPlacementSlotType::MainSupportDepot,
-                                          EBuildPlacementFootprintPolicy::StructureOnly,
-                                          ABILITY_ID::BUILD_SUPPLYDEPOT,
-                                          MainBaseLayoutDescriptorValue.SupportDepotSlots,
-                                          ResolvedLayoutPlacementSlotsValue);
-    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
-                                          MainBaseDepthDirectionValue,
-                                          MainBaseLateralDirectionValue,
-                                          PeripheralDepotOffsetValues,
-                                          true,
-                                          EBuildPlacementSlotType::MainPeripheralDepot,
-                                          EBuildPlacementFootprintPolicy::StructureOnly,
-                                          ABILITY_ID::BUILD_SUPPLYDEPOT,
-                                          MainBaseLayoutDescriptorValue.PeripheralDepotSlots,
-                                          ResolvedLayoutPlacementSlotsValue);
-    const bool AllowBarracksTemplateSearchValue = AllowProductionTemplateSearchValue ||
-        (MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() &&
-         MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty());
-    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
-                                          MainBaseDepthDirectionValue,
-                                          MainBaseLateralDirectionValue,
-                                          BarracksOffsetValues,
-                                          AllowBarracksTemplateSearchValue,
-                                          EBuildPlacementSlotType::MainBarracksWithAddon,
-                                          EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-                                          ABILITY_ID::BUILD_BARRACKS,
-                                          MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
-                                          ResolvedLayoutPlacementSlotsValue);
-    if (MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty() &&
-        BuildPlacementContextValue.RampWallDescriptor.bIsValid &&
-        !MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty())
+    // Skip template depot slots when authored layout provides depot positions.
+    // Template slots use expensive placement validation queries and produce
+    // positions that conflict with the authored natural entrance wall layout.
+    if (!HasAuthoredMainBaseLayoutValue)
     {
-        std::vector<FBuildPlacementSlot> DerivedProductionRailSlotsValue;
-        std::vector<FResolvedLayoutPlacementSlot> DerivedResolvedLayoutPlacementSlotsValue;
-        FBuildPlacementSlotId SourceBarracksSlotIdValue;
-        if (TryResolveDerivedProductionRailSlotGroup(FrameValue, BuildPlacementContextValue,
-                                                     MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
-                                                     ResolvedLayoutPlacementSlotsValue,
-                                                     DerivedProductionRailSlotsValue,
-                                                     DerivedResolvedLayoutPlacementSlotsValue,
-                                                     SourceBarracksSlotIdValue))
-        {
-            MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots = DerivedProductionRailSlotsValue;
-            ResolvedLayoutPlacementSlotsValue = DerivedResolvedLayoutPlacementSlotsValue;
-            (void)SourceBarracksSlotIdValue;
-        }
+        AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                              MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                              MainBaseDepthDirectionValue,
+                                              MainBaseLateralDirectionValue,
+                                              NaturalApproachDepotOffsetValues,
+                                              true,
+                                              EBuildPlacementSlotType::NaturalApproachDepot,
+                                              EBuildPlacementFootprintPolicy::StructureOnly,
+                                              ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                              MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots,
+                                              ResolvedLayoutPlacementSlotsValue);
+        AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                              MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                              MainBaseDepthDirectionValue,
+                                              MainBaseLateralDirectionValue,
+                                              SupportDepotOffsetValues,
+                                              true,
+                                              EBuildPlacementSlotType::MainSupportDepot,
+                                              EBuildPlacementFootprintPolicy::StructureOnly,
+                                              ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                              MainBaseLayoutDescriptorValue.SupportDepotSlots,
+                                              ResolvedLayoutPlacementSlotsValue);
+        AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                              MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                              MainBaseDepthDirectionValue,
+                                              MainBaseLateralDirectionValue,
+                                              PeripheralDepotOffsetValues,
+                                              true,
+                                              EBuildPlacementSlotType::MainPeripheralDepot,
+                                              EBuildPlacementFootprintPolicy::StructureOnly,
+                                              ABILITY_ID::BUILD_SUPPLYDEPOT,
+                                              MainBaseLayoutDescriptorValue.PeripheralDepotSlots,
+                                              ResolvedLayoutPlacementSlotsValue);
     }
-    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
-                                          MainBaseDepthDirectionValue,
-                                          MainBaseLateralDirectionValue,
-                                          FactoryOffsetValues,
-                                          AllowProductionTemplateSearchValue,
-                                          EBuildPlacementSlotType::MainFactoryWithAddon,
-                                          EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-                                          ABILITY_ID::BUILD_FACTORY,
-                                          MainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
-                                          ResolvedLayoutPlacementSlotsValue);
-    AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                          MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
-                                          MainBaseDepthDirectionValue,
-                                          MainBaseLateralDirectionValue,
-                                          StarportOffsetValues,
-                                          AllowProductionTemplateSearchValue,
-                                          EBuildPlacementSlotType::MainStarportWithAddon,
-                                          EBuildPlacementFootprintPolicy::RequiresAddonClearance,
-                                          ABILITY_ID::BUILD_STARPORT,
-                                          MainBaseLayoutDescriptorValue.StarportWithAddonSlots,
-                                          ResolvedLayoutPlacementSlotsValue);
+    // Skip all template slot generation when authored layout provides positions.
+    // Template slots use expensive placement validation queries and override
+    // authored positions. Only fall back to templates for unknown maps.
+    if (!HasAuthoredMainBaseLayoutValue)
+    {
+        const bool AllowBarracksTemplateSearchValue = AllowProductionTemplateSearchValue ||
+            (MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty() &&
+             MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty());
+        AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                              MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                              MainBaseDepthDirectionValue,
+                                              MainBaseLateralDirectionValue,
+                                              BarracksOffsetValues,
+                                              AllowBarracksTemplateSearchValue,
+                                              EBuildPlacementSlotType::MainBarracksWithAddon,
+                                              EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+                                              ABILITY_ID::BUILD_BARRACKS,
+                                              MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                                              ResolvedLayoutPlacementSlotsValue);
+        if (MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots.empty() &&
+            BuildPlacementContextValue.RampWallDescriptor.bIsValid &&
+            !MainBaseLayoutDescriptorValue.BarracksWithAddonSlots.empty())
+        {
+            std::vector<FBuildPlacementSlot> DerivedProductionRailSlotsValue;
+            std::vector<FResolvedLayoutPlacementSlot> DerivedResolvedLayoutPlacementSlotsValue;
+            FBuildPlacementSlotId SourceBarracksSlotIdValue;
+            if (TryResolveDerivedProductionRailSlotGroup(FrameValue, BuildPlacementContextValue,
+                                                         MainBaseLayoutDescriptorValue.BarracksWithAddonSlots,
+                                                         ResolvedLayoutPlacementSlotsValue,
+                                                         DerivedProductionRailSlotsValue,
+                                                         DerivedResolvedLayoutPlacementSlotsValue,
+                                                         SourceBarracksSlotIdValue))
+            {
+                MainBaseLayoutDescriptorValue.ProductionRailWithAddonSlots = DerivedProductionRailSlotsValue;
+                ResolvedLayoutPlacementSlotsValue = DerivedResolvedLayoutPlacementSlotsValue;
+                (void)SourceBarracksSlotIdValue;
+            }
+        }
+        AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                              MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                              MainBaseDepthDirectionValue,
+                                              MainBaseLateralDirectionValue,
+                                              FactoryOffsetValues,
+                                              AllowProductionTemplateSearchValue,
+                                              EBuildPlacementSlotType::MainFactoryWithAddon,
+                                              EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+                                              ABILITY_ID::BUILD_FACTORY,
+                                              MainBaseLayoutDescriptorValue.FactoryWithAddonSlots,
+                                              ResolvedLayoutPlacementSlotsValue);
+        AppendTemplateSlotsToLayoutDescriptor(FrameValue, BuildPlacementContextValue,
+                                              MainBaseLayoutDescriptorValue.LayoutAnchorPoint,
+                                              MainBaseDepthDirectionValue,
+                                              MainBaseLateralDirectionValue,
+                                              StarportOffsetValues,
+                                              AllowProductionTemplateSearchValue,
+                                              EBuildPlacementSlotType::MainStarportWithAddon,
+                                              EBuildPlacementFootprintPolicy::RequiresAddonClearance,
+                                              ABILITY_ID::BUILD_STARPORT,
+                                              MainBaseLayoutDescriptorValue.StarportWithAddonSlots,
+                                              ResolvedLayoutPlacementSlotsValue);
+    }
 
     MainBaseLayoutDescriptorValue.bIsValid =
         !MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.empty() ||
