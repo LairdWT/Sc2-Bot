@@ -19,6 +19,10 @@ const char* ToString(const EBuildPlacementSlotType BuildPlacementSlotTypeValue)
             return "NaturalEntranceDepotLeft";
         case EBuildPlacementSlotType::NaturalEntranceDepotRight:
             return "NaturalEntranceDepotRight";
+        case EBuildPlacementSlotType::NaturalEntranceDepotCenter:
+            return "NaturalEntranceDepotCenter";
+        case EBuildPlacementSlotType::NaturalEntranceBunker:
+            return "NaturalEntranceBunker";
         case EBuildPlacementSlotType::NaturalApproachDepot:
             return "NaturalApproachDepot";
         case EBuildPlacementSlotType::MainSupportDepot:

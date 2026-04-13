@@ -3275,6 +3275,19 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
                 PlacementSlotsValue);
             break;
         }
+        case ABILITY_ID::BUILD_BUNKER:
+        {
+            PlacementSlotsValue.insert(PlacementSlotsValue.end(),
+                                       MainBaseLayoutDescriptorValue.NaturalEntranceBunkerSlots.begin(),
+                                       MainBaseLayoutDescriptorValue.NaturalEntranceBunkerSlots.end());
+            if (PlacementSlotsValue.empty())
+            {
+                PlacementSlotsValue.push_back(CreatePlacementSlot(
+                    EBuildPlacementSlotType::MainSupportStructure, EBuildPlacementFootprintPolicy::StructureOnly,
+                    PrimaryAnchorValue, 0U));
+            }
+            break;
+        }
         default:
         {
             const uint8_t SlotOrdinalValue =

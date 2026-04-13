@@ -13,6 +13,8 @@ enum class EBuildPlacementSlotType : uint8_t
     MainRampDepotRight,
     NaturalEntranceDepotLeft,
     NaturalEntranceDepotRight,
+    NaturalEntranceDepotCenter,
+    NaturalEntranceBunker,
     NaturalApproachDepot,
     MainSupportDepot,
     MainPeripheralDepot,

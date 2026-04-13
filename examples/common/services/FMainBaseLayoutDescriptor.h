@@ -23,6 +23,7 @@ public:
     Point2D NaturalEntranceArmyRallyAnchorPoint;
     Point2D ProductionClearanceAnchorPoint;
     std::vector<FBuildPlacementSlot> NaturalEntranceWallDepotSlots;
+    std::vector<FBuildPlacementSlot> NaturalEntranceBunkerSlots;
     std::vector<FBuildPlacementSlot> NaturalApproachDepotSlots;
     std::vector<FBuildPlacementSlot> SupportDepotSlots;
     std::vector<FBuildPlacementSlot> PeripheralDepotSlots;

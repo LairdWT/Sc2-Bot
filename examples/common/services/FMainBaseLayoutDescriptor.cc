@@ -17,6 +17,7 @@ void FMainBaseLayoutDescriptor::Reset()
     NaturalEntranceArmyRallyAnchorPoint = Point2D();
     ProductionClearanceAnchorPoint = Point2D();
     NaturalEntranceWallDepotSlots.clear();
+    NaturalEntranceBunkerSlots.clear();
     NaturalApproachDepotSlots.clear();
     SupportDepotSlots.clear();
     PeripheralDepotSlots.clear();
