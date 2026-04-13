@@ -11,6 +11,9 @@ set(sc2_terran_bot_common_sources
     catalogs/FTerranTaskTemplateDictionary.cc
     catalogs/generated/FTerranGoalDictionaryData.generated.cc
     catalogs/generated/FTerranTaskTemplateDictionaryData.generated.cc
+    catalogs/generated/FMapLayoutDictionaryData.generated.cc
+    catalogs/FMapLayoutDictionary.cc
+    catalogs/FMapQueryHelper.cc
     build_orders/EOpeningPlanId.cc
     build_orders/EOpeningPlanLifecycleState.cc
     build_orders/EOpeningWallChainState.cc
