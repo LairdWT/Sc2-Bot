@@ -1300,6 +1300,8 @@ FBuildPlacementContext TerranAgent::CreateBuildPlacementContext() const
 
     BuildPlacementContextValue.RampWallDescriptor = GameStateDescriptor.RampWallDescriptor;
     BuildPlacementContextValue.MainBaseLayoutDescriptor = GameStateDescriptor.MainBaseLayoutDescriptor;
+    BuildPlacementContextValue.MapDescriptorPtr = MapDescriptorPtrValue;
+    BuildPlacementContextValue.SpawnLayoutPtr = OwnSpawnLayoutPtrValue;
 
     return BuildPlacementContextValue;
 }

@@ -207,11 +207,14 @@ void PopulateProductionSlotsFromRampWall(const FRampWallDescriptor& RampWallDesc
                                          const Point2D& BaseLocationValue,
                                          FMainBaseLayoutDescriptor& OutMainBaseLayoutDescriptorValue)
 {
-    // SC2 main→natural ramps only face 4 diagonal directions (NE/SE/SW/NW).
-    // See FRampOrientationConstants.h for canonical direction definitions.
-    // Production column extends along Y-axis into base, lateral in -X for addon clearance.
+    // Production column layout: depth step and stagger step are read from
+    // FRampOrientationConstants based on ramp orientation. When FMapSpawnLayout
+    // data is available, these values come from compiled map data instead.
+    // Column extends along Y-axis into base, lateral in -X for addon clearance.
 
     const Point2D BarracksPositionValue = RampWallDescriptorValue.BarracksSlot.BuildPoint;
+
+    // Determine column parameters from ramp orientation
     const ERampOrientation RampOrientationValue = DetermineRampOrientation(
         RampWallDescriptorValue.WallCenterPoint, RampWallDescriptorValue.InsideStagingPoint);
     const float DepthStepValue = GetProductionColumnDepthStep(RampOrientationValue);
@@ -378,6 +381,13 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
         return false;
     }
 
+    const FMapSpawnLayout* SpawnLayoutPtrValue =
+        FMapLayoutDictionary::TryGetSpawnLayout(*MapDescriptorPtrValue, BuildPlacementContextValue.BaseLocation);
+    if (SpawnLayoutPtrValue == nullptr)
+    {
+        return false;
+    }
+
     if (!BuildPlacementContextValue.RampWallDescriptor.bIsValid)
     {
         return false;
@@ -386,7 +396,6 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
     const Point2D MainBaseDepthDirectionValue = GetNormalizedDirection(
         BuildPlacementContextValue.RampWallDescriptor.InsideStagingPoint -
         BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint);
-    const Point2D MainBaseLateralDirectionValue = GetClockwiseLateralDirection(MainBaseDepthDirectionValue);
     const Point2D LayoutAnchorPointValue =
         BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint + (MainBaseDepthDirectionValue * 6.0f);
     OutMainBaseLayoutDescriptorValue.LayoutAnchorPoint = LayoutAnchorPointValue;

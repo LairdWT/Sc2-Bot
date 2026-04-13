@@ -20,6 +20,8 @@ void FBuildPlacementContext::Reset()
     PlayableMax = Point2D(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
     RampWallDescriptor.Reset();
     MainBaseLayoutDescriptor.Reset();
+    MapDescriptorPtr = nullptr;
+    SpawnLayoutPtr = nullptr;
 }
 
 bool FBuildPlacementContext::HasNaturalLocation() const
