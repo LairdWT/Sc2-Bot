@@ -571,6 +571,35 @@ bool HasActiveSchedulerOrderForActor(const FCommandAuthoritySchedulingState& Com
     return false;
 }
 
+bool HasActiveSchedulerOrderForActorExcludingOrder(
+    const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
+    const Tag ActorTagValue,
+    const uint32_t IgnoredOrderIdValue)
+{
+    for (size_t OrderIndexValue = 0U; OrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+         ++OrderIndexValue)
+    {
+        if (CommandAuthoritySchedulingStateValue.OrderIds[OrderIndexValue] == IgnoredOrderIdValue ||
+            CommandAuthoritySchedulingStateValue.ActorTags[OrderIndexValue] != ActorTagValue ||
+            IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[OrderIndexValue]))
+        {
+            continue;
+        }
+
+        // Skip UnitExecution children of the ignored parent order so the morph
+        // dispatch does not self-block when its own child targets the same actor.
+        if (CommandAuthoritySchedulingStateValue.ParentOrderIds[OrderIndexValue] ==
+            static_cast<int>(IgnoredOrderIdValue))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 uint32_t CountActiveSchedulerOrdersForActor(const FCommandAuthoritySchedulingState& CommandAuthoritySchedulingStateValue,
                                             const Tag ActorTagValue)
 {
@@ -3053,6 +3082,40 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
         }
 
         const bool IsUnitProductionOrderValue = IsUnitProductionAbility(EconomyOrderValue.AbilityId);
+
+        // Expire stale morph child orders. SC2 silently ignores MORPH_ORBITALCOMMAND
+        // if the CC is training when the command fires. The child order stays in
+        // Dispatched state indefinitely. Detect and expire these so the parent economy
+        // order can retry the morph when the CC is truly idle.
+        if (EconomyOrderValue.AbilityId == ABILITY_ID::MORPH_ORBITALCOMMAND)
+        {
+            static constexpr uint32_t MaxMorphDispatchStaleGameLoopsValue = 224U;
+            for (size_t ChildOrderIndexValue = 0U;
+                 ChildOrderIndexValue < CommandAuthoritySchedulingStateValue.OrderIds.size();
+                 ++ChildOrderIndexValue)
+            {
+                if (CommandAuthoritySchedulingStateValue.ParentOrderIds[ChildOrderIndexValue] !=
+                        static_cast<int>(EconomyOrderValue.OrderId) ||
+                    CommandAuthoritySchedulingStateValue.SourceLayers[ChildOrderIndexValue] !=
+                        ECommandAuthorityLayer::UnitExecution ||
+                    IsOrderTerminal(CommandAuthoritySchedulingStateValue.LifecycleStates[ChildOrderIndexValue]))
+                {
+                    continue;
+                }
+
+                if (CommandAuthoritySchedulingStateValue.LifecycleStates[ChildOrderIndexValue] ==
+                        EOrderLifecycleState::Dispatched &&
+                    CommandAuthoritySchedulingStateValue.DispatchGameLoops[ChildOrderIndexValue] > 0U &&
+                    CurrentGameLoopValue - CommandAuthoritySchedulingStateValue.DispatchGameLoops[ChildOrderIndexValue] >
+                        MaxMorphDispatchStaleGameLoopsValue)
+                {
+                    CommandAuthoritySchedulingStateValue.SetOrderLifecycleState(
+                        CommandAuthoritySchedulingStateValue.OrderIds[ChildOrderIndexValue],
+                        EOrderLifecycleState::Completed);
+                }
+            }
+        }
+
         const uint32_t ActiveUnitExecutionChildCountValue =
             CountActiveUnitExecutionChildrenForParent(CommandAuthoritySchedulingStateValue, EconomyOrderValue.OrderId);
         if (!IsUnitProductionOrderValue &&
@@ -3375,8 +3438,9 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                     if (CandidateTownHallUnitValue->build_progress < 1.0f || !CandidateTownHallUnitValue->orders.empty() ||
                         IntentBufferValue.HasIntentForActor(CandidateTownHallUnitValue->tag) ||
-                        HasActiveSchedulerOrderForActor(CommandAuthoritySchedulingStateValue,
-                                                        CandidateTownHallUnitValue->tag))
+                        HasActiveSchedulerOrderForActorExcludingOrder(CommandAuthoritySchedulingStateValue,
+                                                                      CandidateTownHallUnitValue->tag,
+                                                                      EconomyOrderValue.OrderId))
                     {
                         HasBusyCommandCenterValue = true;
                         continue;
@@ -3395,11 +3459,15 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                     break;
                 }
 
-                UnitExecutionOrderValue = FCommandOrderRecord::CreateNoTarget(
-                    ECommandAuthorityLayer::UnitExecution, TownHallUnitValue->tag, EconomyOrderValue.AbilityId,
-                    EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild,
-                    GameStateDescriptorValue.CurrentGameLoop, 0U, EconomyOrderValue.OrderId);
-                CopyTaskMetadataToChildOrder(EconomyOrderValue, UnitExecutionOrderValue);
+                // Dispatch orbital morph directly as an intent. Unlike structure
+                // builds, morphs do not require worker dispatch or placement — they
+                // are immediate ability commands on the CC. Using a direct intent
+                // instead of a UnitExecution order prevents the race where SCV
+                // training orders compete with the morph within the same frame.
+                IntentBufferValue.Add(FUnitIntent::CreateNoTarget(
+                    TownHallUnitValue->tag, ABILITY_ID::MORPH_ORBITALCOMMAND,
+                    EconomyOrderValue.BasePriorityValue, EIntentDomain::StructureBuild));
+
                 CreatedOrderValue = true;
                 break;
             }
@@ -3604,11 +3672,10 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                         }
 
                         // Reserve THIS specific CC for orbital morph if a pending morph
-                        // order targets it. Only block when CC has <=1 order so the
-                        // in-progress SCV finishes naturally, then CC idles for morph.
+                        // order targets it. Block ALL new SCV production on this CC so
+                        // in-progress SCVs finish naturally and the CC idles for morph.
                         // Other CCs continue SCV production normally.
                         if (ProducerUnitValue->unit_type.ToType() == UNIT_TYPEID::TERRAN_COMMANDCENTER &&
-                            ProducerUnitValue->orders.size() <= 1U &&
                             HasPendingMorphOrderForActor(CommandAuthoritySchedulingStateValue,
                                                          ProducerUnitValue->tag,
                                                          ABILITY_ID::MORPH_ORBITALCOMMAND))

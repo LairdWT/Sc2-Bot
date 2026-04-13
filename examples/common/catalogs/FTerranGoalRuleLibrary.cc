@@ -154,9 +154,8 @@ EGoalStatus FTerranGoalRuleLibrary::EvaluateGoalStatus(const FTerranGoalDefiniti
                        ? EGoalStatus::Active
                        : EGoalStatus::Satisfied;
         case EGoalActivationRuleId::SupplyPressureOrProjectedDepotsBelowTarget:
-            return (HasNearTermSupplyPressure(GameStateDescriptorValue) &&
-                    GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
-                        DetermineDesiredSupplyDepotCount(GameStateDescriptorValue))
+            return GetProjectedBuildingCount(GameStateDescriptorValue, UNIT_TYPEID::TERRAN_SUPPLYDEPOT) <
+                           DetermineDesiredSupplyDepotCount(GameStateDescriptorValue)
                        ? EGoalStatus::Active
                        : EGoalStatus::Satisfied;
         case EGoalActivationRuleId::ProjectedCommandCentersBelowTarget:
