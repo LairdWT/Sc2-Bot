@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 
+#include "common/catalogs/FMapLayoutDictionary.h"
 #include "common/services/EBuildPlacementFootprintPolicy.h"
 #include "common/services/EBuildPlacementSlotType.h"
 #include "common/services/FRampOrientationConstants.h"
@@ -370,22 +371,9 @@ bool FTerranMainBaseLayoutRegistry::TryGetAuthoredMainBaseLayout(
     const std::string MapNameValue =
         GameInfoPtrValue != nullptr && !GameInfoPtrValue->map_name.empty() ? GameInfoPtrValue->map_name
                                                                            : BuildPlacementContextValue.MapName;
-    const std::string NormalizedMapNameValue = NormalizeMapName(MapNameValue);
-    if (!IsBelShirVestigeMap(NormalizedMapNameValue))
-    {
-        return false;
-    }
-
-    Point2D PlayableMinValue;
-    Point2D PlayableMaxValue;
-    if (!TryGetPlayableBounds(GameInfoPtrValue, BuildPlacementContextValue, PlayableMinValue, PlayableMaxValue))
-    {
-        return false;
-    }
-
-    const EStartLocationBucket StartLocationBucketValue =
-        GetStartLocationBucket(BuildPlacementContextValue.BaseLocation, PlayableMinValue, PlayableMaxValue);
-    if (StartLocationBucketValue == EStartLocationBucket::Unknown)
+    const std::string NormalizedMapNameValue = FMapLayoutDictionary::NormalizeMapName(MapNameValue);
+    const FMapDescriptor* MapDescriptorPtrValue = FMapLayoutDictionary::TryGetMapByName(NormalizedMapNameValue);
+    if (MapDescriptorPtrValue == nullptr)
     {
         return false;
     }

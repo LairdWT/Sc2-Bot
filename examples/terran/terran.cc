@@ -903,6 +903,20 @@ void TerranAgent::OnGameStart()
         }
     }
 
+    // Initialize per-map static layout data from compiled map descriptors
+    {
+        const GameInfo& GameInfoValue = ObservationPtr->GetGameInfo();
+        const std::string NormalizedMapNameValue =
+            FMapLayoutDictionary::NormalizeMapName(GameInfoValue.map_name);
+        MapDescriptorPtrValue = FMapLayoutDictionary::TryGetMapByName(NormalizedMapNameValue);
+        if (MapDescriptorPtrValue != nullptr)
+        {
+            const Point2D StartLocationValue = Point2D(ObservationPtr->GetStartLocation());
+            OwnSpawnLayoutPtrValue =
+                FMapLayoutDictionary::TryGetSpawnLayout(*MapDescriptorPtrValue, StartLocationValue);
+        }
+    }
+
     GameStateDescriptor.Reset();
     EconomyDomainState.Reset();
     ExecutionTelemetry.Reset();

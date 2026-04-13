@@ -37,6 +37,8 @@
 #include "common/render_settings.h"
 #include "common/descriptors/FTerranEnemyObservationBuilder.h"
 #include "common/descriptors/IEnemyObservationBuilder.h"
+#include "common/catalogs/FMapLayoutDictionary.h"
+#include "common/catalogs/FMapQueryHelper.h"
 #include "common/services/FTerranBuildPlacementService.h"
 #include "common/services/FTerranWorkerSelectionService.h"
 #include "common/services/IBuildPlacementService.h"
@@ -167,6 +169,10 @@ private:
     const IWorkerSelectionService* WorkerSelectionService{&DefaultWorkerSelectionService};
     FTerranEnemyObservationBuilder DefaultEnemyObservationBuilder;
     const IEnemyObservationBuilder* EnemyObservationBuilder{&DefaultEnemyObservationBuilder};
+
+    // Per-map static layout data, initialized once at game start
+    const FMapDescriptor* MapDescriptorPtrValue{nullptr};
+    const FMapSpawnLayout* OwnSpawnLayoutPtrValue{nullptr};
     FIntentSchedulingService IntentSchedulingService;
     std::vector<Point2D> ExpansionLocations;
     std::unordered_map<Tag, FProductionRallyState> ProductionRallyStates;
