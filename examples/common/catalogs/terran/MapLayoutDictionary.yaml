@@ -153,9 +153,12 @@ Maps:
           DepthStep: 3
           StaggerStep: -1
         NaturalWall:
-          ForwardOffset: 4.0
-          DepotLateralOffset: 3.5
-          BackDepotForwardOffset: -2.5
+          # Front row: Depot-Bunker-Depot. Back row: Depot behind bunker.
+          # Grid-snapped exact positions for NW spawn natural entrance.
+          LeftDepotPosition: [53, 126.5]
+          BunkerPosition: [49.5, 128.5]
+          RightDepotPosition: [46, 130.5]
+          BackDepotPosition: [49.5, 131]
 
       # SE spawn (bottom-right, NW-facing ramp)
       - SpawnId: SouthEast
@@ -175,6 +178,9 @@ Maps:
           DepthStep: -3
           StaggerStep: 1
         NaturalWall:
-          ForwardOffset: 4.0
-          DepotLateralOffset: 3.5
-          BackDepotForwardOffset: -2.5
+          # Front row: Depot-Bunker-Depot. Back row: Depot behind bunker.
+          # Grid-snapped exact positions for SE spawn natural entrance.
+          LeftDepotPosition: [91, 33.5]
+          BunkerPosition: [94.5, 31.5]
+          RightDepotPosition: [98, 29.5]
+          BackDepotPosition: [94.5, 29]

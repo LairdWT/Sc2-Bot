@@ -298,34 +298,14 @@ void PopulateProductionSlotsFromRampWall(const FRampWallDescriptor& RampWallDesc
 void PopulateNaturalEntranceLayout(const FBuildPlacementContext& BuildPlacementContextValue,
                                    FMainBaseLayoutDescriptor& OutMainBaseLayoutDescriptorValue)
 {
-    // Natural entrance wall: Depot-Bunker-Depot front row, Depot behind filling gap.
-    // Depot = 2x2, Bunker = 3x3. Lateral offset 3.5 fits depot beside bunker with contact.
-    constexpr float NaturalEntranceWallForwardOffsetValue = 4.0f;
-    constexpr float NaturalEntranceDepotLateralOffsetValue = 3.5f;
-    constexpr float NaturalEntranceBackDepotForwardOffsetValue = -2.5f;
-    if (!BuildPlacementContextValue.RampWallDescriptor.bIsValid)
+    // Natural entrance wall uses exact authored positions from map data.
+    // Layout: Depot-Bunker-Depot front row, Depot behind filling gap.
+    if (BuildPlacementContextValue.SpawnLayoutPtr == nullptr)
     {
         return;
     }
 
-    Point2D NaturalEntranceDirectionValue;
-    if (BuildPlacementContextValue.HasNaturalLocation())
-    {
-        NaturalEntranceDirectionValue = GetNormalizedDirection(BuildPlacementContextValue.NaturalLocation -
-                                                              BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint);
-    }
-    else
-    {
-        NaturalEntranceDirectionValue = GetNormalizedDirection(
-            BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint -
-            BuildPlacementContextValue.RampWallDescriptor.WallCenterPoint);
-    }
-
-    const Point2D NaturalEntranceLateralDirectionValue =
-        GetClockwiseLateralDirection(NaturalEntranceDirectionValue);
-    const Point2D NaturalEntranceWallCenterPointValue =
-        BuildPlacementContextValue.RampWallDescriptor.OutsideStagingPoint +
-        (NaturalEntranceDirectionValue * NaturalEntranceWallForwardOffsetValue);
+    const FMapNaturalWallLayout& NaturalWallValue = BuildPlacementContextValue.SpawnLayoutPtr->NaturalWall;
     OutMainBaseLayoutDescriptorValue.NaturalEntranceArmyRallyAnchorPoint =
         ComputeNaturalEntranceAssemblyAnchorPoint(BuildPlacementContextValue);
 
@@ -333,34 +313,21 @@ void PopulateNaturalEntranceLayout(const FBuildPlacementContext& BuildPlacementC
     OutMainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::NaturalEntranceDepotLeft,
         EBuildPlacementFootprintPolicy::StructureOnly,
-        Point2D(NaturalEntranceWallCenterPointValue.x +
-                    (NaturalEntranceLateralDirectionValue.x * NaturalEntranceDepotLateralOffsetValue),
-                NaturalEntranceWallCenterPointValue.y +
-                    (NaturalEntranceLateralDirectionValue.y * NaturalEntranceDepotLateralOffsetValue)),
-        0U));
+        NaturalWallValue.LeftDepotPosition, 0U));
     OutMainBaseLayoutDescriptorValue.NaturalEntranceBunkerSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::NaturalEntranceBunker,
         EBuildPlacementFootprintPolicy::StructureOnly,
-        NaturalEntranceWallCenterPointValue,
-        0U));
+        NaturalWallValue.BunkerPosition, 0U));
     OutMainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::NaturalEntranceDepotRight,
         EBuildPlacementFootprintPolicy::StructureOnly,
-        Point2D(NaturalEntranceWallCenterPointValue.x -
-                    (NaturalEntranceLateralDirectionValue.x * NaturalEntranceDepotLateralOffsetValue),
-                NaturalEntranceWallCenterPointValue.y -
-                    (NaturalEntranceLateralDirectionValue.y * NaturalEntranceDepotLateralOffsetValue)),
-        0U));
+        NaturalWallValue.RightDepotPosition, 0U));
 
-    // Back row: Center Depot behind bunker, filling gap
+    // Back row: Center Depot behind bunker
     OutMainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.push_back(CreatePlacementSlot(
         EBuildPlacementSlotType::NaturalEntranceDepotCenter,
         EBuildPlacementFootprintPolicy::StructureOnly,
-        Point2D(NaturalEntranceWallCenterPointValue.x +
-                    (NaturalEntranceDirectionValue.x * NaturalEntranceBackDepotForwardOffsetValue),
-                NaturalEntranceWallCenterPointValue.y +
-                    (NaturalEntranceDirectionValue.y * NaturalEntranceBackDepotForwardOffsetValue)),
-        0U));
+        NaturalWallValue.BackDepotPosition, 0U));
 }
 
 }  // namespace

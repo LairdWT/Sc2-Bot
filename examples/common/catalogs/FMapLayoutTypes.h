@@ -148,18 +148,22 @@ public:
     int8_t StaggerStep;
 };
 
-// Offsets for natural expansion entrance wall relative to outside staging point.
+// Exact positions for natural expansion entrance wall structures.
+// Grid-snapped authored positions — no direction math needed.
 struct FMapNaturalWallLayout
 {
 public:
-    // Forward distance from outside staging point to wall center
-    float ForwardOffset;
+    // Exact position of the left flanking supply depot
+    Point2D LeftDepotPosition;
 
-    // Lateral offset from wall center to flanking depot positions
-    float DepotLateralOffset;
+    // Exact position of the center bunker
+    Point2D BunkerPosition;
 
-    // Forward offset from wall center to back depot (negative = behind)
-    float BackDepotForwardOffset;
+    // Exact position of the right flanking supply depot
+    Point2D RightDepotPosition;
+
+    // Exact position of the back depot behind the bunker
+    Point2D BackDepotPosition;
 };
 
 // Complete layout configuration for a single spawn location on a map.

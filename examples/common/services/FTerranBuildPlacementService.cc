@@ -3230,6 +3230,27 @@ std::vector<FBuildPlacementSlot> FTerranBuildPlacementService::GetStructurePlace
             PlacementSlotsValue.insert(PlacementSlotsValue.end(),
                                        MainBaseLayoutDescriptorValue.PeripheralDepotSlots.begin(),
                                        MainBaseLayoutDescriptorValue.PeripheralDepotSlots.end());
+#if _DEBUG
+            {
+                static uint32_t DepotSlotDiagCounterValue = 0U;
+                if (DepotSlotDiagCounterValue++ % 224U == 0U)
+                {
+                    std::cout << "[DEPOT_SLOTS] Total=" << PlacementSlotsValue.size()
+                              << " RampWall=" << (RampWallDescriptorValue.bIsValid ? 2U : 0U)
+                              << " NatEntrance=" << MainBaseLayoutDescriptorValue.NaturalEntranceWallDepotSlots.size()
+                              << " NatApproach=" << MainBaseLayoutDescriptorValue.NaturalApproachDepotSlots.size()
+                              << " Support=" << MainBaseLayoutDescriptorValue.SupportDepotSlots.size()
+                              << " Peripheral=" << MainBaseLayoutDescriptorValue.PeripheralDepotSlots.size();
+                    for (size_t SlotIndexValue = 0U; SlotIndexValue < PlacementSlotsValue.size(); ++SlotIndexValue)
+                    {
+                        std::cout << " S" << SlotIndexValue << "=("
+                                  << PlacementSlotsValue[SlotIndexValue].BuildPoint.x << ","
+                                  << PlacementSlotsValue[SlotIndexValue].BuildPoint.y << ")";
+                    }
+                    std::cout << std::endl;
+                }
+            }
+#endif
             break;
         }
         case ABILITY_ID::BUILD_BARRACKS:
