@@ -1430,6 +1430,21 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
         }
 
         const Point2D ProducerBuildPointValue = Point2D(CandidateProducerUnitValue->pos);
+
+        // Ramp wall barracks addon positions are validated at layout initialization by
+        // CreateDiscoveredRampWallDescriptor, which tests 18 shifted candidates with batch
+        // placement queries. Trust that validated position and skip runtime re-validation
+        // which can give inconsistent results on ramp terrain.
+        const bool IsValidatedRampWallSlotValue =
+            EconomyOrderValue.PreferredProducerPlacementSlotId.SlotType ==
+                EBuildPlacementSlotType::MainRampBarracksWithAddon;
+        if (IsValidatedRampWallSlotValue)
+        {
+            ProductionBlockerResolutionValue.Reset();
+            OutProducerUnitValue = CandidateProducerUnitValue;
+            return true;
+        }
+
         const EProductionBlockerKind ProductionBlockerKindValue =
             ClassifyAddonFootprintBlocker(FrameValue, CandidateProducerUnitValue->tag, ProducerBuildPointValue);
 #if _DEBUG
@@ -1443,30 +1458,13 @@ bool TrySelectAddonProducerUnit(const FFrameContext& FrameValue,
 #endif
         if (ProductionBlockerKindValue == EProductionBlockerKind::None)
         {
-            // Verify addon placement with the game engine's runtime query.
-            // Static grid checks may pass but the game may still reject addon builds
-            // on certain terrain (e.g. ramp positions).
-            if (FrameValue.Query != nullptr)
-            {
-                const Point2D AddonQueryPointValue = GetAddonFootprintCenter(ProducerBuildPointValue);
-                if (!FrameValue.Query->Placement(EconomyOrderValue.AbilityId, AddonQueryPointValue,
-                                                  CandidateProducerUnitValue))
-                {
-#if _DEBUG
-                    if (FrameValue.GameLoop % 224U == 0U)
-                    {
-                        std::cout << "[ADDON_DIAG] tag=" << CandidateProducerUnitValue->tag
-                                  << " REJECT_PLACEMENT_QUERY pos=(" << ProducerBuildPointValue.x
-                                  << "," << ProducerBuildPointValue.y << ")"
-                                  << " addonCenter=(" << AddonQueryPointValue.x << "," << AddonQueryPointValue.y << ")"
-                                  << " loop=" << FrameValue.GameLoop << std::endl;
-                    }
-#endif
-                    HasHardBlockedProducerValue = true;
-                    continue;
-                }
-            }
-
+            // ClassifyAddonFootprintBlocker verifies terrain buildability via
+            // DoesAddonFootprintSupportTerrain (5-point PlacementGrid sampling) and
+            // structure overlap via DoesAddonFootprintAvoidObservedStructures.
+            // Both passed (BLOCKER=None). Trust these deterministic checks rather than
+            // Query->Placement on the addon center, which incorrectly rejects valid
+            // addon positions on ramp-adjacent terrain. SC2 addon builds are issued
+            // to the producer structure, not placed independently at a point.
             ProductionBlockerResolutionValue.Reset();
             OutProducerUnitValue = CandidateProducerUnitValue;
             return true;
@@ -3592,10 +3590,6 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
 
                     bool HasBusyProducerValue = false;
                     uint32_t CreatedChildCountValue = 0U;
-                    const uint32_t PendingOrbitalMorphCountValue =
-                        CountPendingMorphOrders(CommandAuthoritySchedulingStateValue,
-                                                ABILITY_ID::MORPH_ORBITALCOMMAND);
-                    uint32_t OrbitalMorphReservationsAppliedCountValue = 0U;
                     for (const Unit* ProducerUnitValue : ProducerUnitsValue)
                     {
                         if (ProducerUnitValue == nullptr)
@@ -3609,11 +3603,16 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                             continue;
                         }
 
+                        // Reserve THIS specific CC for orbital morph if a pending morph
+                        // order targets it. Only block when CC has <=1 order so the
+                        // in-progress SCV finishes naturally, then CC idles for morph.
+                        // Other CCs continue SCV production normally.
                         if (ProducerUnitValue->unit_type.ToType() == UNIT_TYPEID::TERRAN_COMMANDCENTER &&
-                            ProducerUnitValue->orders.empty() &&
-                            OrbitalMorphReservationsAppliedCountValue < PendingOrbitalMorphCountValue)
+                            ProducerUnitValue->orders.size() <= 1U &&
+                            HasPendingMorphOrderForActor(CommandAuthoritySchedulingStateValue,
+                                                         ProducerUnitValue->tag,
+                                                         ABILITY_ID::MORPH_ORBITALCOMMAND))
                         {
-                            ++OrbitalMorphReservationsAppliedCountValue;
                             HasBusyProducerValue = true;
                             continue;
                         }
@@ -3623,7 +3622,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                                 FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
                                 ExpansionLocationsValue, CommandAuthoritySchedulingStateValue, *ProducerUnitValue,
                                 EconomyOrderValue.OrderId);
-                            if (IsReservedForAddonValue && ProducerUnitValue->orders.empty())
+                            if (IsReservedForAddonValue && ProducerUnitValue->orders.size() <= 1U)
                             {
                                 HasBusyProducerValue = true;
                                 continue;
@@ -3716,7 +3715,7 @@ void FTerranEconomyProductionOrderExpander::ExpandEconomyAndProductionOrders(
                             FrameValue, GameStateDescriptorValue, BuildPlacementServiceValue,
                             ExpansionLocationsValue, CommandAuthoritySchedulingStateValue, *ProducerUnitValue,
                             EconomyOrderValue.OrderId);
-                        if (IsReservedForAddonValue && ProducerUnitValue->orders.empty())
+                        if (IsReservedForAddonValue && ProducerUnitValue->orders.size() <= 1U)
                         {
                             HasBusyProducerValue = true;
                             continue;

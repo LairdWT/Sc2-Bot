@@ -260,7 +260,7 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
                                                            EBuildPlacementSlotType::MainRampBarracksWithAddon, 0U)));
             StepsValue.push_back(CreateOpeningPlanStep(3U, 941U, 94, ABILITY_ID::BUILD_REFINERY,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_REFINERY, 1U,
-                                                       1U, 15U, {1U}));
+                                                       1U, 0U, {2U}));
             StepsValue.push_back(CreateOpeningPlanStep(4U, 1926U, 90, ABILITY_ID::TRAIN_MARINE,
                                                        UNIT_TYPEID::TERRAN_BARRACKS, UNIT_TYPEID::TERRAN_MARINE, 1U,
                                                        1U, 0U, {2U}));
@@ -269,7 +269,7 @@ const FOpeningPlanDescriptor& CreateTerranTwoBaseMMMFrameOpeningDescriptor()
                                                        UNIT_TYPEID::TERRAN_ORBITALCOMMAND, 1U, 1U, 0U, {2U}));
             StepsValue.push_back(CreateOpeningPlanStep(6U, 2195U, 88, ABILITY_ID::BUILD_COMMANDCENTER,
                                                        UNIT_TYPEID::TERRAN_SCV, UNIT_TYPEID::TERRAN_COMMANDCENTER, 2U,
-                                                       1U, 20U, {3U}));
+                                                       1U, 20U, {3U, 5U}));
             StepsValue.push_back(CreateOpeningPlanStep(7U, 2330U, 87, ABILITY_ID::BUILD_REACTOR_BARRACKS,
                                                        UNIT_TYPEID::TERRAN_BARRACKS,
                                                        UNIT_TYPEID::TERRAN_BARRACKSREACTOR, 1U, 1U, 20U, {2U},
