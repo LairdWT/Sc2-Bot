@@ -2948,44 +2948,10 @@ FMainBaseLayoutDescriptor FTerranBuildPlacementService::GetMainBaseLayoutDescrip
 
     if (HasAuthoredMainBaseLayoutValue)
     {
-        FMainBaseLayoutDescriptor PrimaryResolvedAuthoredMainBaseLayoutDescriptorValue;
-        std::vector<FResolvedLayoutPlacementSlot> PrimaryResolvedAuthoredPlacementSlotsValue =
-            ResolvedLayoutPlacementSlotsValue;
-        size_t PrimaryProductionRailSearchOffsetIndexValue = std::numeric_limits<size_t>::max();
-        ResolveAuthoredMainBaseLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                                AuthoredMainBaseLayoutDescriptorValue,
-                                                PrimaryResolvedAuthoredMainBaseLayoutDescriptorValue,
-                                                PrimaryResolvedAuthoredPlacementSlotsValue,
-                                                PrimaryProductionRailSearchOffsetIndexValue);
-
-        const FMainBaseLayoutDescriptor MirroredAuthoredMainBaseLayoutDescriptorValue =
-            CreateMirroredAuthoredMainBaseLayoutDescriptor(AuthoredMainBaseLayoutDescriptorValue,
-                                                           MainBaseDepthDirectionValue,
-                                                           MainBaseLateralDirectionValue);
-        FMainBaseLayoutDescriptor MirroredResolvedAuthoredMainBaseLayoutDescriptorValue;
-        std::vector<FResolvedLayoutPlacementSlot> MirroredResolvedAuthoredPlacementSlotsValue =
-            ResolvedLayoutPlacementSlotsValue;
-        size_t MirroredProductionRailSearchOffsetIndexValue = std::numeric_limits<size_t>::max();
-        ResolveAuthoredMainBaseLayoutDescriptor(FrameValue, BuildPlacementContextValue,
-                                                MirroredAuthoredMainBaseLayoutDescriptorValue,
-                                                MirroredResolvedAuthoredMainBaseLayoutDescriptorValue,
-                                                MirroredResolvedAuthoredPlacementSlotsValue,
-                                                MirroredProductionRailSearchOffsetIndexValue);
-
-        if (IsAuthoredMainBaseLayoutResolutionPreferred(
-                MirroredResolvedAuthoredMainBaseLayoutDescriptorValue,
-                MirroredProductionRailSearchOffsetIndexValue,
-                PrimaryResolvedAuthoredMainBaseLayoutDescriptorValue,
-                PrimaryProductionRailSearchOffsetIndexValue))
-        {
-            MainBaseLayoutDescriptorValue = MirroredResolvedAuthoredMainBaseLayoutDescriptorValue;
-            ResolvedLayoutPlacementSlotsValue = MirroredResolvedAuthoredPlacementSlotsValue;
-        }
-        else
-        {
-            MainBaseLayoutDescriptorValue = PrimaryResolvedAuthoredMainBaseLayoutDescriptorValue;
-            ResolvedLayoutPlacementSlotsValue = PrimaryResolvedAuthoredPlacementSlotsValue;
-        }
+        // Use authored layout directly without resolve/mirror transformation.
+        // Authored data from FMapLayoutDictionary is pre-validated per spawn —
+        // the resolve pipeline rejects valid positions and introduces drift.
+        MainBaseLayoutDescriptorValue = AuthoredMainBaseLayoutDescriptorValue;
     }
     else
     {
