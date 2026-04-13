@@ -1021,9 +1021,41 @@ void TerranAgent::OnGameStart()
                   << " X=" << BestMinXValue << "-" << BestMaxXValue
                   << " Width=" << BestWidthValue
                   << " Center=(" << ChokeCenterXValue << "," << BestRowYValue << ")"
-                  << " Ramp=(" << RampValue.x << "," << RampValue.y
-                  << ") Natural=(" << NaturalValue.x << "," << NaturalValue.y << ")"
                   << std::endl;
+
+        // Dump pathing grid ASCII art between ramp and natural
+        const int DumpMinXValue = static_cast<int>(std::min(RampValue.x, NaturalValue.x)) - 15;
+        const int DumpMaxXValue = static_cast<int>(std::max(RampValue.x, NaturalValue.x)) + 15;
+        const int DumpMinYValue = static_cast<int>(std::min(RampValue.y, NaturalValue.y)) - 5;
+        const int DumpMaxYValue = static_cast<int>(std::max(RampValue.y, NaturalValue.y)) + 5;
+
+        std::cout << "[PATHING_GRID] X=" << DumpMinXValue << "-" << DumpMaxXValue
+                  << " Y=" << DumpMinYValue << "-" << DumpMaxYValue << std::endl;
+        // Print from top (max Y) to bottom (min Y) so it matches visual orientation
+        for (int DumpYValue = DumpMaxYValue; DumpYValue >= DumpMinYValue; --DumpYValue)
+        {
+            std::cout << "Y" << DumpYValue << "\t";
+            for (int DumpXValue = DumpMinXValue; DumpXValue <= DumpMaxXValue; ++DumpXValue)
+            {
+                if (DumpXValue == static_cast<int>(RampValue.x) && DumpYValue == static_cast<int>(RampValue.y))
+                {
+                    std::cout << "R";
+                }
+                else if (DumpXValue == static_cast<int>(NaturalValue.x) && DumpYValue == static_cast<int>(NaturalValue.y))
+                {
+                    std::cout << "N";
+                }
+                else if (PathingGridValue.IsPathable(Point2DI(DumpXValue, DumpYValue)))
+                {
+                    std::cout << ".";
+                }
+                else
+                {
+                    std::cout << "#";
+                }
+            }
+            std::cout << std::endl;
+        }
     }
 
     RebuildObservedGameStateDescriptor(Frame);
